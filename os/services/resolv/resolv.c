@@ -331,16 +331,21 @@ decode_name(const unsigned char *query, char *dest,
  */
 static uint8_t
 dns_name_isequal(const unsigned char *queryptr, const char *name,
-                 const unsigned char *packet)
+                 const unsigned char *packet, size_t packet_len)
 {
   unsigned char n = *queryptr++;
+  size_t add_offset;
 
   if(*name == 0)
     return 0;
 
   while(n) {
     if(n & 0xc0) {
-      queryptr = packet + queryptr[0] + ((n & ~0xC0) << 8);
+      add_offset = queryptr[0] + ((n & ~0xC0) << 8);
+      if(add_offset > packet_len) {
+        return 0;
+      }
+      queryptr = packet + add_offset;
       n = *queryptr++;
     }
 
@@ -784,7 +789,7 @@ newdata(void)
         continue;
       }
 
-      if(!dns_name_isequal(queryptr, resolv_hostname, uip_appdata)) {
+      if(!dns_name_isequal(queryptr, resolv_hostname, uip_appdata, uip_datalen())) {
         continue;
       }
 
@@ -925,7 +930,7 @@ newdata(void)
        */
       for(i = 0; i < RESOLV_ENTRIES; ++i) {
         namemapptr = &names[i];
-        if(dns_name_isequal(queryptr, namemapptr->name, uip_appdata)) {
+        if(dns_name_isequal(queryptr, namemapptr->name, uip_appdata, uip_datalen())) {
           break;
         }
         if((namemapptr->state == STATE_UNUSED)
@@ -950,7 +955,7 @@ newdata(void)
         LOG_DBG
           ("Not enough room to keep track of unsolicited MDNS answer.\n");
 
-        if(dns_name_isequal(queryptr, resolv_hostname, uip_appdata)) {
+        if(dns_name_isequal(queryptr, resolv_hostname, uip_appdata, uip_datalen())) {
           /* Oh snap, they say they are us! We had better report them... */
           resolv_found(resolv_hostname, (uip_ipaddr_t *) ans->ipaddr);
         }
@@ -968,7 +973,7 @@ newdata(void)
 
 /*  This is disabled for now, so that we don't fail on CNAME records.
 #if RESOLV_VERIFY_ANSWER_NAMES
-    if(namemapptr && !dns_name_isequal(queryptr, namemapptr->name, uip_appdata)) {
+    if(namemapptr && !dns_name_isequal(queryptr, namemapptr->name, uip_appdata, uip_datalen())) {
       LOG_DBG("Answer name doesn't match question...!\n");
       goto skip_to_next_answer;
     }
@@ -1100,6 +1105,8 @@ PROCESS_THREAD(resolv_process, ev, data)
   LOG_DBG("Process started.\n");
 
   resolv_conn = udp_new(NULL, 0, NULL);
+  LOG_DBG("resolv_conn = %p, local port %u\n",
+          resolv_conn, UIP_HTONS(resolv_conn->lport));
 
 #if RESOLV_CONF_SUPPORTS_MDNS
   LOG_DBG("Supports MDNS.\n");
