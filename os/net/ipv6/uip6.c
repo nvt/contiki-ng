@@ -632,7 +632,14 @@ uip_reass(uint8_t *prev_proto_ptr)
   uint16_t offset=0;
   uint16_t len;
   uint16_t i;
-  struct uip_frag_hdr *frag_buf = (struct uip_frag_hdr *)UIP_IP_PAYLOAD(uip_ext_len);
+  struct uip_frag_hdr *frag_buf;
+
+  frag_buf = (struct uip_frag_hdr *)uipbuf_search_header(uip_buf, uip_len,
+                                                         UIP_PROTO_FRAG);
+  if(frag_buf == NULL) {
+    LOG_WARN("Fragmentation header not found\n");
+    return 0;
+  }
 
   /* If ip_reasstmr is zero, no packet is present in the buffer */
   /* We first write the unfragmentable part of IP header into the reassembly
