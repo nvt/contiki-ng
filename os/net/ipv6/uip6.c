@@ -685,10 +685,9 @@ uip_reass(uint8_t *prev_proto_ptr)
 
     }
 
-    /* If the offset or the offset + fragment length overflows the
-       reassembly buffer, we discard the entire packet. */
-    if(offset > UIP_REASS_BUFSIZE ||
-       offset + len > UIP_REASS_BUFSIZE) {
+    /* If the fragment overflows the reassembly buffer, we discard
+       the entire packet. */
+    if(UIP_IPH_LEN + uip_ext_len + offset + len > UIP_REASS_BUFSIZE) {
       uip_reass_on = 0;
       etimer_stop(&uip_reass_timer);
       return 0;
