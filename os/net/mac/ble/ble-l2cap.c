@@ -425,6 +425,12 @@ input_l2cap_frame_flow_channel(l2cap_channel_t *channel, uint8_t *data, uint16_t
     memcpy(&channel->rx_buffer.sdu_length, &data[4], 2);
     payload_len = frame_len - 2;
 
+    if(payload_len > sizeof(channel->rx_buffer.sdu) ||
+       payload_len > data_len - 6) {
+      LOG_WARN("l2cap_frame: too large payload_len for buffer: %u\n",
+               (unsigned)payload_len);
+      return;
+    }
     memcpy(channel->rx_buffer.sdu, &data[6], payload_len);
     channel->rx_buffer.current_index = payload_len;
   } else {
@@ -432,6 +438,12 @@ input_l2cap_frame_flow_channel(l2cap_channel_t *channel, uint8_t *data, uint16_t
     memcpy(&frame_len, &data[0], 2);
     payload_len = frame_len;
 
+    if(payload_len > sizeof(channel->rx_buffer.sdu) - channel->rx_buffer.current_index ||
+       payload_len > data_len - 4) {
+      LOG_WARN("l2cap_frame: too large payload_len for buffer: %u\n",
+               (unsigned)payload_len);
+      return;
+    }
     memcpy(&channel->rx_buffer.sdu[channel->rx_buffer.current_index], &data[4], payload_len);
     channel->rx_buffer.current_index += payload_len;
   }
