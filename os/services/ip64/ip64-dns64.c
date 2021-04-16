@@ -90,6 +90,17 @@ struct dns_answer {
 #define DNS_CLASS_ANY 255
 
 /*---------------------------------------------------------------------------*/
+  /* Local macro for boundary checks on the input and output data. */
+#define INC_PTR(ipv4_offset, ipv6_offset) \
+  do { \
+    ipv4_rem -= (ipv4_offset); \
+    ipv6_rem -= (ipv6_offset); \
+    if(ipv4_rem < 0 || ipv6_rem < 0) { \
+      PRINTF("ip64_dns64_4to6: insufficient buffer space\n"); \
+      return -1; \
+    } \
+  } while(0)
+/*---------------------------------------------------------------------------*/
 void
 ip64_dns64_6to4(const uint8_t *ipv6data, int ipv6datalen,
                 uint8_t *ipv4data, int ipv4datalen)
@@ -99,7 +110,10 @@ ip64_dns64_6to4(const uint8_t *ipv6data, int ipv6datalen,
   uint8_t *qdata;
   uint8_t *q;
   struct dns_hdr *hdr;
+  int ipv4_rem = ipv4datalen;
+  int ipv6_rem = ipv6datalen;
 
+  INC_PTR(sizeof(struct dns_hdr), sizeof(struct dns_hdr));
   hdr = (struct dns_hdr *)ipv4data;
   PRINTF("ip64_dns64_6to4 id: %02x%02x\n", hdr->id[0], hdr->id[1]);
   PRINTF("ip64_dns64_6to4 flags1: 0x%02x\n", hdr->flags1);
@@ -114,17 +128,21 @@ ip64_dns64_6to4(const uint8_t *ipv6data, int ipv6datalen,
   qdata = ipv4data + sizeof(struct dns_hdr);
   for(i = 0; i < ((hdr->numquestions[0] << 8) + hdr->numquestions[1]); i++) {
     do {
+      INC_PTR(1, 0);
       qlen = *qdata;
       qdata++;
+      INC_PTR(qlen, 0);
       for(j = 0; j < qlen; j++) {
         qdata++;
         if(qdata > ipv4data + ipv4datalen) {
           PRINTF("ip64_dns64_6to4: packet ended while parsing\n");
-          return;
+          return -1;
         }
       }
     } while(qlen != 0);
     q = qdata;
+    INC_PTR(DNS_QUESTION_SIZE, 0);
+
     if(q[DNS_QUESTION_CLASS0] == 0 && q[DNS_QUESTION_CLASS1] == DNS_CLASS_IN &&
        q[DNS_QUESTION_TYPE0] == 0 && q[DNS_QUESTION_TYPE1] == DNS_TYPE_AAAA) {
       q[DNS_QUESTION_TYPE1] = DNS_TYPE_A;
@@ -145,7 +163,10 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
   uint8_t *qcopy, *acopy, *lenptr;
   uint8_t *q;
   struct dns_hdr *hdr;
+  int ipv4_rem = ipv4datalen;
+  int ipv6_rem = ipv6datalen;
 
+  INC_PTR(sizeof(struct dns_hdr), sizeof(struct dns_hdr));
   hdr = (struct dns_hdr *)ipv4data;
   PRINTF("ip64_dns64_4to6 id: %02x%02x\n", hdr->id[0], hdr->id[1]);
   PRINTF("ip64_dns64_4to6 flags1: 0x%02x\n", hdr->flags1);
@@ -157,11 +178,13 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
 
   /* Find the DNS answer header by scanning through the question
      labels. */
+  INC_PTR(1, 1);
   qdata = ipv4data + sizeof(struct dns_hdr);
   qcopy = ipv6data + sizeof(struct dns_hdr);
   for(i = 0; i < ((hdr->numquestions[0] << 8) + hdr->numquestions[1]); i++) {
     do {
       qlen = *qdata;
+      INC_PTR(qlen + 1, qlen + 1);
       qdata++;
       qcopy++;
       for(j = 0; j < qlen; j++) {
@@ -169,11 +192,13 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
         qcopy++;
         if(qdata > ipv4data + ipv4datalen) {
           PRINTF("ip64_dns64_4to6: packet ended while parsing\n");
-          return ipv6datalen;
+          return -1;
         }
       }
     } while(qlen != 0);
     q = qcopy;
+    INC_PTR(DNS_QUESTION_SIZE, DNS_QUESTION_SIZE);
+
     if(q[DNS_QUESTION_CLASS0] == 0 && q[DNS_QUESTION_CLASS1] == DNS_CLASS_IN &&
        q[DNS_QUESTION_TYPE0] == 0 && q[DNS_QUESTION_TYPE1] == DNS_TYPE_AAAA) {
       q[DNS_QUESTION_TYPE1] = DNS_TYPE_AAAA;
@@ -185,21 +210,23 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
 
   adata = qdata;
   acopy = qcopy;
-
   /* Go through the answers section and update the answers. */
   for(i = 0; i < ((hdr->numanswers[0] << 8) + hdr->numanswers[1]); i++) {
-
+    INC_PTR(1, 1);
     n = *adata;
     if(n & 0xc0) {
       /* Short-hand name format: 2 bytes */
+      INC_PTR(2, 2);
       *acopy++ = *adata++;
       *acopy++ = *adata++;
     } else {
       /* Name spelled out */
       do {
+        INC_PTR(1, 1);
         n = *adata;
         adata++;
         acopy++;
+        INC_PTR(n, n);
         for(j = 0; j < n; j++) {
           *acopy++ = *adata++;
         }
@@ -208,6 +235,7 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
 
     if(adata[0] == 0 && adata[1] == DNS_TYPE_A) {
       /* Update the type field from A to AAAA */
+      INC_PTR(8, 8);
       *acopy = *adata;
       acopy++;
       adata++;
@@ -220,6 +248,7 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
       len = (adata[6] << 8) + adata[7];
 
       /* Copy the class, the TTL, and the data length */
+      INC_PTR(8, 8);
       memcpy(acopy, adata, 2 + 4 + 2);
       acopy += 8;
       adata += 8;
@@ -229,6 +258,7 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
         uip_ipaddr(&addr, adata[0], adata[1], adata[2], adata[3]);
         ip64_addr_4to6(&addr, (uip_ip6addr_t *)acopy);
 
+        INC_PTR(len, 16);
         adata += len;
         acopy += 16;
         lenptr[0] = 0;
@@ -236,11 +266,13 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
         ipv6datalen += 12;
 
       } else {
+        INC_PTR(len, len);
         memcpy(acopy, adata, len);
         acopy += len;
         adata += len;
       }
     } else {
+      INC_PTR(12, 12);
       len = (adata[8] << 8) + adata[9];
 
       /* Copy the type, class, the TTL, and the data length */
@@ -249,6 +281,7 @@ ip64_dns64_4to6(const uint8_t *ipv4data, int ipv4datalen,
       adata += 10;
 
       /* Copy the data */
+      INC_PTR(len, len);
       memcpy(acopy, adata, len);
       acopy += len;
       adata += len;

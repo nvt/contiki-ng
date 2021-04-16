@@ -442,10 +442,15 @@ ip64_6to4(const uint8_t *ipv6packet, const uint16_t ipv6packet_len,
     /* Check if this is a DNS request. If so, we should rewrite it
        with the DNS64 module. */
     if(udphdr->destport == UIP_HTONS(DNS_PORT)) {
-      ip64_dns64_6to4((uint8_t *)v6hdr + IPV6_HDRLEN + sizeof(struct udp_hdr),
-                      ipv6len - IPV6_HDRLEN - sizeof(struct udp_hdr),
-                      (uint8_t *)udphdr + sizeof(struct udp_hdr),
-                      BUFSIZE - IPV4_HDRLEN - sizeof(struct udp_hdr));
+      int len;
+      len = ip64_dns64_6to4((uint8_t *)v6hdr + IPV6_HDRLEN + sizeof(struct udp_hdr),
+                            ipv6len - IPV6_HDRLEN - sizeof(struct udp_hdr),
+                            (uint8_t *)udphdr + sizeof(struct udp_hdr),
+                            BUFSIZE - IPV4_HDRLEN - sizeof(struct udp_hdr));
+      if(len < 0) {
+        PRINTF("ip64_6to4: "unable to rewrite DNS request; dropping\n");
+        return 0;
+      }
     }
     /* Compute and check the UDP checksum - since we're going to
        recompute it ourselves, we must ensure that it was correct in
@@ -737,6 +742,10 @@ ip64_4to6(const uint8_t *ipv4packet, const uint16_t ipv4packet_len,
                             ipv4len - IPV4_HDRLEN - sizeof(struct udp_hdr),
                             (uint8_t *)v6hdr + IPV6_HDRLEN + sizeof(struct udp_hdr),
                             ipv6_packet_len - sizeof(struct udp_hdr));
+      if(len < 0) {
+        PRINTF("ip64_4to6: "unable to rewrite DNS request; dropping\n");
+        return 0;
+      }
       ipv6_packet_len = len + sizeof(struct udp_hdr);
       v6hdr->len[0] = ipv6_packet_len >> 8;
       v6hdr->len[1] = ipv6_packet_len & 0xff;
