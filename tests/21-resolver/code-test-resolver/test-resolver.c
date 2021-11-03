@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, RISE Research Institutes of Sweden AB
+ * Copyright (c) 2021, RISE Research Institutes of Sweden AB
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -34,8 +34,6 @@
  *   Nicolas Tsiftes <nicolas.tsiftes@ri.se>
  */
 
-#include <stdlib.h>
-
 #include "contiki.h"
 #include "net/ipv6/uip-nameserver.h"
 #include "net/ipv6/uiplib.h"
@@ -64,8 +62,54 @@
 #define TEST_RESOLVER_TIMEOUT CLOCK_SECOND * 10
 #endif
 
-PROCESS(test_resolver, "Test for the DNS resolver");
+struct lookup {
+  const char *domain;
+  bool found;
+};
+
+static struct lookup lookups[] = {
+  {"localhost", false},
+  {TEST_RESOLVER_NAME, false}};
+
+PROCESS(test_resolver, "DNS resolver test");
 AUTOSTART_PROCESSES(&test_resolver);
+
+static void
+check_status(struct lookup *lookup)
+{
+  uip_ipaddr_t *resolved_addr;
+  resolv_status_t status;
+
+  status = resolv_lookup(lookup->domain, &resolved_addr);
+  LOG_INFO("Query status: ");
+  switch(status) {
+  case RESOLV_STATUS_CACHED:
+    LOG_INFO_("cached\n");
+    lookup->found = true;
+    break;
+  case RESOLV_STATUS_UNCACHED:
+    LOG_INFO_("uncached\n");
+    lookup->found = true;
+    break;
+  case RESOLV_STATUS_EXPIRED:
+    LOG_INFO_("expired\n");
+    break;
+  case RESOLV_STATUS_NOT_FOUND:
+    LOG_INFO_("not found\n");
+    break;
+  case RESOLV_STATUS_RESOLVING:
+    LOG_INFO_("still resolving\n");
+    break;
+  default:
+    break;
+  }
+
+  if(lookup->found) {
+    LOG_INFO("%s resolves to ", lookup->domain);
+    LOG_INFO_6ADDR(resolved_addr);
+    LOG_INFO_("\n");
+  }
+}
 
 PROCESS_THREAD(test_resolver, ev, data)
 {
@@ -73,12 +117,9 @@ PROCESS_THREAD(test_resolver, ev, data)
   static struct etimer resolver_timeout;
   uip_ipaddr_t nameserver_addr;
   uip_ipaddr_t *addr;
-  uip_ipaddr_t *resolved_addr;
-  resolv_status_t status;
+  int i;
 
   PROCESS_BEGIN();
-
-  test_ok = false;
 
   uiplib_ipaddrconv(TEST_RESOLVER_NAMESERVER, &nameserver_addr);
   uip_nameserver_update(&nameserver_addr, UIP_NAMESERVER_INFINITE_LIFETIME);
@@ -96,41 +137,44 @@ PROCESS_THREAD(test_resolver, ev, data)
     LOG_INFO_("\n");
   }
 
-  LOG_INFO("Resolving DNS name \"%s\"\n", TEST_RESOLVER_NAME);
-
   etimer_set(&resolver_timeout, TEST_RESOLVER_TIMEOUT);
-  resolv_query(TEST_RESOLVER_NAME);
 
-  PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_TIMER ||
-                           ev == resolv_event_found);
+  for(i = 0; i < sizeof(lookups) / sizeof(lookups[0]); i++) {
+    LOG_INFO("Resolving DNS name \"%s\"\n", lookups[i].domain);
+    resolv_query(lookups[i].domain);
+  }
 
-  status = resolv_lookup(TEST_RESOLVER_NAME, &resolved_addr);
-  LOG_INFO("Query status: ");
-  switch(status) {
-  case RESOLV_STATUS_CACHED:
-    LOG_INFO_("cached\n");
+  for(;;) {
+    PROCESS_WAIT_EVENT();
+
+    /* The test fails if the timer is triggered. */
+    if(etimer_expired(&resolver_timeout)) {
+      test_ok = false;
+      break;
+    }
+
+    if(ev == resolv_event_found) {
+      for(i = 0; i < sizeof(lookups) / sizeof(lookups[0]); i++) {
+        if(!lookups[i].found) {
+          check_status(&lookups[i]);
+        }
+      }
+    }
+
     test_ok = true;
-    break;
-  case RESOLV_STATUS_UNCACHED:
-    test_ok = true;
-    LOG_INFO_("uncached\n");
-    break;
-  case RESOLV_STATUS_EXPIRED:
-    LOG_INFO_("expired\n");
-    break;
-  case RESOLV_STATUS_NOT_FOUND:
-    LOG_INFO_("not found\n");
-    break;
-  case RESOLV_STATUS_RESOLVING:
-    LOG_INFO_("still resolving\n");
-    break;
-  default:
-    break;
+    for(i = 0; i < sizeof(lookups) / sizeof(lookups[0]); i++) {
+      if(!lookups[i].found) {
+        test_ok = false;
+      }
+    }
+
+    /* All lookups have completed. */
+    if(test_ok == true) {
+      break;
+    }
   }
 
   LOG_INFO("Test %s\n", test_ok ? "SUCCEEDED" : "FAILED");
-
-  exit(test_ok ? EXIT_SUCCESS : EXIT_FAILURE);
 
   PROCESS_END();
 }
