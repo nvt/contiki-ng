@@ -45,4 +45,5 @@
 	url = https://github.com/SiliconLabs/gecko_sdk.git
 [submodule "os/net/security/mbedtls"]
 	path = os/net/security/mbedtls
-	url = git@github.com:2021-Contiki-NG-DTLS-Thesis/mbedtls.git
+	url = git@gitlab.com:nvt_research/lwm2m-mbedtls.git
+	branch = feature/stack-port
