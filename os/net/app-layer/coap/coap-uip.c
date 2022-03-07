@@ -64,9 +64,13 @@
 #define LOG_MODULE "coap-uip"
 #define LOG_LEVEL  LOG_LEVEL_COAP
 
-#ifdef WITH_DTLS
+#ifdef WITH_DTLS 
+#ifdef WITH_TINYDTLS
 #include "tinydtls.h"
 #include "dtls.h"
+#else /* WITH_TINYDTLS */
+#include "mbedtls-support.h"
+#endif /* WITH_TINYDTLS */
 #endif /* WITH_DTLS */
 
 /* sanity check for configured values */
@@ -78,12 +82,17 @@
 #define SERVER_LISTEN_SECURE_PORT UIP_HTONS(COAP_DEFAULT_SECURE_PORT)
 
 #ifdef WITH_DTLS
+static struct uip_udp_conn *dtls_conn = NULL;
+static const coap_keystore_t *dtls_keystore = NULL;
+#ifdef WITH_TINYDTLS
 static dtls_handler_t cb;
 static dtls_context_t *dtls_context = NULL;
-
-static const coap_keystore_t *dtls_keystore = NULL;
-static struct uip_udp_conn *dtls_conn = NULL;
+#else /* WITH_TINYDTLS */
+static int coap_ep_get_mbedtls_psk_info(const coap_endpoint_t *ep, 
+    coap_keystore_psk_entry_t *ks);
+#endif /* WITH_TINYDTLS */ 
 #endif /* WITH_DTLS */
+
 
 PROCESS(coap_engine, "CoAP Engine");
 
@@ -258,6 +267,7 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
 
 #ifdef WITH_DTLS
   if(ep != NULL && ep->secure != 0) {
+#ifdef WITH_TINYDTLS
     dtls_peer_t *peer;
     if(dtls_context == NULL) {
       return 0;
@@ -276,6 +286,21 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
       LOG_DBG_("\n");
       return 0;
     }
+#else /* WITH_TINYDTLS */
+    if (coap_ep_is_mbedtls_peer(ep)) {
+      /* only if handshake is done! */
+      LOG_DBG("DTLS peer state for ");
+      LOG_DBG_COAP_EP(ep);
+      LOG_DBG_(" is %d (%sconnected)\n", coap_ep_get_mbedtls_state(ep),
+          coap_ep_is_mbedtls_connected(ep) ? "" : "not ");
+      return coap_ep_is_mbedtls_connected(ep);
+    } else {
+      LOG_DBG("DTLS did not find peer ");
+      LOG_DBG_COAP_EP(ep);
+      LOG_DBG_("\n");
+      return 0;
+    }
+#endif /* WITH_TINYDTLS */
   }
 #endif /* WITH_DTLS */
 
@@ -298,11 +323,25 @@ coap_endpoint_connect(coap_endpoint_t *ep)
   LOG_DBG_COAP_EP(ep);
   LOG_DBG_("\n");
 
+#ifdef WITH_TINYDTLS
   /* setup all address info here... should be done to connect */
   if(dtls_context) {
     dtls_connect(dtls_context, ep);
     return 1;
   }
+#else /* WITH_TINYDTLS */
+  static coap_keystore_psk_entry_t ks;
+
+  if (coap_ep_get_mbedtls_psk_info(ep, &ks)) {
+    if(coap_ep_mbedtls_connect(ep, &ks)) {
+      return 1;
+    }
+  } else {
+    LOG_ERR("Unable to retrieve DTLS PSK info for \n");
+    LOG_ERR_COAP_EP(ep);
+    LOG_ERR_("\n");
+  }
+#endif /* WITH_TINYDTLS */
 #endif /* WITH_DTLS */
 
   return 0;
@@ -312,9 +351,13 @@ void
 coap_endpoint_disconnect(coap_endpoint_t *ep)
 {
 #ifdef WITH_DTLS
+#ifdef WITH_TINYDTLS
   if(ep && ep->secure && dtls_context) {
     dtls_close(dtls_context, ep);
   }
+#else /* WITH_TINYDTLS */
+  coap_ep_mbedtls_disconnect(ep);
+#endif /* WITH_TINYDTLS */ 
 #endif /* WITH_DTLS */
 }
 /*---------------------------------------------------------------------------*/
@@ -329,7 +372,11 @@ coap_transport_init(void)
 {
   process_start(&coap_engine, NULL);
 #ifdef WITH_DTLS
+#ifdef WITH_TINYDTLS
   dtls_init();
+#else /* WITH_TINYDTLS */
+  coap_mbedtls_init();
+#endif /* WITH_TINYDTLS */
 
 #if COAP_DTLS_KEYSTORE_CONF_WITH_SIMPLE
   coap_keystore_simple_init();
@@ -347,10 +394,17 @@ process_secure_data(void)
   LOG_INFO_("]:%u\n", uip_ntohs(UIP_UDP_BUF->srcport));
   LOG_INFO("  Length: %u\n", uip_datalen());
 
+#ifdef TINYDTLS 
   if(dtls_context) {
     dtls_handle_message(dtls_context, (coap_endpoint_t *)get_src_endpoint(1),
                         uip_appdata, uip_datalen());
   }
+#else /* WITH_TINYDTLS */
+  if (0 == coap_ep_mbedtls_handle_message(
+        (const coap_endpoint_t *)get_src_endpoint(1))) {
+    coap_receive(get_src_endpoint(1), data_buf, sizeof(data_buf));
+  }
+#endif /* WITH_TINYDTLS */
 }
 #endif /* WITH_DTLS */
 /*---------------------------------------------------------------------------*/
@@ -382,22 +436,25 @@ coap_sendto(const coap_endpoint_t *ep, const uint8_t *data, uint16_t length)
 
 #ifdef WITH_DTLS
   if(coap_endpoint_is_secure(ep)) {
+    int ret;
+#ifdef WITH_TINYDTLS
     if(dtls_context) {
-      int ret;
-
       ret = dtls_write(dtls_context, (session_t *)ep, (uint8_t *)data, length);
-      LOG_INFO("sent DTLS to ");
-      LOG_INFO_COAP_EP(ep);
-      if(ret < 0) {
-        LOG_INFO_(" - error %d\n", ret);
-      } else {
-        LOG_INFO_(" %d/%u bytes\n", ret, length);
-      }
-      return ret;
     } else {
-      LOG_WARN("no DTLS context\n");
-      return -1;
+        LOG_WARN("no DTLS context\n");
+        return -1;
     }
+#else /* WITH_TINYDTLS */
+    ret = coap_ep_mbedtls_write(ep, (unsigned char *) data, length);
+#endif /* WITH_TINYDTLS */
+    LOG_INFO("sent DTLS to ");
+    LOG_INFO_COAP_EP(ep);
+    if(ret < 0) {
+      LOG_INFO_(" - error %d\n", ret);
+    } else {
+      LOG_INFO_(" %d/%u bytes\n", ret, length);
+    }
+    return ret;
   }
 #endif /* WITH_DTLS */
 
@@ -428,12 +485,16 @@ PROCESS_THREAD(coap_engine, ev, data)
   if(dtls_conn != NULL) {
     udp_bind(dtls_conn, SERVER_LISTEN_SECURE_PORT);
     LOG_INFO("DTLS listening on port %u\n", uip_ntohs(dtls_conn->lport));
+#ifdef WITH_TINYDTLS
     dtls_context = dtls_new_context(dtls_conn);
-  }
-  if(!dtls_context) {
-    LOG_WARN("DTLS: cannot create context\n");
-  } else {
-    dtls_set_handler(dtls_context, &cb);
+    if(!dtls_context) {
+        LOG_WARN("DTLS: cannot create context\n");
+    } else {
+        dtls_set_handler(dtls_context, &cb);
+    }
+#else /* WITH_TINYDTLS */ 
+    coap_mbedtls_conn_init(dtls_conn);
+#endif /* WITH_TINYDTLS */
   }
 #endif /* WITH_DTLS */
 
@@ -459,7 +520,14 @@ PROCESS_THREAD(coap_engine, ev, data)
 
 /* DTLS */
 #ifdef WITH_DTLS
+/* This defines the key-store set API since we hookup DTLS here */
+void
+coap_set_keystore(const coap_keystore_t *keystore)
+{
+  dtls_keystore = keystore;
+}
 
+#ifdef WITH_TINYDTLS
 /* This is input coming from the DTLS code - e.g. de-crypted input from
    the other side - peer */
 static int
@@ -503,12 +571,6 @@ output_to_peer(struct dtls_context_t *ctx,
   return len;
 }
 
-/* This defines the key-store set API since we hookup DTLS here */
-void
-coap_set_keystore(const coap_keystore_t *keystore)
-{
-  dtls_keystore = keystore;
-}
 
 /* This function is the "key store" for tinyDTLS. It is called to
  * retrieve a key for the given identity within this particular
@@ -596,7 +658,23 @@ static dtls_handler_t cb = {
   /* .verify_ecdsa_key = verify_ecdsa_key */
 #endif /* DTLS_ECC */
 };
-
+#else /* WITH_TINYDTLS */
+static int 
+coap_ep_get_mbedtls_psk_info(const coap_endpoint_t *ep, 
+    coap_keystore_psk_entry_t *ks)
+{
+  if (dtls_keystore != NULL) {
+    if (dtls_keystore->coap_get_psk_info) {
+      /* Get identity first */
+      dtls_keystore->coap_get_psk_info((coap_endpoint_t *)ep, ks);
+      /* Get key */
+      dtls_keystore->coap_get_psk_info((coap_endpoint_t *)ep, ks);
+      return 1;
+    }
+  } 
+  return 0;
+}
+#endif /* WITH_TINYDTLS */
 #endif /* WITH_DTLS */
 /*---------------------------------------------------------------------------*/
 /** @} */
