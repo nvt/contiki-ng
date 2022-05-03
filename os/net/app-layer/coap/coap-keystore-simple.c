@@ -78,19 +78,53 @@ static const coap_keystore_t simple_key_store = {
 /*---------------------------------------------------------------------------*/
 #endif /* COAP_DTLS_PSK_DEFAULT_KEY */
 #endif /* COAP_DTLS_PSK_DEFAULT_IDENTITY */
+
+#ifdef COAP_DTLS_TEST_CA_CERT 
+#ifdef COAP_DTLS_TEST_CLIENT_CERT
+#ifdef COAP_DTLS_TEST_CLIENT_KEY
+/*---------------------------------------------------------------------------*/
+static int 
+get_default_cert_info(const coap_endpoint_t *address_info, 
+                     coap_keystore_cert_entry_t *info)
+{
+  if(info != NULL) {
+    info->ca_cert = (uint8_t *)COAP_DTLS_TEST_CA_CERT; 
+    info->ca_cert_len = sizeof(COAP_DTLS_TEST_CA_CERT);
+
+    info->client_cert = (uint8_t *)COAP_DTLS_TEST_CLIENT_CERT;
+    info->client_cert_len = sizeof(COAP_DTLS_TEST_CLIENT_CERT);
+
+    info->client_key = (uint8_t *)COAP_DTLS_TEST_CLIENT_KEY;
+    info->client_key_len = sizeof(COAP_DTLS_TEST_CLIENT_KEY); 
+    return 1;
+  }
+  return 0;
+}
+static const coap_keystore_t simple_key_store = {
+  .coap_get_cert_info = get_default_cert_info
+};
+/*---------------------------------------------------------------------------*/
+#endif /* COAP_DTLS_TEST_CA_CERT */
+#endif /* COAP_DTLS_TEST_CLIENT_CERT */
+#endif /* COAP_DTLS_TEST_CLIENT_KEY */
 #endif /* WITH_DTLS */
 /*---------------------------------------------------------------------------*/
 void
 coap_keystore_simple_init(void)
 {
 #ifdef WITH_DTLS
-#ifdef COAP_DTLS_PSK_DEFAULT_IDENTITY
-#ifdef COAP_DTLS_PSK_DEFAULT_KEY
+#if (defined(COAP_DTLS_PSK_DEFAULT_IDENTITY) \
+    && defined(COAP_DTLS_PSK_DEFAULT_KEY)) \
+  || (defined(COAP_DTLS_TEST_CA_CERT) \
+  && defined(COAP_DTLS_TEST_CLIENT_CERT) \
+  && defined(COAP_DTLS_TEST_CLIENT_KEY))
 
   coap_set_keystore(&simple_key_store);
-
-#endif /* COAP_DTLS_PSK_DEFAULT_KEY */
-#endif /* COAP_DTLS_PSK_DEFAULT_IDENTITY */
+#endif /* (defined(COAP_DTLS_PSK_DEFAULT_IDENTITY) \
+    && defined(COAP_DTLS_PSK_DEFAULT_KEY)) \
+  || (defined(COAP_DTLS_TEST_CA_CERT) \
+  && defined(COAP_DTLS_TEST_CLIENT_CERT) \
+  && defined(COAP_DTLS_TEST_CLIENT_KEY)) */
 #endif /* WITH_DTLS */
 }
 /*---------------------------------------------------------------------------*/

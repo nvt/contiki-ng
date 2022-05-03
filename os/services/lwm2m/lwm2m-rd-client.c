@@ -601,7 +601,7 @@ periodic_process(coap_timer_t *timer)
 
     LOG_DBG("RD Client with assigned ep: %s - state: %d, ms: %lu\n", session_info->assigned_ep, session_info->rd_state,
             (unsigned long)coap_timer_uptime());
-
+    
     switch(session_info->rd_state) {
     case INIT:
       LOG_DBG("RD Client started with endpoint '%s' and client lifetime %d\n", session_info->ep, session_info->lifetime);
@@ -613,7 +613,7 @@ periodic_process(coap_timer_t *timer)
         LOG_DBG("Checking for network... %lu\n",
                 (unsigned long)session_info->wait_until_network_check);
         session_info->wait_until_network_check = now + 10000;
-        if(has_network_access()) {
+        if(/* has_network_access() */ 1) {
           /* Either do bootstrap then registration */
           if(session_info->use_server_type == LWM2M_RD_CLIENT_BOOTSTRAP_SERVER) {
             session_info->rd_state = DO_BOOTSTRAP;
@@ -733,7 +733,7 @@ periodic_process(coap_timer_t *timer)
         len = set_rd_data(session_info);
         session_info->rd_callback = registration_callback;
 
-        LOG_INFO("Registering with [");
+        LOG_INFO(" [");
         LOG_INFO_COAP_EP(&session_info->server_ep);
         LOG_INFO_("] lwm2m endpoint '%s': '", query_data);
         if(len) {

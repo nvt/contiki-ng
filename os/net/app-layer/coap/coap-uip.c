@@ -89,7 +89,11 @@ static dtls_handler_t cb;
 static dtls_context_t *dtls_context = NULL;
 #else /* WITH_TINYDTLS */
 static int coap_ep_get_mbedtls_psk_info(const coap_endpoint_t *ep, 
-    coap_keystore_psk_entry_t *ks);
+    coap_keystore_psk_entry_t *info);
+#ifdef COAP_DTLS_CONF_WITH_CERT
+static int coap_ep_get_mbedtls_cert_info(const coap_endpoint_t *ep,
+    coap_keystore_cert_entry_t *info);
+#endif /* COAP_DTLS_CONF_WITH_CERT */
 #endif /* WITH_TINYDTLS */ 
 #endif /* WITH_DTLS */
 
@@ -311,6 +315,13 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
 int
 coap_endpoint_connect(coap_endpoint_t *ep)
 {
+#if defined(WITH_DTLS) && !defined(WITH_TINYDTLS)
+  static coap_keystore_psk_entry_t psk_info;
+#ifdef COAP_DTLS_CONF_WITH_CERT 
+  static coap_keystore_cert_entry_t cert_info;
+#endif /* COAP_DTLS_CONF_WITH_CERT */
+#endif /* defined(WITH_DTLS) && !defined(WITH_TINYDTLS) */
+
   if(ep->secure == 0) {
     LOG_DBG("connect to ");
     LOG_DBG_COAP_EP(ep);
@@ -330,14 +341,18 @@ coap_endpoint_connect(coap_endpoint_t *ep)
     return 1;
   }
 #else /* WITH_TINYDTLS */
-  static coap_keystore_psk_entry_t ks;
-
-  if (coap_ep_get_mbedtls_psk_info(ep, &ks)) {
-    if(coap_ep_mbedtls_connect(ep, &ks)) {
-      return 1;
-    }
-  } else {
-    LOG_ERR("Unable to retrieve DTLS PSK info for \n");
+  if(coap_ep_get_mbedtls_psk_info(ep, &psk_info) == 1) {
+    return coap_ep_mbedtls_connect(ep, COAP_MBEDTLS_SEC_MODE_PSK, 
+        (const void *) &psk_info); 
+  } 
+#ifdef COAP_DTLS_CONF_WITH_CERT
+  else if(coap_ep_get_mbedtls_cert_info(ep, &cert_info) == 1) { 
+    return coap_ep_mbedtls_connect(ep, COAP_MBEDTLS_SEC_MODE_CERT, 
+        (const void *) &cert_info); 
+  } 
+#endif /* COAP_DTLS_CONF_WITH_CERT */
+  else {
+    LOG_ERR("Unable to retrieve DTLS authorization info for \n");
     LOG_ERR_COAP_EP(ep);
     LOG_ERR_("\n");
   }
@@ -394,7 +409,7 @@ process_secure_data(void)
   LOG_INFO_("]:%u\n", uip_ntohs(UIP_UDP_BUF->srcport));
   LOG_INFO("  Length: %u\n", uip_datalen());
 
-#ifdef TINYDTLS 
+#ifdef WITH_TINYDTLS 
   if(dtls_context) {
     dtls_handle_message(dtls_context, (coap_endpoint_t *)get_src_endpoint(1),
                         uip_appdata, uip_datalen());
@@ -402,7 +417,7 @@ process_secure_data(void)
 #else /* WITH_TINYDTLS */
   if (0 == coap_ep_mbedtls_handle_message(
         (const coap_endpoint_t *)get_src_endpoint(1))) {
-    coap_receive(get_src_endpoint(1), data_buf, sizeof(data_buf));
+    coap_receive(get_src_endpoint(1), data_buf1, sizeof(data_buf1));
   }
 #endif /* WITH_TINYDTLS */
 }
@@ -501,10 +516,19 @@ PROCESS_THREAD(coap_engine, ev, data)
   while(1) {
     PROCESS_YIELD();
 
+#ifdef WITH_DTLS
+    if (ev == PROCESS_EVENT_POLL) {
+      printf("New PROCESS_EVENT_POLL\n");
+      coap_ep_mbedtls_poll_send_data();
+      continue;
+    }
+#endif /* WITH_DTLS */
+
     if(ev == tcpip_event) {
       if(uip_newdata()) {
 #ifdef WITH_DTLS
         if(uip_udp_conn == dtls_conn) {
+          printf("New TCP IP event!\n");
           process_secure_data();
           continue;
         }
@@ -659,21 +683,37 @@ static dtls_handler_t cb = {
 #endif /* DTLS_ECC */
 };
 #else /* WITH_TINYDTLS */
+/*---------------------------------------------------------------------------*/
 static int 
 coap_ep_get_mbedtls_psk_info(const coap_endpoint_t *ep, 
-    coap_keystore_psk_entry_t *ks)
+    coap_keystore_psk_entry_t *info)
 {
-  if (dtls_keystore != NULL) {
-    if (dtls_keystore->coap_get_psk_info) {
+  if(NULL != dtls_keystore) {
+    if(dtls_keystore->coap_get_psk_info) {
       /* Get identity first */
-      dtls_keystore->coap_get_psk_info((coap_endpoint_t *)ep, ks);
+      dtls_keystore->coap_get_psk_info(ep, info);
       /* Get key */
-      dtls_keystore->coap_get_psk_info((coap_endpoint_t *)ep, ks);
+      dtls_keystore->coap_get_psk_info(ep, info);
       return 1;
     }
   } 
   return 0;
 }
+/*---------------------------------------------------------------------------*/
+#ifdef COAP_DTLS_CONF_WITH_CERT 
+static int 
+coap_ep_get_mbedtls_cert_info(const coap_endpoint_t *ep,
+    coap_keystore_cert_entry_t *info)
+{
+  if(NULL != dtls_keystore) {
+    if(dtls_keystore->coap_get_cert_info) {
+      return dtls_keystore->coap_get_cert_info(ep, info);
+    }
+  } 
+  return 0;
+}
+#endif /* COAP_DTLS_CONF_WITH_CERT */
+/*---------------------------------------------------------------------------*/
 #endif /* WITH_TINYDTLS */
 #endif /* WITH_DTLS */
 /*---------------------------------------------------------------------------*/
