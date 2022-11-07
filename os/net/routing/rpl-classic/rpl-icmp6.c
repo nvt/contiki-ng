@@ -188,15 +188,15 @@ set16(uint8_t *buffer, int pos, uint16_t value)
 /*---------------------------------------------------------------------------*/
 uip_ds6_nbr_t *
 rpl_icmp6_update_nbr_table(uip_ipaddr_t *from, nbr_table_reason_t reason,
-			   void *data)
+                           void *data)
 {
   uip_ds6_nbr_t *nbr;
 
   nbr = uip_ds6_nbr_lookup(from);
   if(nbr == NULL) {
     nbr = uip_ds6_nbr_add(from,
-			  (uip_lladdr_t *)packetbuf_addr(PACKETBUF_ADDR_SENDER),
-			  0, NBR_REACHABLE, reason, data);
+                          (uip_lladdr_t *)packetbuf_addr(PACKETBUF_ADDR_SENDER),
+                          0, NBR_REACHABLE, reason, data);
     if(nbr != NULL) {
       LOG_INFO("Neighbor added to neighbor cache ");
       LOG_INFO_6ADDR(from);
@@ -705,7 +705,7 @@ dao_input_storing(void)
   /* Destination Advertisement Object */
   LOG_DBG("Received a (%s) DAO with sequence number %u from ",
          learned_from == RPL_ROUTE_FROM_UNICAST_DAO ? "unicast": "multicast",
-	  sequence);
+          sequence);
   LOG_DBG_6ADDR(&dao_sender_addr);
   LOG_DBG_("\n");
 
@@ -841,7 +841,7 @@ dao_input_storing(void)
 
   /* Update and add neighbor, and fail if there is no room. */
   nbr = rpl_icmp6_update_nbr_table(&dao_sender_addr,
-				   NBR_TABLE_REASON_RPL_DAO, instance);
+                                   NBR_TABLE_REASON_RPL_DAO, instance);
   if(nbr == NULL) {
     LOG_ERR("Out of memory, dropping DAO from ");
     LOG_ERR_6ADDR(&dao_sender_addr);
@@ -903,7 +903,7 @@ fwd_dao:
       uint8_t out_seq = 0;
       if(rep != NULL) {
         /* If this is pending and we get the same sequence number,
-	   then it is a retransmission. */
+           then it is a retransmission. */
         if(RPL_ROUTE_IS_DAO_PENDING(rep) &&
            rep->state.dao_seqno_in == sequence) {
           /* Keep the same sequence number as before for parent also. */
@@ -1040,7 +1040,7 @@ dao_input_nonstoring(void)
     uip_sr_expire_parent(dag, &prefix, &dao_parent_addr);
   } else {
     if(uip_sr_update_node(dag, &prefix, &dao_parent_addr,
-			  RPL_LIFETIME(instance, lifetime)) == NULL) {
+                          RPL_LIFETIME(instance, lifetime)) == NULL) {
       LOG_WARN("DAO failed to add link prefix: ");
       LOG_WARN_6ADDR(&prefix);
       LOG_WARN_(", parent: ");
@@ -1404,7 +1404,7 @@ dao_ack_input(void)
       }
     } else {
       LOG_WARN("No route entry found to forward DAO ACK (seqno %u)\n",
-	       sequence);
+               sequence);
     }
   }
 #endif /* RPL_WITH_DAO_ACK */
@@ -1419,7 +1419,7 @@ dao_ack_output(rpl_instance_t *instance, uip_ipaddr_t *dest, uint8_t sequence,
   unsigned char *buffer;
 
   LOG_INFO("Sending a DAO %s with sequence number %u to ",
-	   status < 128 ? "ACK" : "NACK", sequence);
+           status < 128 ? "ACK" : "NACK", sequence);
   LOG_INFO_6ADDR(dest);
   LOG_INFO_(" with status %u\n", status);
 

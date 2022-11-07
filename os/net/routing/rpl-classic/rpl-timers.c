@@ -133,12 +133,12 @@ new_dio_interval(rpl_instance_t *instance)
   instance->dio_totint++;
   instance->dio_totrecv += instance->dio_counter;
   LOG_ANNOTATE("#A rank=%u.%u(%u),stats=%d %d %d %d,color=%s\n",
-	   DAG_RANK(instance->current_dag->rank, instance),
-           (10 * (instance->current_dag->rank % instance->min_hoprankinc)) / instance->min_hoprankinc,
-           instance->current_dag->version,
-           instance->dio_totint, instance->dio_totsend,
-           instance->dio_totrecv,instance->dio_intcurrent,
-	   instance->current_dag->rank == ROOT_RANK(instance) ? "BLUE" : "ORANGE");
+               DAG_RANK(instance->current_dag->rank, instance),
+               (10 * (instance->current_dag->rank % instance->min_hoprankinc)) / instance->min_hoprankinc,
+               instance->current_dag->version,
+               instance->dio_totint, instance->dio_totsend,
+               instance->dio_totrecv,instance->dio_intcurrent,
+               instance->current_dag->rank == ROOT_RANK(instance) ? "BLUE" : "ORANGE");
 #endif /* RPL_CONF_STATS */
 
   /* reset the redundancy counter */

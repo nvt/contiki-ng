@@ -279,8 +279,8 @@ lollipop_greater_than(int a, int b)
   /* Otherwise check if a > b and comparable => ok, or
      if they have wrapped and are still comparable. */
   return (a > b && (a - b) < RPL_LOLLIPOP_SEQUENCE_WINDOWS) ||
-    (a < b && (b - a) > (RPL_LOLLIPOP_CIRCULAR_REGION + 1-
-			 RPL_LOLLIPOP_SEQUENCE_WINDOWS));
+    (a < b && (b - a) > (RPL_LOLLIPOP_CIRCULAR_REGION + 1 -
+                         RPL_LOLLIPOP_SEQUENCE_WINDOWS));
 }
 /*---------------------------------------------------------------------------*/
 /* Remove DAG parents with a rank that is at least the same as minimum_rank. */
@@ -468,7 +468,7 @@ rpl_repair_root(uint8_t instance_id)
   RPL_LOLLIPOP_INCREMENT(instance->current_dag->version);
   RPL_LOLLIPOP_INCREMENT(instance->dtsn_out);
   LOG_INFO("rpl_repair_root initiating global repair with version %d\n",
-	   instance->current_dag->version);
+           instance->current_dag->version);
   rpl_reset_dio_timer(instance);
   return 1;
 }
@@ -490,7 +490,7 @@ check_prefix(rpl_prefix_t *last_prefix, rpl_prefix_t *new_prefix)
   if(last_prefix != NULL && new_prefix != NULL &&
      last_prefix->length == new_prefix->length &&
      uip_ipaddr_prefixcmp(&last_prefix->prefix,
-			  &new_prefix->prefix, new_prefix->length) &&
+                          &new_prefix->prefix, new_prefix->length) &&
      last_prefix->flags == new_prefix->flags) {
     /* Nothing has changed. */
     return;
@@ -847,7 +847,7 @@ rpl_select_dag(rpl_instance_t *instance, rpl_parent_t *p)
   if(best_dag->preferred_parent != last_parent) {
     rpl_set_default_route(instance, rpl_parent_get_ipaddr(best_dag->preferred_parent));
     LOG_INFO("Changed preferred parent, rank changed from %u to %u\n",
-           (unsigned)old_rank, best_dag->rank);
+             (unsigned)old_rank, best_dag->rank);
     RPL_STAT(rpl_stats.parent_switch++);
     if(RPL_IS_STORING(instance)) {
       if(last_parent != NULL) {
@@ -870,7 +870,7 @@ rpl_select_dag(rpl_instance_t *instance, rpl_parent_t *p)
     }
   } else if(best_dag->rank != old_rank) {
     LOG_DBG("RPL: Preferred parent update, rank changed from %u to %u\n",
-           (unsigned)old_rank, best_dag->rank);
+            (unsigned)old_rank, best_dag->rank);
   }
   return best_dag;
 }
@@ -1139,7 +1139,7 @@ rpl_join_instance(uip_ipaddr_t *from, rpl_dio_t *dio)
   of = rpl_find_of(dio->ocp);
   if(of == NULL) {
     LOG_WARN("DIO for DAG instance %u does not specify a supported OF: %u\n",
-           dio->instance_id, dio->ocp);
+             dio->instance_id, dio->ocp);
     return;
   }
 
@@ -1208,7 +1208,7 @@ rpl_join_instance(uip_ipaddr_t *from, rpl_dio_t *dio)
   }
 
   LOG_INFO("Joined DAG with instance ID %u, rank %hu, DAG ID ",
-         dio->instance_id, dag->rank);
+           dio->instance_id, dag->rank);
   LOG_INFO_6ADDR(&dag->dag_id);
   LOG_INFO_("\n");
 
@@ -1277,7 +1277,7 @@ rpl_add_dag(uip_ipaddr_t *from, rpl_dio_t *dio)
      instance->default_lifetime != dio->default_lifetime ||
      instance->lifetime_unit != dio->lifetime_unit) {
     LOG_WARN("DIO for DAG instance %u incompatible with previous DIO\n",
-	   dio->instance_id);
+           dio->instance_id);
     rpl_remove_parent(p);
     dag->used = 0;
     return NULL;
@@ -1298,7 +1298,7 @@ rpl_add_dag(uip_ipaddr_t *from, rpl_dio_t *dio)
   dag->min_rank = dag->rank; /* So far this is the lowest rank we know of. */
 
   LOG_INFO("Joined DAG with instance ID %u, rank %hu, DAG ID ",
-         dio->instance_id, dag->rank);
+           dio->instance_id, dag->rank);
   LOG_INFO_6ADDR(&dag->dag_id);
   LOG_INFO_("\n");
 
@@ -1343,7 +1343,7 @@ global_repair(uip_ipaddr_t *from, rpl_dag_t *dag, rpl_dio_t *dio)
   }
 
   LOG_DBG("Participating in a global repair (version=%u, rank=%hu)\n",
-         dag->version, dag->rank);
+          dag->version, dag->rank);
 
   RPL_STAT(rpl_stats.global_repairs++);
 }
@@ -1435,7 +1435,7 @@ rpl_process_parent_event(rpl_instance_t *instance, rpl_parent_t *p)
     /* The candidate parent is no longer valid: the rank increase
        resulting from the choice of it as a parent would be too high. */
     LOG_WARN("Unacceptable rank %u (Current min %u, MaxRankInc %u)\n",
-	     (unsigned)p->rank,
+             (unsigned)p->rank,
         p->dag->min_rank, p->dag->instance->max_rankinc);
     rpl_nullify_parent(p);
     if(p != instance->current_dag->preferred_parent) {
@@ -1458,14 +1458,14 @@ rpl_process_parent_event(rpl_instance_t *instance, rpl_parent_t *p)
   if(DAG_RANK(old_rank, instance) !=
      DAG_RANK(instance->current_dag->rank, instance)) {
     LOG_INFO("Moving in the instance from rank %hu to %hu\n",
-	     DAG_RANK(old_rank, instance),
-	     DAG_RANK(instance->current_dag->rank, instance));
+             DAG_RANK(old_rank, instance),
+             DAG_RANK(instance->current_dag->rank, instance));
     if(instance->current_dag->rank != RPL_INFINITE_RANK) {
       LOG_DBG("The preferred parent is ");
       LOG_DBG_6ADDR(rpl_parent_get_ipaddr(instance->current_dag->preferred_parent));
       LOG_DBG_(" (rank %u)\n",
            (unsigned)DAG_RANK(instance->current_dag->preferred_parent->rank,
-			      instance));
+                              instance));
     } else {
       LOG_WARN("We don't have any parent");
     }
@@ -1516,7 +1516,7 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
     if(lollipop_greater_than(dio->version, dag->version)) {
       if(dag->rank == ROOT_RANK(instance)) {
         LOG_WARN("Root received inconsistent DIO version number (current: %u, received: %u)\n",
-		 dag->version, dio->version);
+                 dag->version, dio->version);
         dag->version = dio->version;
         RPL_LOLLIPOP_INCREMENT(dag->version);
         rpl_reset_dio_timer(instance);
@@ -1526,7 +1526,7 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
           if(dio->prefix_info.flags & UIP_ND6_RA_FLAG_AUTONOMOUS) {
             LOG_DBG("Prefix announced in DIO\n");
             rpl_set_prefix(dag, &dio->prefix_info.prefix,
-			   dio->prefix_info.length);
+                           dio->prefix_info.length);
           }
         }
         global_repair(from, dag, dio);
@@ -1660,9 +1660,9 @@ rpl_process_dio(uip_ipaddr_t *from, rpl_dio_t *dio)
   LOG_INFO("preferred DAG ");
   LOG_INFO_6ADDR(&instance->current_dag->dag_id);
   LOG_INFO_(", rank %u, min_rank %u, ",
-	 instance->current_dag->rank, instance->current_dag->min_rank);
+            instance->current_dag->rank, instance->current_dag->min_rank);
   LOG_INFO_("parent rank %u, link metric %u\n",
-	 p->rank, rpl_get_parent_link_metric(p));
+            p->rank, rpl_get_parent_link_metric(p));
 
   /* We have allocated a candidate parent; process the DIO further. */
 
