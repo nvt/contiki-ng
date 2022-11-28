@@ -15,6 +15,8 @@ ifeq ($(MAKE_WITH_DTLS),1)
   CFLAGS += -DWITH_TINYDTLS=1
  else # Use MbedTLS library as default 
   MBEDTLS_PATH := os/net/security/mbedtls
+	
+  CFLAGS += -DMBEDTLS_CONFIG_FILE=\"os/net/app-layer/coap/mbedtls-support/mbedtls-config.h\"
 
   ifeq (${wildcard $(CONTIKI)/$(MBEDTLS_PATH)/Makefile},)
    ${error Could not find the MbedTLS submodule. Please run "git submodule update --init" and try again}
@@ -25,6 +27,18 @@ ifeq ($(MAKE_WITH_DTLS),1)
   
   ifeq ($(MAKE_COAP_DTLS_WITH_CERT), 1)
    CFLAGS += -DCOAP_DTLS_CONF_WITH_CERT=1
+  endif
+ 
+  ifeq ($(MAKE_COAP_DTLS_WITH_PSK), 1)
+   CFLAGS += -DCOAP_DTLS_CONF_WITH_PSK=1
+  endif
+
+  ifeq ($(MAKE_COAP_DTLS_WITH_SERVER), 1)
+   CFLAGS += -DCOAP_DTLS_CONF_WITH_SERVER=1
+  endif
+  
+  ifeq ($(MAKE_COAP_DTLS_WITH_CLIENT), 1)
+   CFLAGS += -DCOAP_DTLS_CONF_WITH_CLIENT=1
   endif
  endif 
 

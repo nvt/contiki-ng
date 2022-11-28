@@ -29,7 +29,7 @@
 
 /**
  * \file
- *      DTLS(MbedTLS implementation) support for CoAP
+ *      DTLS (Mbed TLS implementation) support for CoAP
  * \author
  *      Jayendra Ellamathy <ejayen@gmail.com>
  */
@@ -37,84 +37,225 @@
 #ifndef MBEDTLS_SUPPORT_H_
 #define MBEDTLS_SUPPORT_H_
 
-#include "mbedtls/config.h"
-//TODO: SHould these files be moved to .c
-#include "mbedtls/net_sockets.h"
-#include "mbedtls/error.h"
-#include "mbedtls/debug.h"
+#include MBEDTLS_CONFIG_FILE 
 #include "mbedtls/ssl.h"
+#if !defined(MBEDTLS_NO_PLATFORM_ENTROPY) 
 #include "mbedtls/entropy.h"
+#endif /* !MBEDTLS_NO_PLATFORM_ENTROPY */
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/timing.h"
 #ifdef COAP_DTLS_CONF_WITH_CERT
 #include "mbedtls/certs.h"
 #include "mbedtls/x509.h"
 #endif /* COAP_DTLS_CONF_WITH_CERT */
+#ifdef COAP_DTLS_CONF_WITH_SERVER
+#include "mbedtls/ssl_cookie.h"
+#if defined(MBEDTLS_SSL_CACHE_C)
+#include "mbedtls/ssl_cache.h"
+#endif /* MBEDTLS_SSL_CACHE_C */
+#endif /* COAP_DTLS_CONF_WITH_SERVER */
+
+#include "dtls-config.h"
 
 #include "coap-endpoint.h"
 #include "coap-keystore.h"
 
-//TODO: Move this to be used in project_conf.h
-#define MBEDTLS_LIB_DEBUG_LEVEL 0 //Value between 0 to 5
-
-//TODO: Make configurable in project-conf.h
-#define READ_TIMEOUT_MS 20000
-#define HANDHSAKE_MIN_TIMEOUT 20000
-#define HANDSHAKE_MAX_TIMEOUT 60000
-
 typedef enum coap_mbedtls_sec_mode_e {
   COAP_MBEDTLS_SEC_MODE_NONE = 0,
-  COAP_MBEDTLS_SEC_MODE_PSK,
-  COAP_MBEDTLS_SEC_MODE_CERT,
+  COAP_MBEDTLS_SEC_MODE_PSK = 1,
+  COAP_MBEDTLS_SEC_MODE_CERT = 2,
 } coap_mbedtls_sec_mode_t;
 
-/* DTLS peer info, their config, current state, etc */
-typedef struct mbedtls_peer_info_s {
-  struct mbedtls_peer_info_s *next;  
-  
-  coap_endpoint_t ep;
-  uint8_t is_packet_consumed; 
+typedef enum coap_mbedtls_role_e {
+  COAP_MBEDTLS_ROLE_NONE = 0,
+  COAP_MBEDTLS_ROLE_CLIENT = 1,
+  COAP_MBEDTLS_ROLE_SERVER = 2,
+} coap_mbedtls_role_t;
 
+typedef enum coap_mbedtls_event_e {
+  COAP_MBEDTLS_EVENT_NONE = 0,
+  COAP_MBEDTLS_EVENT_RETRANSMISSION_EVENT = 1, 
+  COAP_MBEDTLS_EVENT_SEND_MESSAGE_EVENT = 2,
+} coap_mbedtls_event_t;
+
+/* DTLS session info -- config, current state, etc */
+typedef struct coap_mbedtls_session_info {
+  struct coap_mbedtls_session_info *next;  
+  enum coap_mbedtls_role_e role; 
+  coap_endpoint_t ep; /* Server/Client address when role 
+                         is Client/Server respectively */ 
+  uint8_t is_packet_consumed; /* To prevent Mbed TLS from reading 
+                                 the same packet more than once. */
   mbedtls_ssl_context ssl;
   mbedtls_ssl_config conf;
-#ifdef COAP_DTLS_CONF_WITH_CERT
-  char *hostname; 
-  mbedtls_x509_crt cacert; /* Root CA certificate */
-  mbedtls_x509_crt clicert; /* Client certificate */
-  mbedtls_pk_context pkey; /* Client private key */
-#endif /* COAP_DTLS_CONF_WITH_CERT */
+  uint32_t ciphersuite;
+#if !defined(MBEDTLS_NO_PLATFORM_ENTROPY) 
+  mbedtls_entropy_context entropy;
+#endif /* !MBEDTLS_NO_PLATFORM_ENTROPY */
+  mbedtls_ctr_drbg_context ctr_drbg;
   mbedtls_timing_delay_context timer;
-} mbedtls_peer_info_t;
+  struct etimer retransmission_et; /* Event timer to call the handshake function 
+                                      for re-transmssion */
+#ifdef COAP_DTLS_CONF_WITH_CERT
+  char *hostname; // Used for SNI (Server Name Indication)  
+  mbedtls_x509_crt ca_cert; // Root CA certificate 
+  mbedtls_x509_crt own_cert; // Our (Client/Server) certificate
+  mbedtls_pk_context pkey; // Our (Client/Server) private key
+#endif /* COAP_DTLS_CONF_WITH_CERT */
+#ifdef COAP_DTLS_CONF_WITH_SERVER
+  uint8_t in_use; // 1 = This server session is in use by a client; 0 = free 
+  mbedtls_ssl_cookie_ctx cookie_ctx;
+#if defined(MBEDTLS_SSL_CACHE_C)
+  mbedtls_ssl_cache_context cache;
+#endif /* MBEDTLS_SSL_CACHE_C */
+#endif /* COAP_DTLS_CONF_WITH_SERVER */
+} coap_mbedtls_session_info_t;
+
+/* DTLS message info */
+typedef struct coap_mbedtls_send_message {
+  struct coap_mbedtls_send_message *next;
+  coap_endpoint_t ep;
+  unsigned char send_buf[COAP_MBEDTLS_MTU];
+  uint32_t len;
+} coap_mbedtls_send_message_t;
 
 /* Struct stores global DTLS info */
-typedef struct mbedtls_context_t {
-  uint8_t ready; /* 1 = DTLS initialized and ready; 0 = Not ready */
-  
-  /* DTLS will listen on this udp port */
-  struct uip_udp_conn *udp_conn;
+typedef struct coap_mbedtls_context {
+  uint8_t ready; // 1 = DTLS initialized and ready; 0 = Not ready
+  struct uip_udp_conn *udp_conn; // DTLS will listen on this udp port
+  struct process *host_process; /* Process which will take care of sending 
+                                              DTLS messages -- CoAP UIP process */
+  LIST_STRUCT(sessions); // List of DTLS sessions
+  LIST_STRUCT(send_message_fifo); // DTLS message to send queue
+  struct etimer fragmentation_et;
+} coap_mbedtls_context_t;
 
-  mbedtls_entropy_context entropy;
-  mbedtls_ctr_drbg_context ctr_drbg;
-
-  /* List of DTLS peers */
-  LIST_STRUCT(peer_info_list);
-} mbedtls_context_t;
-
-//TODO: Use uip_appdata instead  
-extern unsigned char data_buf1[512];
-
-mbedtls_peer_info_t * coap_ep_get_mbedtls_peer_info(const coap_endpoint_t *ep);
-int coap_ep_is_mbedtls_peer(const coap_endpoint_t *ep);
-int coap_ep_is_mbedtls_connected(const coap_endpoint_t *ep);
-int coap_ep_get_mbedtls_state(const coap_endpoint_t *ep);
-
+/**
+ * \brief     Initializes CoAP-MbedTLS global info. Must be the first thing that is 
+ *            called before using CoAP-MbedTLS. 
+ */
 void coap_mbedtls_init();
-void coap_mbedtls_conn_init(struct uip_udp_conn *udp_conn);
+
+/**
+ * \brief     Handler for timer, and process-poll events.
+ *            Must be called by the host process (CoAP Engine).
+ */
+void coap_mbedtls_event_handler();
+
+/**
+ * \brief    Registers, 1. UDP port info. 2. Host process (Coap Engine). 
+ *
+ * \param udp_conn  Pointer to UDP port information. This will be used when 
+ *                  CoAP-MbedTLS needs to send messages via UDP. 
+ *
+ * \param host_process  Pointer to the host process. This process will recieve 
+ *                      a poll event when a DTLS message needs to be sent. 
+ */
+void coap_mbedtls_conn_init(struct uip_udp_conn *udp_conn, 
+    struct process *host_process);
+
+/**
+ * \brief    Encrypt app. data and send via UDP. 
+ *
+ * \param ep  Pointer to destination CoAP endpoint.
+ * \param message  Pointer to the buffer holding app. data.
+ * \param len  Length of message to be sent. 
+ *
+ * \return  SUCCESS: Number of bytes written.
+ *          FAILURE: -1 
+ */
+int coap_ep_mbedtls_write(const coap_endpoint_t *ep, 
+    const unsigned char *message, int len);
+
+/**
+ * \brief    Handler for new DTLS messages. Handles both handshake and decryption 
+ *           of record layer messages. 
+ *
+ * \param ep  Pointer of source CoAP endpoint.
+ *
+ * \return  SUCCESS: 0 for Handshake; Number of bytes read for record layer packet.
+ *          FAILURE: -1 
+ */
+int coap_ep_mbedtls_handle_message(const coap_endpoint_t *ep);
+
+/**
+ * \brief   Disconnect a peer. Sends a close notification message to peer. 
+ *          Followed by cleanup of session struct, free memory. 
+ *           
+ * \param ep  Pointer of peer CoAP endpoint.
+ */
+void coap_ep_mbedtls_disconnect(const coap_endpoint_t *ep);
+
+/**
+ * \brief   Get session struct associated with CoAP endpoint. 
+ *           
+ * \param ep  Pointer of peer CoAP endpoint.
+ */
+coap_mbedtls_session_info_t * 
+coap_ep_get_mbedtls_session_info(const coap_endpoint_t *ep);
+
+
+#ifdef COAP_DTLS_CONF_WITH_CLIENT
+/**
+ * \brief   Connect to a DTLS server. To be used by the client. 
+ *          Sets up a client session and initiates the handshake. 
+ *           
+ * \param ep  Pointer of peer CoAP endpoint.
+ * \param sec_mode  Enum representing mode of security: certificates or PSK. 
+ * \param keystore_entry  Pointer to PSK or certificate info struct. Will be 
+ *                        type-casted internall based on sec_mode enum. 
+ *
+ * \return  SUCCESS: 1
+ *          FAILURE: -1 
+ */
 int coap_ep_mbedtls_connect(const coap_endpoint_t *ep, 
     coap_mbedtls_sec_mode_t sec_mode, const void *keystore_entry);
-int coap_ep_mbedtls_write(const coap_endpoint_t *ep, const unsigned char *message, int len);
-int coap_ep_mbedtls_handle_message(const coap_endpoint_t *ep);
-void coap_ep_mbedtls_disconnect(const coap_endpoint_t *ep);
-void coap_ep_mbedtls_poll_send_data();
+#endif /* COAP_DTLS_CONF_WITH_CLIENT */
 
+#ifdef COAP_DTLS_CONF_WITH_SERVER
+/**
+ * \brief   Setup a DTLS server session. Must be done before any client connection 
+ *          can be accepted. 
+ *           
+ * \param ep  Pointer of peer CoAP endpoint.
+ * \param sec_mode  Enum representing mode of security: certificates or PSK. 
+ * \param keystore_entry  Pointer to PSK or certificate info struct. Will be 
+ *                        type-casted internall based on sec_mode enum. 
+ *
+ * \return  SUCCESS: 1
+ *          FAILURE: -1 
+ */
+int coap_mbedtls_server_setup(const coap_mbedtls_sec_mode_t sec_mode, 
+    const void *keystore_entry);
+#endif /* COAP_DTLS_CONF_WITH_SERVER */
+
+/**
+ * \brief  Check if a CoAP endpoint is a peer in the list of DTLS sessions
+ *           
+ * \param ep  Pointer of peer CoAP endpoint.
+ *
+ * \return  SUCCESS: 1
+ *          FAILURE: 0
+ */
+int coap_ep_is_mbedtls_peer(const coap_endpoint_t *ep);
+
+
+/**
+ * \brief  Check if a peer has completed the handshake successfully 
+ *           
+ * \param ep  Pointer of peer CoAP endpoint.
+ *
+ * \return  SUCCESS: 1
+ *          FAILURE: 0
+ */
+int coap_ep_is_mbedtls_connected(const coap_endpoint_t *ep);
+
+/**
+ * \brief  Check in what DTLS state the peer is in. 
+ *           
+ * \param ep  Pointer of peer CoAP endpoint.
+ *
+ * \return  enum mbedtls_ssl_states  
+ */
+int coap_ep_get_mbedtls_state(const coap_endpoint_t *ep);
 #endif /* MBEDTLS_SUPPORT_H_ */

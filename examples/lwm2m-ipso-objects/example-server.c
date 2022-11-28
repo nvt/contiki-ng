@@ -296,11 +296,11 @@ PROCESS_THREAD(router_process, ev, data)
 
   /* Initialize DAG root */
   NETSTACK_ROUTING.root_start();
-
+  
   while(1) {
     etimer_set(&timer, CLOCK_SECOND * 5);
     PROCESS_YIELD();
-
+  
     /* Handle serial line input */
     if(ev == serial_line_event_message) {
       serial_protocol_input((char *) data);
@@ -323,7 +323,7 @@ PROCESS_THREAD(router_process, ev, data)
     if(current_target != NULL &&
        (current_target->flags & NODE_HAS_TYPE) == 0 &&
        current_target->retries < 6) {
-
+  
       /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
       coap_init_message(request, COAP_TYPE_CON, COAP_GET, 0);
       coap_set_header_uri_path(request, URL_DEVICE_MODEL);

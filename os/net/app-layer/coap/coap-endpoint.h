@@ -143,5 +143,12 @@ int coap_endpoint_connect(coap_endpoint_t *ep);
  */
 void coap_endpoint_disconnect(coap_endpoint_t *ep);
 
+/**
+ * \brief      Setup a DTLS server session. This step is mandatory before 
+ *             a client can connect. 
+ *
+ */
+int coap_secure_server_setup();
+
 #endif /* COAP_ENDPOINT_H_ */
 /** @} */

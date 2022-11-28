@@ -613,7 +613,8 @@ periodic_process(coap_timer_t *timer)
         LOG_DBG("Checking for network... %lu\n",
                 (unsigned long)session_info->wait_until_network_check);
         session_info->wait_until_network_check = now + 10000;
-        if(/* has_network_access() */ 1) {
+        if(has_network_access()) {
+        //if(/* has_network_access() */ 1) {
           /* Either do bootstrap then registration */
           if(session_info->use_server_type == LWM2M_RD_CLIENT_BOOTSTRAP_SERVER) {
             session_info->rd_state = DO_BOOTSTRAP;

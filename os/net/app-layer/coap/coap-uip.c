@@ -88,8 +88,10 @@ static const coap_keystore_t *dtls_keystore = NULL;
 static dtls_handler_t cb;
 static dtls_context_t *dtls_context = NULL;
 #else /* WITH_TINYDTLS */
+#ifdef COAP_DTLS_CONF_WITH_PSK
 static int coap_ep_get_mbedtls_psk_info(const coap_endpoint_t *ep, 
     coap_keystore_psk_entry_t *info);
+#endif /* COAP_DTLS_CONF_WITH_PSK */
 #ifdef COAP_DTLS_CONF_WITH_CERT
 static int coap_ep_get_mbedtls_cert_info(const coap_endpoint_t *ep,
     coap_keystore_cert_entry_t *info);
@@ -270,8 +272,8 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
 #endif
 
 #ifdef WITH_DTLS
-  if(ep != NULL && ep->secure != 0) {
 #ifdef WITH_TINYDTLS
+  if(ep != NULL && ep->secure != 0) {
     dtls_peer_t *peer;
     if(dtls_context == NULL) {
       return 0;
@@ -282,7 +284,7 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
       LOG_DBG("DTLS peer state for ");
       LOG_DBG_COAP_EP(ep);
       LOG_DBG_(" is %d (%sconnected)\n", peer->state,
-               dtls_peer_is_connected(peer) ? "" : "not ");
+          dtls_peer_is_connected(peer) ? "" : "not ");
       return dtls_peer_is_connected(peer);
     } else {
       LOG_DBG("DTLS did not find peer ");
@@ -290,22 +292,22 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
       LOG_DBG_("\n");
       return 0;
     }
-#else /* WITH_TINYDTLS */
-    if (coap_ep_is_mbedtls_peer(ep)) {
-      /* only if handshake is done! */
-      LOG_DBG("DTLS peer state for ");
-      LOG_DBG_COAP_EP(ep);
-      LOG_DBG_(" is %d (%sconnected)\n", coap_ep_get_mbedtls_state(ep),
-          coap_ep_is_mbedtls_connected(ep) ? "" : "not ");
-      return coap_ep_is_mbedtls_connected(ep);
-    } else {
-      LOG_DBG("DTLS did not find peer ");
-      LOG_DBG_COAP_EP(ep);
-      LOG_DBG_("\n");
-      return 0;
-    }
-#endif /* WITH_TINYDTLS */
   }
+#else /* WITH_TINYDTLS */
+  if(coap_ep_is_mbedtls_peer(ep)) {
+    /* only if handshake is done! */
+    LOG_DBG("DTLS peer state for ");
+    LOG_DBG_COAP_EP(ep);
+    LOG_DBG_(" is %d (%sconnected)\n", coap_ep_get_mbedtls_state(ep),
+        coap_ep_is_mbedtls_connected(ep) ? "" : "not ");
+    return coap_ep_is_mbedtls_connected(ep);
+  } else {
+    LOG_DBG("DTLS did not find peer ");
+    LOG_DBG_COAP_EP(ep);
+    LOG_DBG_("\n");
+    return 0;
+  }
+#endif /* WITH_TINYDTLS */
 #endif /* WITH_DTLS */
 
   /* Assume connected */
@@ -315,12 +317,18 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
 int
 coap_endpoint_connect(coap_endpoint_t *ep)
 {
-#if defined(WITH_DTLS) && !defined(WITH_TINYDTLS)
+#ifdef WITH_DTLS
+#ifndef WITH_TINYDTLS
+#ifdef COAP_DTLS_CONF_WITH_CLIENT
+#ifdef COAP_DTLS_CONF_WITH_PSK
   static coap_keystore_psk_entry_t psk_info;
+#endif /* COAP_DTLS_CONF_WITH_PSK */
 #ifdef COAP_DTLS_CONF_WITH_CERT 
   static coap_keystore_cert_entry_t cert_info;
 #endif /* COAP_DTLS_CONF_WITH_CERT */
-#endif /* defined(WITH_DTLS) && !defined(WITH_TINYDTLS) */
+#endif /* COAP_DTLS_CONF_WITH_CLIENT */
+#endif /* WITH_TINYDTLS */
+#endif /* WITH_DTLS */
 
   if(ep->secure == 0) {
     LOG_DBG("connect to ");
@@ -341,26 +349,61 @@ coap_endpoint_connect(coap_endpoint_t *ep)
     return 1;
   }
 #else /* WITH_TINYDTLS */
+#ifdef COAP_DTLS_CONF_WITH_CLIENT
+#ifdef COAP_DTLS_CONF_WITH_PSK
   if(coap_ep_get_mbedtls_psk_info(ep, &psk_info) == 1) {
     return coap_ep_mbedtls_connect(ep, COAP_MBEDTLS_SEC_MODE_PSK, 
         (const void *) &psk_info); 
   } 
+#endif /* COAP_DTLS_CONF_WITH_PSK */
 #ifdef COAP_DTLS_CONF_WITH_CERT
-  else if(coap_ep_get_mbedtls_cert_info(ep, &cert_info) == 1) { 
+  if(coap_ep_get_mbedtls_cert_info(ep, &cert_info) == 1) { 
     return coap_ep_mbedtls_connect(ep, COAP_MBEDTLS_SEC_MODE_CERT, 
         (const void *) &cert_info); 
   } 
 #endif /* COAP_DTLS_CONF_WITH_CERT */
-  else {
-    LOG_ERR("Unable to retrieve DTLS authorization info for \n");
-    LOG_ERR_COAP_EP(ep);
-    LOG_ERR_("\n");
-  }
+  LOG_ERR("Unable to retrieve DTLS authorization info for \n");
+  LOG_ERR_COAP_EP(ep);
+  LOG_ERR_("\n");
+#endif /* COAP_DTLS_CONF_WITH_CLIENT */
 #endif /* WITH_TINYDTLS */
 #endif /* WITH_DTLS */
 
   return 0;
 }
+/*---------------------------------------------------------------------------*/
+#ifdef WITH_DTLS
+#ifndef WITH_TINYDTLS
+#ifdef COAP_DTLS_CONF_WITH_SERVER
+int 
+coap_secure_server_setup()
+{
+  coap_endpoint_t ep;
+#ifdef COAP_DTLS_CONF_WITH_CERT 
+  static coap_keystore_cert_entry_t cert_info;
+#endif /* COAP_DTLS_CONF_WITH_CERT */
+#ifdef COAP_DTLS_CONF_WITH_PSK
+  static coap_keystore_psk_entry_t psk_info;
+#endif /* COAP_DTLS_CONF_WITH_PSK */
+
+#ifdef COAP_DTLS_CONF_WITH_PSK
+  if(coap_ep_get_mbedtls_psk_info(&ep, &psk_info) == 1) {
+    return coap_mbedtls_server_setup(COAP_MBEDTLS_SEC_MODE_PSK, 
+        (const void *) &psk_info); 
+  } 
+#endif /* COAP_DTLS_CONF_WITH_PSK */
+
+#ifdef COAP_DTLS_CONF_WITH_CERT
+  if(coap_ep_get_mbedtls_cert_info(&ep, &cert_info) == 1) { 
+    return coap_mbedtls_server_setup(COAP_MBEDTLS_SEC_MODE_CERT, 
+        (const void *) &cert_info); 
+  } 
+#endif /* COAP_DTLS_CONF_WITH_CERT */
+  return 0;
+}
+#endif /* COAP_DTLS_CONF_WITH_SERVER */
+#endif /* WITH_TINYDTLS */
+#endif /* WITH_DTLS */
 /*---------------------------------------------------------------------------*/
 void
 coap_endpoint_disconnect(coap_endpoint_t *ep)
@@ -415,9 +458,11 @@ process_secure_data(void)
                         uip_appdata, uip_datalen());
   }
 #else /* WITH_TINYDTLS */
-  if (0 == coap_ep_mbedtls_handle_message(
-        (const coap_endpoint_t *)get_src_endpoint(1))) {
-    coap_receive(get_src_endpoint(1), data_buf1, sizeof(data_buf1));
+  int ret;
+  
+  if((ret = coap_ep_mbedtls_handle_message(
+        (const coap_endpoint_t *) get_src_endpoint(1))) > 0) {
+    coap_receive(get_src_endpoint(1), uip_appdata, ret);
   }
 #endif /* WITH_TINYDTLS */
 }
@@ -456,8 +501,8 @@ coap_sendto(const coap_endpoint_t *ep, const uint8_t *data, uint16_t length)
     if(dtls_context) {
       ret = dtls_write(dtls_context, (session_t *)ep, (uint8_t *)data, length);
     } else {
-        LOG_WARN("no DTLS context\n");
-        return -1;
+      LOG_WARN("no DTLS context\n");
+      return -1;
     }
 #else /* WITH_TINYDTLS */
     ret = coap_ep_mbedtls_write(ep, (unsigned char *) data, length);
@@ -508,27 +553,25 @@ PROCESS_THREAD(coap_engine, ev, data)
         dtls_set_handler(dtls_context, &cb);
     }
 #else /* WITH_TINYDTLS */ 
-    coap_mbedtls_conn_init(dtls_conn);
+    coap_mbedtls_conn_init(dtls_conn, PROCESS_CURRENT());
 #endif /* WITH_TINYDTLS */
   }
 #endif /* WITH_DTLS */
 
   while(1) {
     PROCESS_YIELD();
-
 #ifdef WITH_DTLS
-    if (ev == PROCESS_EVENT_POLL) {
-      printf("New PROCESS_EVENT_POLL\n");
-      coap_ep_mbedtls_poll_send_data();
+#ifndef WITH_TINYDTLS
+    if(ev == PROCESS_EVENT_POLL || ev == PROCESS_EVENT_TIMER) {
+      coap_mbedtls_event_handler();
       continue;
     }
+#endif /* WITH_TINYDTLS */
 #endif /* WITH_DTLS */
-
     if(ev == tcpip_event) {
       if(uip_newdata()) {
 #ifdef WITH_DTLS
         if(uip_udp_conn == dtls_conn) {
-          printf("New TCP IP event!\n");
           process_secure_data();
           continue;
         }
@@ -684,6 +727,7 @@ static dtls_handler_t cb = {
 };
 #else /* WITH_TINYDTLS */
 /*---------------------------------------------------------------------------*/
+#ifdef COAP_DTLS_CONF_WITH_PSK
 static int 
 coap_ep_get_mbedtls_psk_info(const coap_endpoint_t *ep, 
     coap_keystore_psk_entry_t *info)
@@ -699,13 +743,14 @@ coap_ep_get_mbedtls_psk_info(const coap_endpoint_t *ep,
   } 
   return 0;
 }
+#endif /* COAP_DTLS_CONF_WITH_PSK */
 /*---------------------------------------------------------------------------*/
 #ifdef COAP_DTLS_CONF_WITH_CERT 
 static int 
 coap_ep_get_mbedtls_cert_info(const coap_endpoint_t *ep,
     coap_keystore_cert_entry_t *info)
 {
-  if(NULL != dtls_keystore) {
+  if(dtls_keystore != NULL) {
     if(dtls_keystore->coap_get_cert_info) {
       return dtls_keystore->coap_get_cert_info(ep, info);
     }

@@ -80,8 +80,8 @@ static const coap_keystore_t simple_key_store = {
 #endif /* COAP_DTLS_PSK_DEFAULT_IDENTITY */
 
 #ifdef COAP_DTLS_TEST_CA_CERT 
-#ifdef COAP_DTLS_TEST_CLIENT_CERT
-#ifdef COAP_DTLS_TEST_CLIENT_KEY
+#ifdef COAP_DTLS_TEST_OWN_CERT
+#ifdef COAP_DTLS_TEST_PRIV_KEY
 /*---------------------------------------------------------------------------*/
 static int 
 get_default_cert_info(const coap_endpoint_t *address_info, 
@@ -91,11 +91,11 @@ get_default_cert_info(const coap_endpoint_t *address_info,
     info->ca_cert = (uint8_t *)COAP_DTLS_TEST_CA_CERT; 
     info->ca_cert_len = sizeof(COAP_DTLS_TEST_CA_CERT);
 
-    info->client_cert = (uint8_t *)COAP_DTLS_TEST_CLIENT_CERT;
-    info->client_cert_len = sizeof(COAP_DTLS_TEST_CLIENT_CERT);
+    info->own_cert = (uint8_t *)COAP_DTLS_TEST_OWN_CERT;
+    info->own_cert_len = sizeof(COAP_DTLS_TEST_OWN_CERT);
 
-    info->client_key = (uint8_t *)COAP_DTLS_TEST_CLIENT_KEY;
-    info->client_key_len = sizeof(COAP_DTLS_TEST_CLIENT_KEY); 
+    info->priv_key = (uint8_t *)COAP_DTLS_TEST_PRIV_KEY;
+    info->priv_key_len = sizeof(COAP_DTLS_TEST_PRIV_KEY); 
     return 1;
   }
   return 0;
@@ -105,8 +105,8 @@ static const coap_keystore_t simple_key_store = {
 };
 /*---------------------------------------------------------------------------*/
 #endif /* COAP_DTLS_TEST_CA_CERT */
-#endif /* COAP_DTLS_TEST_CLIENT_CERT */
-#endif /* COAP_DTLS_TEST_CLIENT_KEY */
+#endif /* COAP_DTLS_TEST_OWN_CERT */
+#endif /* COAP_DTLS_TEST_PRIV_KEY */
 #endif /* WITH_DTLS */
 /*---------------------------------------------------------------------------*/
 void
@@ -116,15 +116,15 @@ coap_keystore_simple_init(void)
 #if (defined(COAP_DTLS_PSK_DEFAULT_IDENTITY) \
     && defined(COAP_DTLS_PSK_DEFAULT_KEY)) \
   || (defined(COAP_DTLS_TEST_CA_CERT) \
-  && defined(COAP_DTLS_TEST_CLIENT_CERT) \
-  && defined(COAP_DTLS_TEST_CLIENT_KEY))
+  && defined(COAP_DTLS_TEST_OWN_CERT) \
+  && defined(COAP_DTLS_TEST_PRIV_KEY))
 
   coap_set_keystore(&simple_key_store);
 #endif /* (defined(COAP_DTLS_PSK_DEFAULT_IDENTITY) \
     && defined(COAP_DTLS_PSK_DEFAULT_KEY)) \
   || (defined(COAP_DTLS_TEST_CA_CERT) \
-  && defined(COAP_DTLS_TEST_CLIENT_CERT) \
-  && defined(COAP_DTLS_TEST_CLIENT_KEY)) */
+  && defined(COAP_DTLS_TEST_OWN_CERT) \
+  && defined(COAP_DTLS_TEST_PRIV_KEY)) */
 #endif /* WITH_DTLS */
 }
 /*---------------------------------------------------------------------------*/

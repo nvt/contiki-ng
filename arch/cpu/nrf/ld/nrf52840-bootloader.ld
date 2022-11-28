@@ -10,5 +10,14 @@ MEMORY
   RAM (rwx) :  ORIGIN = 0x20000008, LENGTH = 0x3fff8
 }
 
+SECTIONS
+{
+  .crypto_data :
+  {
+    PROVIDE(__start_crypto_data = .);
+    KEEP(*(SORT(.crypto_data*)))
+    PROVIDE(__stop_crypto_data = .);
+  } > FLASH
+} INSERT AFTER .text
 
 INCLUDE "nrf_common.ld"

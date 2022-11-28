@@ -91,6 +91,22 @@ NRF52_SDK_C_SRCS += components/boards/boards.c \
   integration/nrfx/legacy/nrf_drv_rng.c \
   integration/nrfx/legacy/nrf_drv_power.c \
   components/libraries/fifo/app_fifo.c \
+  components/libraries/crypto/nrf_crypto_init.c \
+  components/libraries/crypto/nrf_crypto_error.c \
+  components/libraries/crypto/nrf_crypto_ecc.c \
+  components/libraries/crypto/nrf_crypto_ecdh.c \
+  components/libraries/crypto/nrf_crypto_ecdsa.c \
+  components/libraries/crypto/nrf_crypto_rng.c \
+  components/libraries/crypto/backend/nrf_hw/nrf_hw_backend_init.c \
+  components/libraries/crypto/backend/nrf_hw/nrf_hw_backend_rng.c \
+  components/libraries/crypto/backend/cc310/cc310_backend_init.c \
+  components/libraries/crypto/backend/cc310/cc310_backend_ecc.c \
+  components/libraries/crypto/backend/cc310/cc310_backend_ecdh.c \
+  components/libraries/crypto/backend/cc310/cc310_backend_ecdsa.c \
+  components/libraries/crypto/backend/cc310/cc310_backend_shared.c \
+  components/libraries/crypto/backend/cc310/cc310_backend_mutex.c \
+  components/libraries/crypto/backend/cc310/cc310_backend_rng.c \
+  components/libraries/atomic/nrf_atomic.c \
 
 NRF52_SDK_ASM_SRCS = modules/nrfx/mdk/gcc_startup_nrf52840.S
 
@@ -108,6 +124,14 @@ NRF52_SDK_INC_PATHS += components/libraries/experimental_section_vars
 NRF52_SDK_INC_PATHS += components/libraries/strerror
 NRF52_SDK_INC_PATHS += components/libraries/delay
 NRF52_SDK_INC_PATHS += components/libraries/util
+NRF52_SDK_INC_PATHS += components/libraries/mem_manager
+NRF52_SDK_INC_PATHS += components/libraries/stack_info
+NRF52_SDK_INC_PATHS += components/libraries/crypto
+NRF52_SDK_INC_PATHS += components/libraries/crypto/backend/cc310
+NRF52_SDK_INC_PATHS += components/libraries/crypto/backend/nrf_hw
+NRF52_SDK_INC_PATHS += components/libraries/mutex
+NRF52_SDK_INC_PATHS += components/libraries/atomic
+NRF52_SDK_INC_PATHS += external/nrf_cc310/include
 NRF52_SDK_INC_PATHS += components/boards
 NRF52_SDK_INC_PATHS += integration/nrfx
 NRF52_SDK_INC_PATHS += integration/nrfx/legacy
@@ -116,6 +140,8 @@ NRF52_SDK_INC_PATHS += components/libraries/fifo
 NRF52_SDK_INC_PATHS += components/libraries/log
 NRF52_SDK_INC_PATHS += components/libraries/log/src
 NRF52_SDK_INC_PATHS += components/drivers_nrf/nrf_soc_nosd
+
+TARGET_LIBFILES += -L$(NRF5_SDK_ROOT)/external/nrf_cc310/lib/cortex-m4/hard-float -lnrf_cc310_0.9.12
 
 ifeq ($(NRF52840_NATIVE_USB),1)
   include $(CONTIKI_CPU)/usb/Makefile.usb

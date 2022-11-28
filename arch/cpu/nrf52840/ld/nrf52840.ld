@@ -9,6 +9,16 @@ MEMORY
   RAM (rwx) :  ORIGIN = __ram, LENGTH = __ram_size
 }
 
+SECTIONS
+{
+  .crypto_data :
+  {
+    PROVIDE(__start_crypto_data = .);
+    KEEP(*(SORT(.crypto_data*)))
+    PROVIDE(__stop_crypto_data = .);
+  } > FLASH
+} INSERT AFTER .text
+
 INCLUDE "nrf_common.ld"
 
 /* These symbols are used by the stack check library. */
