@@ -338,8 +338,11 @@ struct process {
  * \param data An argument pointer that can be passed to the new
  * process
  *
+ * \retval true The process was successfully started.
+ *
+ * \retval false The process is already running.
  */
-void process_start(struct process *p, process_data_t data);
+bool process_start(struct process *p, process_data_t data);
 
 /**
  * Post an asynchronous event.

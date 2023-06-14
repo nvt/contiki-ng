@@ -95,7 +95,7 @@ process_alloc_event(void)
   return lastevent++;
 }
 /*---------------------------------------------------------------------------*/
-void
+bool
 process_start(struct process *p, process_data_t data)
 {
   struct process *q;
@@ -106,7 +106,7 @@ process_start(struct process *p, process_data_t data)
 
   /* If we found the process on the process list, we bail out. */
   if(q == p) {
-    return;
+    return false;
   }
   /* Put on the procs list.*/
   p->next = process_list;
@@ -118,6 +118,7 @@ process_start(struct process *p, process_data_t data)
 
   /* Post a synchronous initialization event to the process. */
   process_post_synch(p, PROCESS_EVENT_INIT, data);
+  return true;
 }
 /*---------------------------------------------------------------------------*/
 static void
