@@ -2,18 +2,7 @@ MAKE_WITH_DTLS ?= 1
 
 ifeq ($(MAKE_WITH_DTLS),1)
 
- ifeq ($(MAKE_WITH_TINYDTLS),1)
-  TINYDTLS_PATH := os/net/security/tinydtls
-   
-  ifeq (${wildcard $(CONTIKI)/$(TINYDTLS_PATH)/Makefile},)
-   ${error Could not find the tinyDTLS submodule. Please run "git submodule update --init" and try again}
-  endif
-
-  MODULES += os/net/app-layer/coap/tinydtls-support
-  MODULES += $(TINYDTLS_PATH) ${addprefix $(TINYDTLS_PATH)/,aes sha2 ecc}
-  
-  CFLAGS += -DWITH_TINYDTLS=1
- else # Use MbedTLS library as default 
+ # Use MbedTLS library as default 
   MBEDTLS_PATH := os/net/security/mbedtls
 	
   CFLAGS += -DMBEDTLS_CONFIG_FILE=\"os/net/app-layer/coap/mbedtls-support/mbedtls-config.h\"
@@ -40,7 +29,7 @@ ifeq ($(MAKE_WITH_DTLS),1)
   ifeq ($(MAKE_COAP_DTLS_WITH_CLIENT), 1)
    CFLAGS += -DCOAP_DTLS_CONF_WITH_CLIENT=1
   endif
- endif 
+
 
  CFLAGS += -DWITH_DTLS=1
 
