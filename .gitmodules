@@ -31,6 +31,10 @@
 [submodule "arch/cpu/nrf52840/lib/nrf52-sdk"]
 	path = arch/cpu/nrf52840/lib/nrf52-sdk
 	url = https://github.com/contiki-ng/nrf-sdk-contiki-ng.git
+[submodule "os/net/security/mbedtls"]
+	path = os/net/security/mbedtls
+	url = git@git.ri.se:mbed-tls-thesis/mbedtls.git
+	branch = new_minimal_patch
 [submodule "arch/cpu/arm/CMSIS"]
 	path = arch/cpu/arm/CMSIS
 	url = https://github.com/ARM-software/CMSIS_5.git
@@ -43,7 +47,3 @@
 [submodule "arch/cpu/gecko/lib/gecko_sdk"]
 	path = arch/cpu/gecko/lib/gecko_sdk
 	url = https://github.com/SiliconLabs/gecko_sdk.git
-[submodule "os/net/security/mbedtls"]
-	path = os/net/security/mbedtls
-	url = git@git.ri.se:mbed-tls-thesis/mbedtls.git
-	branch = feature/stack-port
