@@ -300,13 +300,12 @@ coap_ep_is_mbedtls_connected(const coap_endpoint_t *ep)
   coap_mbedtls_session_info_t *info = NULL; 
 
   if((info = coap_ep_get_mbedtls_session_info(ep)) != NULL) {
-    if(info->ssl.state == MBEDTLS_SSL_HANDSHAKE_OVER) {
-      return 1;
-    }
+    return mbedtls_ssl_is_handshake_over(&info->ssl);
   }
   return 0;
 }
 /*---------------------------------------------------------------------------*/
+/* DEPRECATED
 int 
 coap_ep_get_mbedtls_state(const coap_endpoint_t *ep)
 {
@@ -317,6 +316,7 @@ coap_ep_get_mbedtls_state(const coap_endpoint_t *ep)
   }
   return 0;
 }
+*/
 /*---------------------------------------------------------------------------*/
 int 
 perform_handshake(coap_mbedtls_session_info_t *session_info)
@@ -361,13 +361,12 @@ perform_handshake(coap_mbedtls_session_info_t *session_info)
 #endif /* COAP_MBEDTLS_TIMING_EVALUATION */
 #endif /* COAP_MBEDTLS_EVALUATION */
   
-  LOG_INFO("Handshake in progress, starting at state = %d\n", 
-      session_info->ssl.state);
+  LOG_INFO("Handshake in progress, starting.\n"); 
 
   ret = mbedtls_ssl_handshake(&session_info->ssl);
  
-  LOG_INFO("Handshake in progress, ending at state = %d\n", 
-      session_info->ssl.state);
+  LOG_INFO("Handshake in progress, ending with completed = %d\n", 
+      mbedtls_ssl_is_handshake_over(&session_info->ssl));
   
 #ifdef COAP_MBEDTLS_EVALUATION
 #ifdef COAP_MBEDTLS_TIMING_EVALUATION
@@ -460,6 +459,8 @@ perform_handshake(coap_mbedtls_session_info_t *session_info)
   return ret;
 }
 /*---------------------------------------------------------------------------*/
+// TODO: Currently using MBEDTLS_PRIVATE to access now hidden timer internals
+/*---------------------------------------------------------------------------*/
 void
 coap_mbedtls_event_handler()
 {
@@ -480,9 +481,9 @@ coap_mbedtls_event_handler()
 
     /* Update re-transmission timer */
     info = coap_ep_get_mbedtls_session_info(&send_message->ep);
-    elapsed_ms = mbedtls_timing_get_timer(&info->timer.timer, 0);
-    if(info->timer.fin_ms > 0) {
-      time_left_ms = info->timer.fin_ms - elapsed_ms;
+    elapsed_ms = mbedtls_timing_get_timer(&info->timer.MBEDTLS_PRIVATE(timer), 0);
+    if(info->timer.MBEDTLS_PRIVATE(fin_ms) > 0) {
+      time_left_ms = info->timer.MBEDTLS_PRIVATE(fin_ms) - elapsed_ms;
       if(time_left_ms > 0) {
         LOG_DBG("Updating re-transmission timer to %u ms\n", (unsigned int)time_left_ms);
         etimer_set(&info->retransmission_et, (time_left_ms * CLOCK_SECOND) / 1000);
@@ -718,7 +719,9 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
     }
   
     ret = mbedtls_pk_parse_key(&session_info->pkey, 
-        (const unsigned char *) ks->priv_key, ks->priv_key_len, NULL, 0);
+        (const unsigned char *) ks->priv_key, ks->priv_key_len, 
+	NULL, 0,
+	mbedtls_entropy_func, NULL); //TODO: test
 
     if(ret < 0) {
       LOG_DBG("mbedtls_pk_parse_key returned -0x%x\n", 
@@ -822,6 +825,9 @@ clean_and_ret_err:
   return NULL;
 }
 /*---------------------------------------------------------------------------*/
+// TODO: One usage of MBEDTLS_PRIVATE to access now state
+/*---------------------------------------------------------------------------*/
+
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
 int 
 coap_ep_mbedtls_connect(const coap_endpoint_t *ep, 
@@ -846,12 +852,13 @@ coap_ep_mbedtls_connect(const coap_endpoint_t *ep,
     /* Session already exists. If this func is called again, 
      * we may want to retry handshake. But, first check if DTLS is 
      * in a valid state and the re-transmission timer is expired. */
-    if ((session_info->ssl.state == MBEDTLS_SSL_HELLO_REQUEST) 
-        || (session_info->ssl.state == MBEDTLS_SSL_HANDSHAKE_OVER)
+
+    if ((session_info->ssl.MBEDTLS_PRIVATE(state) == MBEDTLS_SSL_HELLO_REQUEST) 
+	|| mbedtls_ssl_is_handshake_over(&session_info->ssl)
         || (2 != mbedtls_timing_get_delay(&session_info->timer))) {
       return 0;
     }  
-    
+   
     /* Re-transmission event invoked by application process */
     LOG_INFO("Re-transmission timer expired\n");
     LOG_DBG("HS Retry, Calling process = %s\n", PROCESS_CURRENT()->name);
@@ -909,7 +916,7 @@ coap_ep_mbedtls_write(const coap_endpoint_t *ep,
   }
 
   if((info = coap_ep_get_mbedtls_session_info(ep)) != NULL) {
-    if (info->ssl.state != MBEDTLS_SSL_HANDSHAKE_OVER) {
+    if(!mbedtls_ssl_is_handshake_over(&info->ssl)) {
       LOG_ERR("DTLS handshake not complete yet, but %s called!\n", __func__);
       return -1;
     }
@@ -980,7 +987,7 @@ coap_ep_mbedtls_handle_message(const coap_endpoint_t *ep)
   if((session_info = coap_ep_get_mbedtls_session_info(ep)) != NULL) {
     /* For both server/client check if handshake is not complete. 
      * Otherwise it maybe a DTLS record layer message. */
-    if (session_info->ssl.state != MBEDTLS_SSL_HANDSHAKE_OVER) {
+    if (!mbedtls_ssl_is_handshake_over(&session_info->ssl)) {
       goto perform_handshake;
     }   
   } else { 

@@ -30,9 +30,12 @@
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 
-// TESTINK
-#define MBEDTLS_PSA_CRYPTO_C
+/* Debug flags */
 #define HEAPMEM_DEBUG 1
+
+/* Flags used during porting and testing */
+//#define MBEDTLS_PSA_CRYPTO_C
+//#define MBEDTLS_ECP_LIGHT 
 
 #ifdef BOARD_STRING
 #define LWM2M_DEVICE_MODEL_NUMBER BOARD_STRING

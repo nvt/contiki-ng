@@ -257,5 +257,6 @@ int coap_ep_is_mbedtls_connected(const coap_endpoint_t *ep);
  *
  * \return  enum mbedtls_ssl_states  
  */
-int coap_ep_get_mbedtls_state(const coap_endpoint_t *ep);
+//int coap_ep_get_mbedtls_state(const coap_endpoint_t *ep);
+//TODO: deprecated in upstream mbedtls, no single replacement available
 #endif /* MBEDTLS_SUPPORT_H_ */

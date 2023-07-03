@@ -266,8 +266,7 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
     /* only if handshake is done! */
     LOG_DBG("DTLS peer state for ");
     LOG_DBG_COAP_EP(ep);
-    LOG_DBG_(" is %d (%sconnected)\n", coap_ep_get_mbedtls_state(ep),
-        coap_ep_is_mbedtls_connected(ep) ? "" : "not ");
+    LOG_DBG_(" is %sconnected\n", coap_ep_is_mbedtls_connected(ep) ? "" : "not ");
     return coap_ep_is_mbedtls_connected(ep);
   } else {
     LOG_DBG("DTLS did not find peer ");
