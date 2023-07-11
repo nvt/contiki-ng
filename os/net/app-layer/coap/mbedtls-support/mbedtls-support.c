@@ -251,7 +251,7 @@ coap_mbedtls_conn_init(struct uip_udp_conn *udp_conn,
 }
 /*---------------------------------------------------------------------------*/
 int 
-coap_ep_is_mbedtls_peer(const coap_endpoint_t *ep)
+coap_ep_is_dtls_peer(const coap_endpoint_t *ep)
 {
   coap_mbedtls_session_info_t *info = NULL; 
 
@@ -295,7 +295,7 @@ coap_ep_get_mbedtls_session_info(const coap_endpoint_t *ep)
 }
 /*---------------------------------------------------------------------------*/
 int 
-coap_ep_is_mbedtls_connected(const coap_endpoint_t *ep)
+coap_ep_is_dtls_connected(const coap_endpoint_t *ep)
 {
   coap_mbedtls_session_info_t *info = NULL; 
 
@@ -305,18 +305,16 @@ coap_ep_is_mbedtls_connected(const coap_endpoint_t *ep)
   return 0;
 }
 /*---------------------------------------------------------------------------*/
-/* DEPRECATED
 int 
-coap_ep_get_mbedtls_state(const coap_endpoint_t *ep)
+coap_ep_get_dtls_state(const coap_endpoint_t *ep)
 {
   coap_mbedtls_session_info_t *info = NULL; 
 
   if((info = coap_ep_get_mbedtls_session_info(ep)) != NULL) {
-    return info->ssl.state;
+    return info->ssl.MBEDTLS_PRIVATE(state);
   }
   return 0;
 }
-*/
 /*---------------------------------------------------------------------------*/
 int 
 perform_handshake(coap_mbedtls_session_info_t *session_info)
@@ -431,7 +429,7 @@ perform_handshake(coap_mbedtls_session_info_t *session_info)
           && ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
     /* HS failed -- Clean up 
-     * Call coap_ep_mbedtls_connect() again if a retry is needed  */
+     * Call coap_ep_dtls_connect() again if a retry is needed  */
       if(session_info->role == COAP_MBEDTLS_ROLE_CLIENT) {
         list_remove(mbedtls_context.sessions, session_info);
         memb_free(&mbedtls_session_info_memb, session_info);
@@ -588,7 +586,7 @@ coap_ep_mbedtls_recv(void *ctx, unsigned char *buf, size_t len)
 /*---------------------------------------------------------------------------*/
 static coap_mbedtls_session_info_t *
 mbedtls_session_setup(const coap_mbedtls_role_t role, 
-    const coap_mbedtls_sec_mode_t sec_mode, 
+    const coap_dtls_sec_mode_t sec_mode, 
     const void *keystore_entry)
 {
   int ret;
@@ -617,7 +615,7 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
   mbedtls_ctr_drbg_init(&session_info->ctr_drbg);
 
 #ifdef COAP_DTLS_CONF_WITH_CERT
-  if(sec_mode == COAP_MBEDTLS_SEC_MODE_CERT) {
+  if(sec_mode == COAP_DTLS_SEC_MODE_CERT) {
     mbedtls_x509_crt_init(&session_info->ca_cert);
     mbedtls_x509_crt_init(&session_info->own_cert);
     mbedtls_pk_init(&session_info->pkey);
@@ -659,12 +657,12 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
 
 #ifndef COAP_MBEDTLS_CONF_USE_ALL_CIPHERSUITES
 #ifdef COAP_DTLS_CONF_WITH_CERT
-  if(sec_mode == COAP_MBEDTLS_SEC_MODE_CERT) {
+  if(sec_mode == COAP_DTLS_SEC_MODE_CERT) {
     session_info->ciphersuite = MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8;
   } 
 #endif /* COAP_DTLS_CONF_WITH_CERT */
 #ifdef COAP_DTLS_CONF_WITH_PSK  
-  if(sec_mode == COAP_MBEDTLS_SEC_MODE_PSK) {
+  if(sec_mode == COAP_DTLS_SEC_MODE_PSK) {
     session_info->ciphersuite = MBEDTLS_TLS_PSK_WITH_AES_256_CCM_8;
   }
 #endif /* COAP_DTLS_CONF_WITH_PSK */
@@ -683,7 +681,7 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
 #endif /* !MBEDTLS_NO_PLATFORM_ENTROPY */
       &session_info->ctr_drbg);
 #ifdef COAP_DTLS_CONF_WITH_CERT 
-  if(sec_mode == COAP_MBEDTLS_SEC_MODE_CERT) {
+  if(sec_mode == COAP_DTLS_SEC_MODE_CERT) {
 
     coap_keystore_cert_entry_t *ks = 
       (coap_keystore_cert_entry_t *) keystore_entry;
@@ -737,7 +735,7 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
   } else 
 #endif /* COAP_DTLS_CONF_WITH_CERT */
 #ifdef COAP_DTLS_CONF_WITH_PSK  
-  if(sec_mode == COAP_MBEDTLS_SEC_MODE_PSK) {
+  if(sec_mode == COAP_DTLS_SEC_MODE_PSK) {
 
     coap_keystore_psk_entry_t *ks = 
       (coap_keystore_psk_entry_t *) keystore_entry;
@@ -830,8 +828,8 @@ clean_and_ret_err:
 
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
 int 
-coap_ep_mbedtls_connect(const coap_endpoint_t *ep, 
-    const coap_mbedtls_sec_mode_t sec_mode, 
+coap_ep_dtls_connect(const coap_endpoint_t *ep, 
+    const coap_dtls_sec_mode_t sec_mode, 
     const void *keystore_entry)
 {
   coap_mbedtls_session_info_t *session_info = NULL; 
@@ -878,7 +876,7 @@ coap_ep_mbedtls_connect(const coap_endpoint_t *ep,
 /*---------------------------------------------------------------------------*/
 #ifdef COAP_DTLS_CONF_WITH_SERVER
 int 
-coap_mbedtls_server_setup(const coap_mbedtls_sec_mode_t sec_mode, 
+coap_mbedtls_server_setup(const coap_dtls_sec_mode_t sec_mode, 
     const void *keystore_entry)
 {
   coap_mbedtls_session_info_t *session_info = NULL; 
@@ -1057,5 +1055,5 @@ coap_ep_mbedtls_disconnect(const coap_endpoint_t *ep)
 #endif /* COAP_DTLS_CONF_WITH_SERVER */ 
   }
 }
-/*---------------------------------------------------------------------------*/
+
 /** @} */

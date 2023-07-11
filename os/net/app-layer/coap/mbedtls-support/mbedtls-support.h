@@ -60,11 +60,11 @@
 #include "coap-endpoint.h"
 #include "coap-keystore.h"
 
-typedef enum coap_mbedtls_sec_mode_e {
-  COAP_MBEDTLS_SEC_MODE_NONE = 0,
-  COAP_MBEDTLS_SEC_MODE_PSK = 1,
-  COAP_MBEDTLS_SEC_MODE_CERT = 2,
-} coap_mbedtls_sec_mode_t;
+typedef enum coap_dtls_sec_mode_e {
+  COAP_DTLS_SEC_MODE_NONE = 0,
+  COAP_DTLS_SEC_MODE_PSK = 1,
+  COAP_DTLS_SEC_MODE_CERT = 2,
+} coap_dtls_sec_mode_t;
 
 typedef enum coap_mbedtls_role_e {
   COAP_MBEDTLS_ROLE_NONE = 0,
@@ -208,8 +208,8 @@ coap_ep_get_mbedtls_session_info(const coap_endpoint_t *ep);
  * \return  SUCCESS: 1
  *          FAILURE: -1 
  */
-int coap_ep_mbedtls_connect(const coap_endpoint_t *ep, 
-    coap_mbedtls_sec_mode_t sec_mode, const void *keystore_entry);
+int coap_ep_dtls_connect(const coap_endpoint_t *ep, 
+    coap_dtls_sec_mode_t sec_mode, const void *keystore_entry);
 #endif /* COAP_DTLS_CONF_WITH_CLIENT */
 
 #ifdef COAP_DTLS_CONF_WITH_SERVER
@@ -225,7 +225,7 @@ int coap_ep_mbedtls_connect(const coap_endpoint_t *ep,
  * \return  SUCCESS: 1
  *          FAILURE: -1 
  */
-int coap_mbedtls_server_setup(const coap_mbedtls_sec_mode_t sec_mode, 
+int coap_mbedtls_server_setup(const coap_dtls_sec_mode_t sec_mode, 
     const void *keystore_entry);
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
 
@@ -237,7 +237,7 @@ int coap_mbedtls_server_setup(const coap_mbedtls_sec_mode_t sec_mode,
  * \return  SUCCESS: 1
  *          FAILURE: 0
  */
-int coap_ep_is_mbedtls_peer(const coap_endpoint_t *ep);
+int coap_ep_is_dtls_peer(const coap_endpoint_t *ep);
 
 
 /**
@@ -248,15 +248,16 @@ int coap_ep_is_mbedtls_peer(const coap_endpoint_t *ep);
  * \return  SUCCESS: 1
  *          FAILURE: 0
  */
-int coap_ep_is_mbedtls_connected(const coap_endpoint_t *ep);
+int coap_ep_is_dtls_connected(const coap_endpoint_t *ep);
 
 /**
  * \brief  Check in what DTLS state the peer is in. 
  *           
  * \param ep  Pointer of peer CoAP endpoint.
+ * \warn      Uses deprecated mbedtls getters
  *
  * \return  enum mbedtls_ssl_states  
  */
-//int coap_ep_get_mbedtls_state(const coap_endpoint_t *ep);
-//TODO: deprecated in upstream mbedtls, no single replacement available
+int coap_ep_get_dtls_state(const coap_endpoint_t *ep);
+
 #endif /* MBEDTLS_SUPPORT_H_ */
