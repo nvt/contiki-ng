@@ -79,8 +79,8 @@ typedef enum coap_mbedtls_event_e {
 } coap_mbedtls_event_t;
 
 /* DTLS session info -- config, current state, etc */
-typedef struct coap_mbedtls_session_info {
-  struct coap_mbedtls_session_info *next;  
+typedef struct coap_dtls_session_info {
+  struct coap_dtls_session_info *next;  
   enum coap_mbedtls_role_e role; 
   coap_endpoint_t ep; /* Server/Client address when role 
                          is Client/Server respectively */ 
@@ -109,18 +109,18 @@ typedef struct coap_mbedtls_session_info {
   mbedtls_ssl_cache_context cache;
 #endif /* MBEDTLS_SSL_CACHE_C */
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
-} coap_mbedtls_session_info_t;
+} coap_dtls_session_info_t;
 
 /* DTLS message info */
-typedef struct coap_mbedtls_send_message {
+typedef struct coap_dtls_send_message {
   struct coap_mbedtls_send_message *next;
   coap_endpoint_t ep;
   unsigned char send_buf[COAP_MBEDTLS_MTU];
   uint32_t len;
-} coap_mbedtls_send_message_t;
+} coap_dtls_send_message_t;
 
 /* Struct stores global DTLS info */
-typedef struct coap_mbedtls_context {
+typedef struct coap_dtls_context {
   uint8_t ready; // 1 = DTLS initialized and ready; 0 = Not ready
   struct uip_udp_conn *udp_conn; // DTLS will listen on this udp port
   struct process *host_process; /* Process which will take care of sending 
@@ -128,19 +128,19 @@ typedef struct coap_mbedtls_context {
   LIST_STRUCT(sessions); // List of DTLS sessions
   LIST_STRUCT(send_message_fifo); // DTLS message to send queue
   struct etimer fragmentation_et;
-} coap_mbedtls_context_t;
+} coap_dtls_context_t;
 
 /**
  * \brief     Initializes CoAP-MbedTLS global info. Must be the first thing that is 
  *            called before using CoAP-MbedTLS. 
  */
-void coap_mbedtls_init();
+void coap_dtls_init();
 
 /**
  * \brief     Handler for timer, and process-poll events.
  *            Must be called by the host process (CoAP Engine).
  */
-void coap_mbedtls_event_handler();
+void coap_dtls_event_handler();
 
 /**
  * \brief    Registers, 1. UDP port info. 2. Host process (Coap Engine). 
@@ -151,7 +151,7 @@ void coap_mbedtls_event_handler();
  * \param host_process  Pointer to the host process. This process will recieve 
  *                      a poll event when a DTLS message needs to be sent. 
  */
-void coap_mbedtls_conn_init(struct uip_udp_conn *udp_conn, 
+void coap_dtls_conn_init(struct uip_udp_conn *udp_conn, 
     struct process *host_process);
 
 /**
@@ -164,7 +164,7 @@ void coap_mbedtls_conn_init(struct uip_udp_conn *udp_conn,
  * \return  SUCCESS: Number of bytes written.
  *          FAILURE: -1 
  */
-int coap_ep_mbedtls_write(const coap_endpoint_t *ep, 
+int coap_ep_dtls_write(const coap_endpoint_t *ep, 
     const unsigned char *message, int len);
 
 /**
@@ -176,7 +176,7 @@ int coap_ep_mbedtls_write(const coap_endpoint_t *ep,
  * \return  SUCCESS: 0 for Handshake; Number of bytes read for record layer packet.
  *          FAILURE: -1 
  */
-int coap_ep_mbedtls_handle_message(const coap_endpoint_t *ep);
+int coap_ep_dtls_handle_message(const coap_endpoint_t *ep);
 
 /**
  * \brief   Disconnect a peer. Sends a close notification message to peer. 
@@ -184,15 +184,15 @@ int coap_ep_mbedtls_handle_message(const coap_endpoint_t *ep);
  *           
  * \param ep  Pointer of peer CoAP endpoint.
  */
-void coap_ep_mbedtls_disconnect(const coap_endpoint_t *ep);
+void coap_ep_dtls_disconnect(const coap_endpoint_t *ep);
 
 /**
  * \brief   Get session struct associated with CoAP endpoint. 
  *           
  * \param ep  Pointer of peer CoAP endpoint.
  */
-coap_mbedtls_session_info_t * 
-coap_ep_get_mbedtls_session_info(const coap_endpoint_t *ep);
+coap_dtls_session_info_t * 
+coap_ep_get_dtls_session_info(const coap_endpoint_t *ep);
 
 
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
@@ -225,7 +225,7 @@ int coap_ep_dtls_connect(const coap_endpoint_t *ep,
  * \return  SUCCESS: 1
  *          FAILURE: -1 
  */
-int coap_mbedtls_server_setup(const coap_dtls_sec_mode_t sec_mode, 
+int coap_dtls_server_setup(const coap_dtls_sec_mode_t sec_mode, 
     const void *keystore_entry);
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
 
