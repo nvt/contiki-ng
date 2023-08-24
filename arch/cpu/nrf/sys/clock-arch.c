@@ -51,20 +51,30 @@
 #include "nrfx_rtc.h"
 #include "nrfx_clock.h"
 
+#ifdef NRF_CLOCK_CONF_RTC_INSTANCE
+#define NRF_CLOCK_RTC_INSTANCE NRF_CLOCK_CONF_RTC_INSTANCE
+#else
+#define NRF_CLOCK_RTC_INSTANCE 0
+#endif
+
+#define MAX_TICKS (~((clock_time_t)0) / 2)
+
+static void clock_update(void);
+
 /*---------------------------------------------------------------------------*/
-const nrfx_rtc_t rtc = NRFX_RTC_INSTANCE(0); /**< RTC instance used for platform clock */
+/**< RTC instance used for platform clock */
+static const nrfx_rtc_t rtc = NRFX_RTC_INSTANCE(NRF_CLOCK_RTC_INSTANCE);
 /*---------------------------------------------------------------------------*/
 static volatile uint32_t ticks;
-void clock_update(void);
-
+/*---------------------------------------------------------------------------*/
 static void 
 clock_handler(nrfx_clock_evt_type_t event)
 {
   (void) event;
 }
-
+/*---------------------------------------------------------------------------*/
 /**
- * @brief Function for handling the RTC0 interrupts
+ * @brief Function for handling the RTC<instance> interrupts
  * @param int_type Type of interrupt to be handled
  */
 static void
@@ -74,6 +84,7 @@ rtc_handler(nrfx_rtc_int_type_t int_type)
     clock_update();
   }
 }
+/*---------------------------------------------------------------------------*/
 /** 
  * @brief Function starting the internal LFCLK XTAL oscillator.
  */
@@ -90,6 +101,7 @@ lfclk_config(void)
 
   nrfx_clock_lfclk_start();
 }
+/*---------------------------------------------------------------------------*/
 /**
  * @brief Function initialization and configuration of RTC driver instance.
  */
@@ -131,11 +143,12 @@ clock_time(void)
   return (clock_time_t)(ticks & 0xFFFFFFFF);
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 clock_update(void)
 {
   ticks++;
-  if(etimer_pending()) {
+  if(etimer_pending() &&
+     (etimer_next_expiration_time() - (clock_time_t)ticks - 1) > MAX_TICKS) {
     etimer_request_poll();
   }
 }
@@ -143,7 +156,7 @@ clock_update(void)
 unsigned long
 clock_seconds(void)
 {
-  return (unsigned long)ticks / CLOCK_CONF_SECOND;
+  return (unsigned long)(ticks / CLOCK_SECOND);
 }
 /*---------------------------------------------------------------------------*/
 void
