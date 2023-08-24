@@ -15,6 +15,14 @@ CONTIKI_ARM_DIRS += cortex-m
 ### Build syscalls for newlib
 MODULES += os/lib/newlib
 
+ifeq ($(TRUSTZONE_SECURE_BUILD), 1)
+    # Include the core TrustZone module for secure world.
+    MODULES_REL += $(CONTIKI_NG_RELOC_CPU_DIR)/arm/cortex-m/trustzone
+else ifeq ($(TRUSTZONE_SECURE_BUILD), 0)
+    # Include the core TrustZone module for normal world.
+    MODULES_REL += $(CONTIKI_NG_RELOC_CPU_DIR)/arm/cortex-m/trustzone/normal
+endif
+
 LDFLAGS += -T $(LDSCRIPT)
 LDFLAGS += -Wl,--gc-sections,--sort-section=alignment
 # The next line might be trying to avoid

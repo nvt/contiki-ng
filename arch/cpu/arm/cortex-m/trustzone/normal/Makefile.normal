@@ -1,0 +1,2 @@
+# Exclude the normal dbg-arch.c from the build
+CONTIKI_SOURCES_EXCLUDES += dbg-arch.c

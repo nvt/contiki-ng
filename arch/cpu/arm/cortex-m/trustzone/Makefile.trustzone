@@ -1,0 +1,6 @@
+CMSE_IMPORT_LIB ?= CMSE-import-lib.o
+
+# Provide a library of secure functions to the normal world.
+LDFLAGS += -Xlinker --cmse-implib
+LDFLAGS += -Xlinker --out-implib=$(BUILD_DIR_BOARD)/$(CMSE_IMPORT_LIB)
+LDFLAGS += -Xlinker --sort-section=alignment
