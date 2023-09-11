@@ -855,6 +855,21 @@ PT_THREAD(cmd_reboot(struct pt *pt, shell_output_func output, char *args))
   watchdog_reboot();
   PT_END(pt);
 }
+/*---------------------------------------------------------------------------*/
+static
+PT_THREAD(cmd_ps(struct pt *pt, shell_output_func output, char *args))
+{
+  PT_BEGIN(pt);
+  SHELL_OUTPUT(output, "Processes\n");
+  for(struct process *p = PROCESS_LIST(); p != NULL; p = p->next) {
+    const char *state = p->state == 0 ? "NONE" :
+                                        p->state == 1 ? "RUNNING" : "CALLED";
+    SHELL_OUTPUT(output, "id=%p, name=\'%s\', state=%s, needspoll=%d\n",
+                 p, PROCESS_NAME_STRING(p), state, p->needspoll);
+  }
+
+  PT_END(pt);
+}
 #if MAC_CONF_WITH_TSCH
 /*---------------------------------------------------------------------------*/
 static
@@ -1042,6 +1057,7 @@ shell_command_lookup(const char *name)
 const struct shell_command_t builtin_shell_commands[] = {
   { "help",                 cmd_help,                 "'> help': Shows this help" },
   { "reboot",               cmd_reboot,               "'> reboot': Reboot the board by watchdog_reboot()" },
+  { "ps",                   cmd_ps,                   "'> ps': List processes" },
   { "log",                  cmd_log,                  "'> log module level': Sets log level (0--4) for a given module (or \"all\"). For module \"mac\", level 4 also enables per-slot logging." },
   { "mac-addr",             cmd_macaddr,               "'> mac-addr': Shows the node's MAC address" },
 #if NETSTACK_CONF_WITH_IPV6
