@@ -169,19 +169,26 @@ log_bytes(const void *data, size_t length)
   }
 }
 /*---------------------------------------------------------------------------*/
-void
+bool
 log_set_level(const char *module, int level)
 {
-  if(level >= LOG_LEVEL_NONE && level <= LOG_LEVEL_DBG) {
-    int i = 0;
-    int module_all = !strcmp("all", module);
-    while(all_modules[i].name != NULL) {
-      if(module_all || !strcmp(module, all_modules[i].name)) {
-        *all_modules[i].curr_log_level = MIN(level, all_modules[i].max_log_level);
+  if(level < LOG_LEVEL_NONE) {
+    return false;
+  }
+
+  bool module_all = !strcmp("all", module);
+  for(int i = 0; all_modules[i].name != NULL; i++) {
+    if(module_all) {
+      *all_modules[i].curr_log_level = MIN(level, all_modules[i].max_log_level);
+    } else if(!strcmp(module, all_modules[i].name)) {
+      if(level > all_modules[i].max_log_level) {
+        return false;
       }
-      i++;
+      *all_modules[i].curr_log_level = level;
+      return true;
     }
   }
+  return module_all;
 }
 /*---------------------------------------------------------------------------*/
 int

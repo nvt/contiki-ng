@@ -51,6 +51,7 @@
 #ifndef LOG_H_
 #define LOG_H_
 
+#include <stdbool.h>
 #include <stdio.h>
 #include "net/linkaddr.h"
 #include "sys/log-conf.h"
@@ -283,10 +284,16 @@ void log_bytes(const void *data, size_t length);
  * Sets a log level at run-time. Logs are included in the firmware via
  * the compile-time flags in log-conf.h, but this allows to force lower log
  * levels, system-wide.
+ *
+ * When the target module is "all", the function will try to set all modules
+ * level to the indicated level, but if the level surpasses the maximum level
+ * of a module, it will not be changed for that module.
+ *
  * \param module The target module string descriptor
  * \param level The log level
+ * \return A boolean indicating whether the operation succeeded or not
 */
-void log_set_level(const char *module, int level);
+bool log_set_level(const char *module, int level);
 
 /**
  * Returns the current log level.

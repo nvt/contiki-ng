@@ -355,7 +355,11 @@ PT_THREAD(cmd_log(struct pt *pt, shell_output_func output, char *args))
 
   /* Set log level */
   if(level != prev_level) {
-    log_set_level(module, level);
+    if(!log_set_level(module, level)) {
+      SHELL_OUTPUT(output, "Unable to set the log level for %s to %d\n",
+                   module, level);
+      PT_EXIT(pt);
+    }
 #if MAC_CONF_WITH_TSCH && TSCH_LOG_PER_SLOT
     if(!strcmp(module, "mac") || !strcmp(module, "all")) {
       if(level >= LOG_LEVEL_DBG) {
