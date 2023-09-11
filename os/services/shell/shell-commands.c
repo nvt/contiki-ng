@@ -540,6 +540,52 @@ PT_THREAD(cmd_ip_neighbors(struct pt *pt, shell_output_func output, char *args))
   PT_END(pt);
 
 }
+/*---------------------------------------------------------------------------*/
+static
+PT_THREAD(cmd_netstat(struct pt *pt, shell_output_func output, char *args))
+{
+  PT_BEGIN(pt);
+
+#if UIP_STATISTICS
+  SHELL_OUTPUT(output, "*** IPv6 statistics ***\n");
+  SHELL_OUTPUT(output, "%u recv, %u sent, %u forw, %u drop\n",
+               (unsigned)uip_stat.ip.recv, (unsigned)uip_stat.ip.sent,
+               (unsigned)uip_stat.ip.forwarded, (unsigned)uip_stat.ip.drop);
+
+  SHELL_OUTPUT(output, "*** ICMPv6 statistics ***\n");
+  SHELL_OUTPUT(output, "%u recv, %u sent, %u drop, %u typeerr, %u chkerr\n",
+               (unsigned)uip_stat.icmp.recv, (unsigned)uip_stat.icmp.sent,
+               (unsigned)uip_stat.icmp.drop, (unsigned)uip_stat.icmp.typeerr,
+               (unsigned)uip_stat.icmp.chkerr);
+
+#if UIP_TCP
+  SHELL_OUTPUT(output, "*** TCP statistics ***\n");
+  SHELL_OUTPUT(output, "%u recv, %u sent, %u drop, %u chkerr, %u ackerr, "
+                       "%u rst %u rexmit %u syndrop %u synrst\n",
+               (unsigned)uip_stat.tcp.recv, (unsigned)uip_stat.tcp.sent,
+               (unsigned)uip_stat.tcp.drop, (unsigned)uip_stat.tcp.chkerr,
+               (unsigned)uip_stat.tcp.ackerr, (unsigned)uip_stat.tcp.rst,
+               (unsigned)uip_stat.tcp.rexmit, (unsigned)uip_stat.tcp.syndrop,
+               (unsigned)uip_stat.tcp.synrst);
+#endif /* UIP_TCP */
+
+#if UIP_UDP
+  SHELL_OUTPUT(output, "*** UDP statistics ***\n");
+  SHELL_OUTPUT(output, "%u recv, %u sent, %u drop, %u chkerr\n",
+               (unsigned)uip_stat.udp.recv, (unsigned)uip_stat.udp.sent,
+               (unsigned)uip_stat.udp.drop, (unsigned)uip_stat.udp.chkerr);
+#endif /* UIP_UDP */
+
+  SHELL_OUTPUT(output, "*** ND6 statistics ***\n");
+  SHELL_OUTPUT(output, "%u recv, %u sent, %u drop\n",
+               (unsigned)uip_stat.nd6.recv, (unsigned)uip_stat.nd6.sent,
+               (unsigned)uip_stat.nd6.drop);
+#else
+  SHELL_OUTPUT(output, "No statistics available\n");
+#endif /* UIP_STATISTICS */
+
+  PT_END(pt);
+}
 #endif /* NETSTACK_CONF_WITH_IPV6 */
 #if MAC_CONF_WITH_TSCH
 /*---------------------------------------------------------------------------*/
@@ -1001,6 +1047,7 @@ const struct shell_command_t builtin_shell_commands[] = {
 #if NETSTACK_CONF_WITH_IPV6
   { "ip-addr",              cmd_ipaddr,               "'> ip-addr': Shows all IPv6 addresses" },
   { "ip-nbr",               cmd_ip_neighbors,         "'> ip-nbr': Shows all IPv6 neighbors" },
+  { "netstat",              cmd_netstat,              "'> netstat': Shows networking statistics" },
   { "ping",                 cmd_ping,                 "'> ping addr': Pings the IPv6 address 'addr'" },
   { "routes",               cmd_routes,               "'> routes': Shows the route entries" },
 #if BUILD_WITH_RESOLV
