@@ -56,9 +56,11 @@
 #include "sys/pt.h"
 #include "sys/cc.h"
 
-typedef unsigned char process_event_t;
-typedef void *        process_data_t;
-typedef unsigned char process_num_events_t;
+#include <stdint.h>
+
+typedef uint8_t process_event_t;
+typedef void *  process_data_t;
+typedef uint8_t process_num_events_t;
 
 /**
  * \name Return values
