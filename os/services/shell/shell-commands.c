@@ -74,6 +74,7 @@
 #include "net/routing/rpl-classic/rpl.h"
 #endif
 
+#include <inttypes.h>
 #include <stdlib.h>
 
 #define PING_TIMEOUT (5 * CLOCK_SECOND)
@@ -874,6 +875,43 @@ PT_THREAD(cmd_ps(struct pt *pt, shell_output_func output, char *args))
 
   PT_END(pt);
 }
+/*---------------------------------------------------------------------------*/
+static
+PT_THREAD(cmd_post(struct pt *pt, shell_output_func output, char *args))
+{
+  PT_BEGIN(pt);
+
+  char *next_args;
+  SHELL_ARGS_INIT(args, next_args);
+
+  SHELL_ARGS_NEXT(args, next_args);
+  if(args == NULL) {
+    SHELL_OUTPUT(output, "Missing process ID\n");
+    PT_EXIT(pt);
+  }
+  uintptr_t proc_id = strtoul(args, NULL, 16);
+
+  SHELL_ARGS_NEXT(args, next_args);
+  if(args == NULL) {
+    SHELL_OUTPUT(output, "Missing event ID\n");
+    PT_EXIT(pt);
+  }
+  process_event_t event_id = strtoul(args, NULL, 16);
+
+  for(struct process *p = PROCESS_LIST(); p != NULL; p = p->next) {
+    if((uintptr_t)p == proc_id) {
+      process_post(p, event_id, NULL);
+      SHELL_OUTPUT(output, "Posted event 0x%x to process '%s'\n",
+                   (unsigned)event_id, p->name);
+      PT_EXIT(pt);
+    }
+  }
+
+  SHELL_OUTPUT(output, "Unable to find the process with ID %"PRIuPTR"\n",
+               proc_id);
+
+  PT_END(pt);
+}
 #if MAC_CONF_WITH_TSCH
 /*---------------------------------------------------------------------------*/
 static
@@ -1062,6 +1100,7 @@ const struct shell_command_t builtin_shell_commands[] = {
   { "help",                 cmd_help,                 "'> help': Shows this help" },
   { "reboot",               cmd_reboot,               "'> reboot': Reboot the board by watchdog_reboot()" },
   { "ps",                   cmd_ps,                   "'> ps': List processes" },
+  { "post",                 cmd_post,                 "'> post': Post an event to a process" },
   { "log",                  cmd_log,                  "'> log module level': Sets log level (0--4) for a given module (or \"all\"). For module \"mac\", level 4 also enables per-slot logging." },
   { "mac-addr",             cmd_macaddr,               "'> mac-addr': Shows the node's MAC address" },
 #if NETSTACK_CONF_WITH_IPV6
