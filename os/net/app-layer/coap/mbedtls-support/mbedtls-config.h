@@ -85,8 +85,6 @@
 #define MBEDTLS_CIPHER_C
 
 //DTLS
-#define MBEDTLS_TIMING_C
-
 #define MBEDTLS_SSL_DTLS_ANTI_REPLAY
 #define MBEDTLS_SSL_DTLS_HELLO_VERIFY
 
@@ -96,7 +94,7 @@
 #define MBEDTLS_SSL_DTLS_MAX_BUFFERING (2 * COAP_MBEDTLS_MTU) 
 
 //Networking 
-#define MBEDTLS_NET_C
+//#define MBEDTLS_NET_C //TODO
 
 //Client Role
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
@@ -137,8 +135,9 @@
 #define mbedtls_calloc contiki_calloc
 #define mbedtls_free contiki_free
 
-#include "config.h" //TODO: decide best place to add/include
-#include "mbedtls/check_config.h"
+//#include "mbedtls/config.h" //TODO: decide best place to add/include
+#include "mbedtls/build_info.h"
+//#include "mbedtls/check_config.h" //TODO: when to do the checking?
 
 #if 0 /* Kept for reference */ 
 /**
@@ -2583,7 +2582,7 @@
  *
  * This module provides networking routines.
  */
-#define MBEDTLS_NET_C
+//#define MBEDTLS_NET_C // placed above
 
 /**
  * \def MBEDTLS_OID_C

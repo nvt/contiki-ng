@@ -43,9 +43,11 @@
 #include "mbedtls/entropy.h"
 #endif /* !MBEDTLS_NO_PLATFORM_ENTROPY */
 #include "mbedtls/ctr_drbg.h"
-#include "mbedtls/timing.h"
+//TODO: joel config messup!
+#define MBEDTLS_TIMING_ALT
+#include "mbedtls/timing.h" //or alt directly?
 #ifdef COAP_DTLS_CONF_WITH_CERT
-#include "mbedtls/certs.h"
+//#include "mbedtls/certs.h" //TODO: Hardcoded certs should ideally stay within their individual examples/subprojects
 #include "mbedtls/x509.h"
 #endif /* COAP_DTLS_CONF_WITH_CERT */
 #ifdef COAP_DTLS_CONF_WITH_SERVER

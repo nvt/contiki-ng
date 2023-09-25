@@ -37,6 +37,19 @@
 //#define MBEDTLS_PSA_CRYPTO_C
 //#define MBEDTLS_ECP_LIGHT 
 
+/* Flags used during porting and testing for nrf OBS needed to be kept defined for native! */
+
+
+#ifdef NRF52840_XXAA
+//TODO, this should be dependent on any target platform
+#define MBEDTLS_NET_C_ALT 
+#define MBEDTLS_TIMING_ALT
+#else 
+#define MBEDTLS_NET_C
+#define MBEDTLS_TIMING
+#endif
+
+
 #ifdef BOARD_STRING
 #define LWM2M_DEVICE_MODEL_NUMBER BOARD_STRING
 #elif defined(CONTIKI_TARGET_WISMOTE)
@@ -187,9 +200,9 @@
 //#define COAP_MBEDTLS_ENERGY_EVALUATION
 //#define ENERGEST_CONF_ON 1 // Needed for energy evaluation 
 
-//#define LOG_CONF_LEVEL_LWM2M LOG_LEVEL_DBG
-//#define LOG_CONF_LEVEL_COAP LOG_LEVEL_DBG
-//#define LOG_CONF_LEVEL_IPV6 LOG_LEVEL_INFO
+#define LOG_CONF_LEVEL_LWM2M LOG_LEVEL_DBG
+#define LOG_CONF_LEVEL_COAP LOG_LEVEL_DBG
+#define LOG_CONF_LEVEL_IPV6 LOG_LEVEL_INFO
 //#define LOG_CONF_LEVEL_TCPIP LOG_LEVEL_INFO
 //#define LOG_CONF_LEVEL_RPL LOG_LEVEL_INFO 
 //#define LOG_CONF_LEVEL_6LOWPAN LOG_LEVEL_INFO

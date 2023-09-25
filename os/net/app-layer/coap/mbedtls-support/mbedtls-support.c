@@ -47,7 +47,12 @@
 #include "dtls-config.h"
 #include "mbedtls-support.h"
 
+#ifdef MBEDTLS_NET_C
 #include "mbedtls/net_sockets.h"
+#error "not now"
+#else
+#include "net_sockets_alt.h"
+#endif 
 #include "mbedtls/error.h"
 #include "mbedtls/debug.h"
 
@@ -179,7 +184,8 @@ coap_dtls_init()
 #endif /* MBEDTLS_DEBUG_C */
 
 #if !defined(MBEDTLS_SSL_PROTO_DTLS) || \
-  !defined(MBEDTLS_NET_C) || !defined(MBEDTLS_TIMING_C) || \
+  !(defined(MBEDTLS_NET_C)||defined(MBEDTLS_NET_C_ALT)) || \
+  !(defined(MBEDTLS_TIMING_C)||defined(MBEDTLS_TIMING_ALT)) || \
   !defined(MBEDTLS_ENTROPY_C) || !defined(MBEDTLS_CTR_DRBG_C)
   LOG_ERR("MBEDTLS_SSL_CLI_C and/or MBEDTLS_SSL_PROTO_DTLS and/or "
       "MBEDTLS_NET_C and/or MBEDTLS_TIMING_C and/or "
@@ -478,10 +484,16 @@ coap_dtls_event_handler()
     heapmem_free(send_message);
 
     /* Update re-transmission timer */
+    /* TODO, please note that the current timer implementation
+       ignores the new mbedTLS default to hide the constituents,
+       which otherwise requires access through
+       timer.MBEDTLS_PRIVATE(<field>)
+     */
+
     info = coap_ep_get_dtls_session_info(&send_message->ep);
-    elapsed_ms = mbedtls_timing_get_timer(&info->timer.MBEDTLS_PRIVATE(timer), 0);
-    if(info->timer.MBEDTLS_PRIVATE(fin_ms) > 0) {
-      time_left_ms = info->timer.MBEDTLS_PRIVATE(fin_ms) - elapsed_ms;
+    elapsed_ms = mbedtls_timing_get_timer_internal(&info->timer.timer, 0);
+    if(info->timer.fin_ms > 0) {
+      time_left_ms = info->timer.fin_ms - elapsed_ms;
       if(time_left_ms > 0) {
         LOG_DBG("Updating re-transmission timer to %u ms\n", (unsigned int)time_left_ms);
         etimer_set(&info->retransmission_et, (time_left_ms * CLOCK_SECOND) / 1000);
