@@ -52,9 +52,9 @@ struct mbedtls_timing_hr_time {
  */
 typedef struct mbedtls_timing_delay_context
 {
-    struct timer timer;           /*Contiki timer sturcture*/
-    uint32_t     int_ms;
-    uint32_t     fin_ms;
+    struct timer private_timer;           /*Contiki timer structure*/
+    uint32_t     private_int_ms;
+    uint32_t     private_fin_ms;
 } mbedtls_timing_delay_context;
 
 
@@ -92,7 +92,7 @@ unsigned long mbedtls_timing_hardclock( void );
  *                 Contiki-NG timers work with clock cycles, thus after timer subtraction
  *                 the clock cycles are converted to milliseconds.
  */
-uint64_t mbedtls_timing_get_timer_internal( struct timer *val, int reset ); //TODO
+uint64_t mbedtls_timing_get_timer( struct timer *val, int reset ); 
 
 /**
  * \brief          Setup an alarm clock

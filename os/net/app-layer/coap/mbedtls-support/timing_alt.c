@@ -18,6 +18,11 @@
  *  limitations under the License.
  */
 
+//#if defined(MBEDTLS_TIMING_ALT) //TODO, something with the defines is out of order!
+#if defined(NRF52840_XXAA)
+/*
+ This file only works on embedded platforms, not Unix, see MBEDTLS_TIMING_C in mbedtls_config.h
+*/
 #include "common.h"
 
 #if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_PLATFORM_C)
@@ -27,7 +32,8 @@
 #define mbedtls_printf     printf
 #endif
 
-#include "mbedtls/timing.h"
+//#include "mbedtls/timing.h"
+#include "timing_alt.h"
 
 //TODO Joel, this is weird
 // Included for Porting to Contiki-NG
@@ -213,7 +219,8 @@ volatile int mbedtls_timing_alarmed = 0;
  * Get elapsed time in milliseconds or reset timer
  */
 //TODO
-uint64_t mbedtls_timing_get_timer_internal( struct timer *t, int reset )
+//uint64_t mbedtls_timing_get_timer_internal( struct timer *t, int reset )
+uint64_t mbedtls_timing_get_timer( struct timer *t, int reset )
 {
 
     if( reset )
@@ -258,17 +265,17 @@ void mbedtls_timing_set_delay( void *data, uint32_t int_ms, uint32_t fin_ms )
 {
     mbedtls_timing_delay_context *ctx = (mbedtls_timing_delay_context *) data;
 
-    ctx->int_ms = int_ms;
-    ctx->fin_ms = fin_ms;
+    ctx->private_int_ms = int_ms;
+    ctx->private_fin_ms = fin_ms;
     /* convert ms to ticks */
     uint64_t interval = (fin_ms * CLOCK_SECOND) / 1000;
 
     /* initialize timer */
-    timer_set(&ctx->timer, interval);
+    timer_set(&ctx->private_timer, interval);
 
     /* reset timer */
     if( fin_ms != 0 )
-        (void) mbedtls_timing_get_timer_internal( &ctx->timer, 1 );
+        (void) mbedtls_timing_get_timer( &ctx->private_timer, 1 );
 }
 
 /*
@@ -279,17 +286,17 @@ int mbedtls_timing_get_delay( void *data )
     mbedtls_timing_delay_context *ctx = (mbedtls_timing_delay_context *) data;
     uint64_t elapsed_ms;
 
-    if( ctx->fin_ms == 0 )
+    if( ctx->private_fin_ms == 0 )
         return( -1 );
 
-    elapsed_ms = mbedtls_timing_get_timer_internal( &ctx->timer, 0 );
+    elapsed_ms = mbedtls_timing_get_timer( &ctx->private_timer, 0 );
 
-    if( elapsed_ms >= ctx->fin_ms )
+    if( elapsed_ms >= ctx->private_fin_ms )
         return( 2 );
 
-    if( elapsed_ms >= ctx->int_ms )
+    if( elapsed_ms >= ctx->private_int_ms )
         return( 1 );
 
     return( 0 );
 }
-
+#endif //should be: defined(MBEDTLS_TIMING_ALT)

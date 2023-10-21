@@ -39,6 +39,12 @@
 
 /* Flags used during porting and testing for nrf OBS needed to be kept defined for native! */
 
+/*
+	ENDPOINT_NAME "Contiki-NG36065E1DD"
+	corresponds to CN in test-certificate with PK starting with
+	"MHcCAQEEIDhoMzFVUcmwhmlhSWZC4crijj48IvaUslsjWvHWiFNpoAoGCCqGSM49"
+*/
+#define LWM2M_ENGINE_CLIENT_ENDPOINT_NAME "Contiki-NG36065E1DD"
 
 #ifdef NRF52840_XXAA
 //TODO, this should be dependent on any target platform
@@ -46,7 +52,7 @@
 #define MBEDTLS_TIMING_ALT
 #else 
 #define MBEDTLS_NET_C
-#define MBEDTLS_TIMING
+#define MBEDTLS_TIMING_C
 #endif
 
 

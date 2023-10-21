@@ -49,10 +49,11 @@
 
 #ifdef MBEDTLS_NET_C
 #include "mbedtls/net_sockets.h"
-#error "not now"
+#include "mbedtls/timing.h"
 #else
 #include "net_sockets_alt.h"
 #endif 
+
 #include "mbedtls/error.h"
 #include "mbedtls/debug.h"
 
@@ -491,9 +492,9 @@ coap_dtls_event_handler()
      */
 
     info = coap_ep_get_dtls_session_info(&send_message->ep);
-    elapsed_ms = mbedtls_timing_get_timer_internal(&info->timer.timer, 0);
-    if(info->timer.fin_ms > 0) {
-      time_left_ms = info->timer.fin_ms - elapsed_ms;
+    elapsed_ms = mbedtls_timing_get_timer(&info->timer.MBEDTLS_PRIVATE(timer), 0);
+    if(info->timer.MBEDTLS_PRIVATE(fin_ms) > 0) {
+      time_left_ms = info->timer.MBEDTLS_PRIVATE(fin_ms) - elapsed_ms;
       if(time_left_ms > 0) {
         LOG_DBG("Updating re-transmission timer to %u ms\n", (unsigned int)time_left_ms);
         etimer_set(&info->retransmission_et, (time_left_ms * CLOCK_SECOND) / 1000);
