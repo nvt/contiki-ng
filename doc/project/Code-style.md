@@ -15,6 +15,10 @@
 * Configuration definitions begin with the module name and CONF_. Like
   this: `PROCESS_CONF_NUMEVENTS`
 
+## Line width
+
+Code and comment lines should be at most 80 characters wide.
+
 ## Formatting scripts
 
 The Contiki source tree contains scripts to assist with correct code formatting
