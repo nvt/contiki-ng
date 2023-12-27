@@ -35,7 +35,7 @@
 
 /* Flags used during porting and testing */
 //#define MBEDTLS_PSA_CRYPTO_C
-//#define MBEDTLS_ECP_LIGHT 
+//#define MBEDTLS_ECP_LIGHT
 
 /* Flags used during porting and testing for nrf OBS needed to be kept defined for native! */
 
@@ -48,9 +48,9 @@
 
 #ifdef NRF52840_XXAA
 //TODO, this should be dependent on any target platform
-#define MBEDTLS_NET_C_ALT 
+#define MBEDTLS_NET_C_ALT
 #define MBEDTLS_TIMING_ALT
-#else 
+#else
 #define MBEDTLS_NET_C
 #define MBEDTLS_TIMING_C
 #endif
@@ -101,7 +101,7 @@
 /* DTLS configurations */
 //#define LWM2M_SERVER_ADDRESS "coaps://[fe80::f6ce:364d:c62e:6c68]"
 //#define LWM2M_SERVER_ADDRESS "coaps://[fe80::f6ce:3606:5e1d:d8e4]"
-#define LWM2M_SERVER_ADDRESS "coaps://[fd00::1]" // Border-router + Leshan 
+#define LWM2M_SERVER_ADDRESS "coaps://[fd00::1]" // Border-router + Leshan
 
 
 #ifdef COAP_DTLS_CONF_WITH_CERT
@@ -159,7 +159,7 @@
 "1hkl5I7NeymI5uWsKy4JsU2jTpdY05x+oQ==\r\n" \
 "-----END EC PRIVATE KEY-----\r\n"
 
-#else /* COAP_DTLS_CONF_WITH_SERVER */ 
+#else /* COAP_DTLS_CONF_WITH_SERVER */
 
 #define COAP_DTLS_TEST_OWN_CERT \
 "-----BEGIN CERTIFICATE-----\r\n" \
@@ -196,21 +196,22 @@
 //#define COAP_MBEDTLS_CONF_MAX_FRAG_LEN 1
 
 #define LOG_CONF_LEVEL_DTLS LOG_LEVEL_DBG
-#define COAP_MBEDTLS_LIB_CONF_DEBUG_LEVEL 0 /* Ensure debugs are compiled before 
-                                               increasing this value */
 
-//#define COAP_MBEDTLS_EVALUATION //Eval msgs are at LOG_DBG level 
+/* Ensure debugs are compiled before increasing this value. */
+#define COAP_MBEDTLS_LIB_CONF_DEBUG_LEVEL 0
+
+//#define COAP_MBEDTLS_EVALUATION /* Eval msgs are at LOG_DBG level. */
 //#define COAP_MBEDTLS_NETWORKING_EVALUATION
 //#define COAP_MBEDTLS_TIMING_EVALUATION
 //#define COAP_MBEDTLS_MEM_EVALUATION
 //#define COAP_MBEDTLS_ENERGY_EVALUATION
-//#define ENERGEST_CONF_ON 1 // Needed for energy evaluation 
+//#define ENERGEST_CONF_ON 1 /* Needed for energy evaluation */
 
 #define LOG_CONF_LEVEL_LWM2M LOG_LEVEL_DBG
 #define LOG_CONF_LEVEL_COAP LOG_LEVEL_DBG
 #define LOG_CONF_LEVEL_IPV6 LOG_LEVEL_INFO
 //#define LOG_CONF_LEVEL_TCPIP LOG_LEVEL_INFO
-//#define LOG_CONF_LEVEL_RPL LOG_LEVEL_INFO 
+//#define LOG_CONF_LEVEL_RPL LOG_LEVEL_INFO
 //#define LOG_CONF_LEVEL_6LOWPAN LOG_LEVEL_INFO
 //#define LOG_CONF_LEVEL_MAIN LOG_LEVEL_WARN
 //#define LOG_CONF_LEVEL_MAC LOG_LEVEL_INFO
