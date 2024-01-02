@@ -41,22 +41,19 @@ extern "C" {
  * \brief          internal timer structure
  */
 struct mbedtls_timing_hr_time {
-    uint64_t opaque[4];
+  uint64_t opaque[4];
 };
-
 
 /**
  * \brief          Context for mbedtls_timing_set/get_delay().
  *                 POSIX structure replaced with Contiki_NG timer.
  *                 Intermediate and final delay not changed.
  */
-typedef struct mbedtls_timing_delay_context
-{
-    struct timer private_timer;           /*Contiki timer structure*/
-    uint32_t     private_int_ms;
-    uint32_t     private_fin_ms;
+typedef struct mbedtls_timing_delay_context {
+  struct timer private_timer;             /*Contiki timer structure*/
+  uint32_t private_int_ms;
+  uint32_t private_fin_ms;
 } mbedtls_timing_delay_context;
-
 
 extern volatile int mbedtls_timing_alarmed;
 
@@ -70,7 +67,7 @@ extern volatile int mbedtls_timing_alarmed;
  * \note           This value starts at an unspecified origin and
  *                 may wrap around.
  */
-unsigned long mbedtls_timing_hardclock( void );
+unsigned long mbedtls_timing_hardclock(void);
 
 /**
  * \brief          Return the elapsed time in milliseconds
@@ -88,11 +85,11 @@ unsigned long mbedtls_timing_hardclock( void );
  *                 `{ get_timer(1); ...; time1 = get_timer(1); ...; time2 =
  *                 get_timer(0) }` the value time1+time2 is only approximately
  *                 the delay since the first reset.
- *                 
+ *
  *                 Contiki-NG timers work with clock cycles, thus after timer subtraction
  *                 the clock cycles are converted to milliseconds.
  */
-uint64_t mbedtls_timing_get_timer( struct timer *val, int reset ); 
+uint64_t mbedtls_timing_get_timer(struct timer *val, int reset);
 
 /**
  * \brief          Setup an alarm clock
@@ -104,7 +101,7 @@ uint64_t mbedtls_timing_get_timer( struct timer *val, int reset );
  *                 context, this means one for the whole process, not one per
  *                 thread.
  */
-void mbedtls_set_alarm( int seconds );
+void mbedtls_set_alarm(int seconds);
 
 /**
  * \brief          Set a pair of delays to watch
@@ -122,7 +119,7 @@ void mbedtls_set_alarm( int seconds );
  *                 to the timer in the given strucutre and \c mbedtls_timing_get_delay()
  *                 is called to reset/start the timer.
  */
-void mbedtls_timing_set_delay( void *data, uint32_t int_ms, uint32_t fin_ms );
+void mbedtls_timing_set_delay(void *data, uint32_t int_ms, uint32_t fin_ms);
 
 /**
  * \brief          Get the status of delays
@@ -139,8 +136,7 @@ void mbedtls_timing_set_delay( void *data, uint32_t int_ms, uint32_t fin_ms );
  * \note           The data type of elapsed_ms was changed to uint64_t from unsigned
  *                 long as some Contiki-NG platforms might have different type definitions.
  */
-int mbedtls_timing_get_delay( void *data );
-
+int mbedtls_timing_get_delay(void *data);
 
 #ifdef __cplusplus
 }

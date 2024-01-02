@@ -18,11 +18,11 @@
  *  limitations under the License.
  */
 
-//#if defined(MBEDTLS_TIMING_ALT) //TODO, something with the defines is out of order!
+/*#if defined(MBEDTLS_TIMING_ALT) //TODO, something with the defines is out of order! */
 #if defined(NRF52840_XXAA)
 /*
- This file only works on embedded platforms, not Unix, see MBEDTLS_TIMING_C in mbedtls_config.h
-*/
+   This file only works on embedded platforms, not Unix, see MBEDTLS_TIMING_C in mbedtls_config.h
+ */
 #include "common.h"
 
 #if defined(MBEDTLS_SELF_TEST) && defined(MBEDTLS_PLATFORM_C)
@@ -32,15 +32,13 @@
 #define mbedtls_printf     printf
 #endif
 
-//#include "mbedtls/timing.h"
+/*#include "mbedtls/timing.h" */
 #include "timing_alt.h"
 
-//TODO Joel, this is weird
-// Included for Porting to Contiki-NG
-// Contiki-NG timer module
+/*TODO Joel, this is weird */
+/* Included for Porting to Contiki-NG */
+/* Contiki-NG timer module */
 #include "contiki.h"
-
-
 
 #ifndef asm
 #define asm __asm

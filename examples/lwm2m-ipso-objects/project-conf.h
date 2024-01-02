@@ -33,6 +33,8 @@
 /* Debug flags */
 #define HEAPMEM_DEBUG 1
 
+#define CSPRNG_CONF_ENABLED 1
+
 /* Flags used during porting and testing */
 //#define MBEDTLS_PSA_CRYPTO_C
 //#define MBEDTLS_ECP_LIGHT
