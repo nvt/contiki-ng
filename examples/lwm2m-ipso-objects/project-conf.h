@@ -31,9 +31,17 @@
 #define PROJECT_CONF_H_
 
 /* Debug flags */
-#define HEAPMEM_DEBUG 1
+#define HEAPMEM_DEBUG 0
 
+#if defined(NRF52840_XXAA) || defined(NRF5340_XXAA_APPLICATION) || \
+    defined(NRF5340_XXAA_NETWORK)
+/* The nRF platforms do not yet implement the CSPRNG --
+   use an insecure PRNG for testing. */
+#define COAP_DTLS_CONF_PRNG_INSECURE 1
+#else
+/* Use the cryptographically-secure pseudo random number generator. */
 #define CSPRNG_CONF_ENABLED 1
+#endif
 
 /* Flags used during porting and testing */
 //#define MBEDTLS_PSA_CRYPTO_C
@@ -47,16 +55,6 @@
 	"MHcCAQEEIDhoMzFVUcmwhmlhSWZC4crijj48IvaUslsjWvHWiFNpoAoGCCqGSM49"
 */
 #define LWM2M_ENGINE_CLIENT_ENDPOINT_NAME "Contiki-NG36065E1DD"
-
-#ifdef NRF52840_XXAA
-//TODO, this should be dependent on any target platform
-#define MBEDTLS_NET_C_ALT
-#define MBEDTLS_TIMING_ALT
-#else
-#define MBEDTLS_NET_C
-#define MBEDTLS_TIMING_C
-#endif
-
 
 #ifdef BOARD_STRING
 #define LWM2M_DEVICE_MODEL_NUMBER BOARD_STRING
@@ -197,26 +195,12 @@
 //#define COAP_MBEDTLS_CONF_MTU 200
 //#define COAP_MBEDTLS_CONF_MAX_FRAG_LEN 1
 
-#define LOG_CONF_LEVEL_DTLS LOG_LEVEL_DBG
-
 /* Ensure debugs are compiled before increasing this value. */
 #define COAP_MBEDTLS_LIB_CONF_DEBUG_LEVEL 0
 
-//#define COAP_MBEDTLS_EVALUATION /* Eval msgs are at LOG_DBG level. */
-//#define COAP_MBEDTLS_NETWORKING_EVALUATION
-//#define COAP_MBEDTLS_TIMING_EVALUATION
-//#define COAP_MBEDTLS_MEM_EVALUATION
-//#define COAP_MBEDTLS_ENERGY_EVALUATION
-//#define ENERGEST_CONF_ON 1 /* Needed for energy evaluation */
-
-#define LOG_CONF_LEVEL_LWM2M LOG_LEVEL_DBG
+#define LOG_CONF_LEVEL_DTLS LOG_LEVEL_DBG
+#define LOG_CONF_LEVEL_LWM2M LOG_LEVEL_INFO
 #define LOG_CONF_LEVEL_COAP LOG_LEVEL_DBG
 #define LOG_CONF_LEVEL_IPV6 LOG_LEVEL_INFO
-//#define LOG_CONF_LEVEL_TCPIP LOG_LEVEL_INFO
-//#define LOG_CONF_LEVEL_RPL LOG_LEVEL_INFO
-//#define LOG_CONF_LEVEL_6LOWPAN LOG_LEVEL_INFO
-//#define LOG_CONF_LEVEL_MAIN LOG_LEVEL_WARN
-//#define LOG_CONF_LEVEL_MAC LOG_LEVEL_INFO
-//#define LOG_CONF_LEVEL_FRAMER LOG_LEVEL_INFO
 
 #endif /* PROJECT_CONF_H_ */
