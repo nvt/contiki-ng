@@ -245,19 +245,19 @@ get_src_endpoint(uint8_t secure)
   return &src;
 }
 /*---------------------------------------------------------------------------*/
-int
+bool
 coap_endpoint_is_secure(const coap_endpoint_t *ep)
 {
   return ep->secure;
 }
 /*---------------------------------------------------------------------------*/
-int
+bool
 coap_endpoint_is_connected(const coap_endpoint_t *ep)
 {
 #ifndef CONTIKI_TARGET_NATIVE
   if(!uip_is_addr_linklocal(&ep->ipaddr)
-    && NETSTACK_ROUTING.node_is_reachable() == 0) {
-    return 0;
+     && NETSTACK_ROUTING.node_is_reachable() == 0) {
+    return false;
   }
 #endif
 
@@ -272,12 +272,12 @@ coap_endpoint_is_connected(const coap_endpoint_t *ep)
     LOG_DBG("DTLS did not find peer ");
     LOG_DBG_COAP_EP(ep);
     LOG_DBG_("\n");
-    return 0;
+    return false;
   }
 #endif /* WITH_DTLS */
 
   /* Assume connected */
-  return 1;
+  return true;
 }
 /*---------------------------------------------------------------------------*/
 int
@@ -294,7 +294,7 @@ coap_endpoint_connect(coap_endpoint_t *ep)
 #endif /* COAP_DTLS_CONF_WITH_CLIENT */
 #endif /* WITH_DTLS */
 
-  if(ep->secure == 0) {
+  if(!ep->secure) {
     LOG_DBG("connect to ");
     LOG_DBG_COAP_EP(ep);
     LOG_DBG_("\n");
@@ -309,14 +309,12 @@ coap_endpoint_connect(coap_endpoint_t *ep)
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
 #ifdef COAP_DTLS_CONF_WITH_PSK
   if(coap_ep_get_dtls_psk_info(ep, &psk_info) == 1) {
-    return coap_ep_dtls_connect(ep, COAP_DTLS_SEC_MODE_PSK, 
-        (const void *) &psk_info); 
+    return coap_ep_dtls_connect(ep, COAP_DTLS_SEC_MODE_PSK, &psk_info);
   } 
 #endif /* COAP_DTLS_CONF_WITH_PSK */
 #ifdef COAP_DTLS_CONF_WITH_CERT
   if(coap_ep_get_dtls_cert_info(ep, &cert_info) == 1) { 
-    return coap_ep_dtls_connect(ep, COAP_DTLS_SEC_MODE_CERT, 
-        (const void *) &cert_info); 
+    return coap_ep_dtls_connect(ep, COAP_DTLS_SEC_MODE_CERT, &cert_info);
   } 
 #endif /* COAP_DTLS_CONF_WITH_CERT */
   LOG_ERR("Unable to retrieve DTLS authorization info for \n");
@@ -331,7 +329,7 @@ coap_endpoint_connect(coap_endpoint_t *ep)
 #ifdef WITH_DTLS
 #ifdef COAP_DTLS_CONF_WITH_SERVER
 int 
-coap_secure_server_setup()
+coap_secure_server_setup(void)
 {
   coap_endpoint_t ep;
 #ifdef COAP_DTLS_CONF_WITH_CERT 
@@ -343,15 +341,13 @@ coap_secure_server_setup()
 
 #ifdef COAP_DTLS_CONF_WITH_PSK
   if(coap_ep_get_dtls_psk_info(&ep, &psk_info) == 1) {
-    return coap_dtls_server_setup(COAP_DTLS_SEC_MODE_PSK, 
-        (const void *) &psk_info); 
+    return coap_dtls_server_setup(COAP_DTLS_SEC_MODE_PSK, &psk_info);
   } 
 #endif /* COAP_DTLS_CONF_WITH_PSK */
 
 #ifdef COAP_DTLS_CONF_WITH_CERT
   if(coap_ep_get_dtls_cert_info(&ep, &cert_info) == 1) { 
-    return coap_dtls_server_setup(COAP_DTLS_SEC_MODE_CERT, 
-        (const void *) &cert_info); 
+    return coap_dtls_server_setup(COAP_DTLS_SEC_MODE_CERT, &cert_info);
   } 
 #endif /* COAP_DTLS_CONF_WITH_CERT */
   return 0;
@@ -534,10 +530,8 @@ static int
 coap_ep_get_dtls_cert_info(const coap_endpoint_t *ep,
     coap_keystore_cert_entry_t *info)
 {
-  if(dtls_keystore != NULL) {
-    if(dtls_keystore->coap_get_cert_info) {
-      return dtls_keystore->coap_get_cert_info(ep, info);
-    }
+  if(dtls_keystore != NULL && dtls_keystore->coap_get_cert_info != NULL) {
+    return dtls_keystore->coap_get_cert_info(ep, info);
   } 
   return 0;
 }

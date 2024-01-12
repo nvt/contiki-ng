@@ -56,7 +56,6 @@
 #endif
 
 #ifdef COAP_DTLS_CONF_WITH_CERT
-/*#include "mbedtls/certs.h" //TODO: Hardcoded certs should ideally stay within their individual examples/subprojects */
 #include "mbedtls/x509.h"
 #endif /* COAP_DTLS_CONF_WITH_CERT */
 #ifdef COAP_DTLS_CONF_WITH_SERVER
@@ -66,7 +65,7 @@
 #endif /* MBEDTLS_SSL_CACHE_C */
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
 
-#include "dtls-config.h"
+#include "dtls-support-config.h"
 
 #include "coap-endpoint.h"
 #include "coap-keystore.h"
@@ -95,8 +94,8 @@ typedef struct coap_dtls_session_info {
   enum coap_mbedtls_role_e role;
   coap_endpoint_t ep; /* Server/Client address when role
                          is Client/Server respectively */
-  uint8_t is_packet_consumed; /* To prevent Mbed TLS from reading
-                                 the same packet more than once. */
+  bool is_packet_consumed; /* To prevent Mbed TLS from reading
+                              the same packet more than once. */
   mbedtls_ssl_context ssl;
   mbedtls_ssl_config conf;
   uint32_t ciphersuite;
@@ -104,7 +103,7 @@ typedef struct coap_dtls_session_info {
   mbedtls_entropy_context entropy;
 #endif /* !MBEDTLS_NO_PLATFORM_ENTROPY */
   mbedtls_ctr_drbg_context ctr_drbg;
-  mbedtls_timing_delay_context timer;
+  struct mbedtls_timing_delay_context timer;
   struct etimer retransmission_et; /* Event timer to call the handshake function
                                       for re-transmssion */
 #ifdef COAP_DTLS_CONF_WITH_CERT
@@ -114,7 +113,7 @@ typedef struct coap_dtls_session_info {
   mbedtls_pk_context pkey; /* Our (Client/Server) private key */
 #endif /* COAP_DTLS_CONF_WITH_CERT */
 #ifdef COAP_DTLS_CONF_WITH_SERVER
-  uint8_t in_use; /* 1 = This server session is in use by a client; 0 = free */
+  bool in_use; /* Determines if this server session is in use by a client. */
   mbedtls_ssl_cookie_ctx cookie_ctx;
 #if defined(MBEDTLS_SSL_CACHE_C)
   mbedtls_ssl_cache_context cache;
@@ -127,12 +126,12 @@ typedef struct coap_dtls_send_message {
   struct coap_mbedtls_send_message *next;
   coap_endpoint_t ep;
   unsigned char send_buf[COAP_MBEDTLS_MTU];
-  uint32_t len;
+  size_t len;
 } coap_dtls_send_message_t;
 
 /* Struct stores global DTLS info */
 typedef struct coap_dtls_context {
-  uint8_t ready; /* 1 = DTLS initialized and ready; 0 = Not ready */
+  bool ready; /* Determines whether DTLS is initialized and ready. */
   struct uip_udp_conn *udp_conn; /* DTLS will listen on this udp port */
   struct process *host_process; /* Process which will take care of sending
                                               DTLS messages -- CoAP UIP process */
@@ -244,20 +243,20 @@ int coap_dtls_server_setup(const coap_dtls_sec_mode_t sec_mode,
  *
  * \param ep  Pointer of peer CoAP endpoint.
  *
- * \return  SUCCESS: 1
- *          FAILURE: 0
+ * \return  SUCCESS: true
+ *          FAILURE: false
  */
-int coap_ep_is_dtls_peer(const coap_endpoint_t *ep);
+bool coap_ep_is_dtls_peer(const coap_endpoint_t *ep);
 
 /**
  * \brief  Check if a peer has completed the handshake successfully
  *
  * \param ep  Pointer of peer CoAP endpoint.
  *
- * \return  SUCCESS: 1
- *          FAILURE: 0
+ * \return  SUCCESS: true
+ *          FAILURE: false
  */
-int coap_ep_is_dtls_connected(const coap_endpoint_t *ep);
+bool coap_ep_is_dtls_connected(const coap_endpoint_t *ep);
 
 /**
  * \brief  Check in what DTLS state the peer is in.

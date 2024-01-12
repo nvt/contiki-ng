@@ -39,7 +39,7 @@
  *		Jayendra Ellamathy <ejayen@gmail.com>
  */
 
-#include "dtls-config.h"
+#include "dtls-support-config.h"
 #include "lib/heapmem.h"
 
 /* Basic settings */
@@ -53,6 +53,10 @@
 #define MBEDTLS_ENTROPY_C
 #define MBEDTLS_CTR_DRBG_C
 
+/* Timing */
+#define MBEDTLS_TIMING_C
+#define MBEDTLS_TIMING_ALT
+
 #ifdef COAP_DTLS_CONF_WITH_CERT
 #define MBEDTLS_HMAC_DRBG_C
 #endif /* COAP_DTLS_CONF_WITH_CERT */
@@ -60,15 +64,18 @@
 /* RFC 7925 profile */
 #define MBEDTLS_SSL_PROTO_DTLS
 #define MBEDTLS_SSL_PROTO_TLS1_2
+
 #ifdef COAP_DTLS_CONF_WITH_PSK
 #define MBEDTLS_KEY_EXCHANGE_PSK_ENABLED
 #endif /* COAP_DTLS_CONF_WITH_PSK */
+
 #ifdef COAP_DTLS_CONF_WITH_CERT
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 #define MBEDTLS_ECP_DP_SECP256R1_ENABLED
 #define MBEDTLS_ECDH_C
 #define MBEDTLS_ECDSA_C
 #define MBEDTLS_ECP_C
+#define MBEDTLS_ECP_LIGHT
 #define MBEDTLS_BIGNUM_C
 #define MBEDTLS_ASN1_PARSE_C
 #define MBEDTLS_OID_C
@@ -82,6 +89,7 @@
 #define MBEDTLS_ECP_NIST_OPTIM
 #define MBEDTLS_ECDSA_DETERMINISTIC
 #endif /* COAP_DTLS_CONF_WITH_CERT */
+
 #define MBEDTLS_AES_C
 #define MBEDTLS_CCM_C
 #define MBEDTLS_SHA256_C
@@ -97,9 +105,6 @@
 #define MBEDTLS_SSL_OUT_CONTENT_LEN COAP_MBEDTLS_MTU
 #define MBEDTLS_SSL_DTLS_MAX_BUFFERING (2 * COAP_MBEDTLS_MTU)
 
-/* Networking */
-/*#define MBEDTLS_NET_C //TODO */
-
 /* Client Role */
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
 #define MBEDTLS_SSL_CLI_C
@@ -113,25 +118,30 @@
 #define MBEDTLS_SSL_CACHE_C
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
 
-#if 0 /* Disable to save memory */
+#ifdef COAP_DTLS_CONF_DEBUG
 /* Debugging */
 #define MBEDTLS_DEBUG_C
 #define MBEDTLS_ERROR_C
 #define MBEDTLS_SSL_ALL_ALERT_MESSAGES
 #define MBEDTLS_SSL_DEBUG_ALL
-#endif
+#endif /* COAP_DTLS_CONF_DEBUG */
 
 /* IoT features */
 #define MBEDTLS_SSL_MAX_FRAGMENT_LENGTH
 
-/* HW Acceleration */
+/* HW Acceleration. This is disabled because the current nRF SDK
+   submodule lacks the necessary modules. */
+#ifdef COAP_DTLS_CONF_HW_ACCEL
 #ifdef COAP_DTLS_CONF_WITH_CERT
 #ifdef NRF52840_XXAA /* Curr. only for nRF52840 */
 #define NRF_HW_ACCEL_FOR_MBEDTLS
 #define MBEDTLS_ECDSA_VERIFY_ALT
 #define MBEDTLS_ECDH_COMPUTE_SHARED_ALT
+#else
+#error "COAP_DTLS_CONF_HW_ACCEL enabled, but is not implemented for the Contiki-NG target."
 #endif /* NRF52840_XXAA */
 #endif /* COAP_DTLS_CONF_WITH_CERT */
+#endif /* COAP_DTLS_CONF_HW_ACCEL */
 
 /* Use the Contiki-NG HeapMem module for Mbed TLS dynamic memory. */
 #define MBEDTLS_PLATFORM_C
@@ -139,6 +149,5 @@
 #define MBEDTLS_PLATFORM_CALLOC_MACRO heapmem_calloc
 #define MBEDTLS_PLATFORM_FREE_MACRO heapmem_free
 
-/*#include "mbedtls/config.h" //TODO: decide best place to add/include */
 #include "mbedtls/build_info.h"
-/*#include "mbedtls/check_config.h" //TODO: when to do the checking? */
+#include "mbedtls/check_config.h"

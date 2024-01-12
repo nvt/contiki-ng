@@ -21,7 +21,7 @@ MAKE_COAP_DTLS_WITH_CERT=1 MAKE_COAP_DTLS_WITH_CLIENT=1`
 Files: 
 
 * The DTLS implementation configuration is placed in
-  mbedtls-support/dtls-config.h.
+  mbedtls-support/dtls-support-config.h.
   
 * The Mbed TLS library configuration is placed in
   mbedtls-support/mbedtls-config.h.
@@ -73,7 +73,6 @@ watchdog timeout is configured longer than this.
 
 Mbed TLS is configured to use the heapmem library in Contiki-NG for
 its dynamic memory. The amount of usage can be found out with the help
-of memory evaluation debug logs, which is configurable through
-`COAP_MBEDTLS_MEM_EVALUATION`. The size allocated for the heapmem
-module is configurable through `HEAPMEM_CONF_ARENA_SIZE`.
+of the `heapmem_print_debug_info` function. The size allocated for the
+heapmem module is configurable through `HEAPMEM_CONF_ARENA_SIZE`.
 

@@ -12,6 +12,7 @@ include $(CONTIKI)/Makefile.dir-variables
 MODULES += $(CONTIKI_NG_APP_LAYER_DIR)/coap
 MODULES += $(CONTIKI_NG_SERVICES_DIR)/lwm2m
 MODULES += $(CONTIKI_NG_SERVICES_DIR)/ipso-objects
+MODULES += $(CONTIKI_NG_SERVICES_DIR)/rpl-border-router
 
 include $(CONTIKI)/Makefile.identify-target
 MODULES_REL += $(TARGET)

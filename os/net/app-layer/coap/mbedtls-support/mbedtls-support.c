@@ -41,30 +41,54 @@
 
 #include "contiki.h"
 #include "contiki-net.h"
-#include "heapmem.h"
 #include "lib/csprng.h"
-#include "sys/rtimer.h"
-#include "sys/process.h"
-#include "sys/log.h"
+#include "lib/heapmem.h"
 
-#include "dtls-config.h"
 #include "mbedtls-support.h"
-
-#ifdef MBEDTLS_NET_C
 #include "mbedtls/net_sockets.h"
-#include "mbedtls/timing.h"
-#else
-#include "net_sockets_alt.h"
-#endif
-
 #include "mbedtls/error.h"
 #include "mbedtls/debug.h"
 
-#ifdef COAP_MBEDTLS_EVALUATION
-#ifdef COAP_MBEDTLS_ENERGY_EVALUATION
-#include "sys/energest.h"
-#endif /* COAP_MBEDTLS_ENERGY_EVALUATION */
-#endif /* COAP_MBEDTLS_EVALUATION */
+#if !defined(MBEDTLS_SSL_PROTO_DTLS) || \
+  !(defined(MBEDTLS_TIMING_C) || defined(MBEDTLS_TIMING_ALT)) || \
+  !defined(MBEDTLS_ENTROPY_C) || !defined(MBEDTLS_CTR_DRBG_C)
+#error "Invalid MBEDTLS configuration."
+#endif
+
+#ifdef COAP_DTLS_CONF_WITH_CLIENT
+#if !defined(MBEDTLS_SSL_CLI_C)
+#error "MBEDTLS_SSL_CLI_C not defined.";
+#endif
+#endif /* COAP_DTLS_CONF_WITH_CLIENT */
+
+#ifdef COAP_DTLS_CONF_WITH_SERVER
+#if !defined(MBEDTLS_SSL_SRV_C) || !defined(MBEDTLS_SSL_COOKIE_C) || \
+  !defined(MBEDTLS_SSL_CACHE_C)
+#error "MBEDTLS_SSL_SRV_C and/or MBEDTLS_SSL_COOKIE_C and/or "
+       "MBEDTLS_SSL_CACHE_C not defined.";
+  return;
+#endif
+#endif /* COAP_DTLS_CONF_WITH_SERVER */
+
+#ifdef COAP_DTLS_CONF_WITH_PSK
+#if !defined(MBEDTLS_KEY_EXCHANGE_PSK_ENABLED)
+#error "MBEDTLS_KEY_EXCHANGE_PSK_ENABLED not defined.";
+#endif
+#endif /* COAP_DTLS_CONF_WITH_PSK */
+
+#ifdef COAP_DTLS_CONF_WITH_CERT
+#if !defined(MBEDTLS_X509_CRT_PARSE_C) || \
+  !defined(MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) || \
+  !defined(MBEDTLS_PEM_PARSE_C)
+#error "MBEDTLS_X509_CRT_PARSE_C and/or "
+       "MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED and/or "
+       "MBEDTLS_PEM_PARSE_C not defined.\n");
+#endif
+#endif /* COAP_DTLS_CONF_WITH_CERT */
+
+#if !defined(COAP_DTLS_PRNG_INSECURE) && !CSPRNG_ENABLED
+#error CSPRNG module needs to be enabled for DTLS. Set CSPRNG_CONF_ENABLED to 1.
+#endif
 
 #if defined(MBEDTLS_ECDSA_VERIFY_ALT) || \
   defined(MBEDTLS_ECDH_COMPUTE_SHARED_ALT)
@@ -73,81 +97,9 @@
           MBEDTLS_ECDH_COMPUTE_SHARED_ALT */
 
 /* Log configuration */
+#include "sys/log.h"
 #define LOG_MODULE "DTLS"
 #define LOG_LEVEL LOG_LEVEL_DTLS
-
-#ifdef COAP_MBEDTLS_EVALUATION
-static uint8_t hs_started;
-static uint8_t hs_complete;
-#ifdef COAP_MBEDTLS_NETWORKING_EVALUATION
-static uint32_t total_hs_data_sent;
-#endif /* COAP_MBEDTLS_NETWORKING_EVALUATION */
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-static rtimer_clock_t prev_perform_hs_end_time;
-static rtimer_clock_t hs_start_time;
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-#ifdef COAP_MBEDTLS_MEM_EVALUATION
-extern size_t peak_heap_usage;
-extern size_t heap_usage;
-#endif /* COAP_MBEDTLS_MEM_EVALUATION */
-
-static inline uint32_t
-to_milliseconds(uint64_t time)
-{
-  return (uint32_t)((uint64_t)time * 1000 / RTIMER_SECOND);
-}
-
-static inline uint32_t
-to_microseconds(uint64_t time)
-{
-  return (uint32_t)((uint64_t)time * 1000000 / RTIMER_SECOND);
-}
-
-static void
-hs_eval_init(void)
-{
-  hs_started = 1;
-#ifdef COAP_MBEDTLS_NETWORKING_EVALUATION
-  total_hs_data_sent = 0;
-#endif /* COAP_MBEDTLS_NETWORKING_EVALUATION */
-
-#ifdef COAP_MBEDTLS_ENERGY_EVALUATION
-  energest_init();
-#endif /* COAP_MBEDTLS_ENERGY_EVALUATION */
-
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-  hs_start_time = RTIMER_NOW();
-  prev_perform_hs_end_time = RTIMER_NOW();
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-}
-
-static void
-hs_eval_end(void)
-{
-  hs_started = 0;
-  hs_complete = 1;
-
-#ifdef COAP_MBEDTLS_ENERGY_EVALUATION
-  energest_flush();
-#endif /* COAP_MBEDTLS_ENERGY_EVALUATION */
-}
-
-static void
-record_eval_init(void)
-{
-#ifdef COAP_MBEDTLS_ENERGY_EVALUATION
-  energest_init();
-#endif /* COAP_MBEDTLS_ENERGY_EVALUATION */
-}
-
-static void
-record_eval_end(void)
-{
-#ifdef COAP_MBEDTLS_ENERGY_EVALUATION
-  energest_flush();
-#endif /* COAP_MBEDTLS_ENERGY_EVALUATION */
-}
-#endif /* COAP_MBEDTLS_EVALUATION */
 
 MEMB(dtls_session_info_memb, coap_dtls_session_info_t,
      COAP_DTLS_MAX_SESSIONS);
@@ -168,13 +120,36 @@ mbedtls_debug(void *ctx, int level,
 static int
 random_number_generator(void *ctx, unsigned char *buffer, size_t length)
 {
+#if COAP_DTLS_PRNG_INSECURE
+  /* This is an insecure PRNG for testing purposes only. */
+  uint16_t rand_num = 0;
+  size_t len = 0;
+
+  while(length < (len + sizeof(rand_num))) {
+    rand_num = random_rand();
+    memcpy(buffer + len, &rand_num, sizeof(rand_num));
+    len += sizeof(rand_num);
+   }
+  rand_num = random_rand();
+  memcpy(buffer, &rand_num, length - len);
+
+  LOG_WARN("Missing CSPRNG: using %zu bytes of possibly non-random values!\n",
+           length);
+
+  return 0;
+#else /* COAP_DTLS_PRNG_INSECURE */
+#if !CSPRNG_ENABLED
+#error CSPRNG module needs to be enabled for DTLS. Set CSPRNG_CONF_ENABLED to 1.
+#endif /* !CSPRNG_ENABLED */
+
   if(!csprng_rand(buffer, length)) {
     LOG_ERR("Failed to generate %zu bytes of random values\n", length);
     return MBEDTLS_ERR_CTR_DRBG_ENTROPY_SOURCE_FAILED;
   }
+  LOG_DBG("Generated %zu bytes of random values\n", length);
 
-  LOG_INFO("Generated %zu bytes of random values\n", length);
   return 0;
+#endif /* COAP_DTLS_PRNG_INSECURE */
 }
 #endif /* defined(MBEDTLS_NO_PLATFORM_ENTROPY) */
 /*---------------------------------------------------------------------------*/
@@ -184,50 +159,6 @@ coap_dtls_init(void)
 #if defined(MBEDTLS_DEBUG_C)
   mbedtls_debug_set_threshold(COAP_MBEDTLS_LIB_DEBUG_LEVEL);
 #endif /* MBEDTLS_DEBUG_C */
-
-#if !defined(MBEDTLS_SSL_PROTO_DTLS) || \
-  !(defined(MBEDTLS_NET_C) || defined(MBEDTLS_NET_C_ALT)) || \
-  !(defined(MBEDTLS_TIMING_C) || defined(MBEDTLS_TIMING_ALT)) || \
-  !defined(MBEDTLS_ENTROPY_C) || !defined(MBEDTLS_CTR_DRBG_C)
-  LOG_ERR("MBEDTLS_SSL_CLI_C and/or MBEDTLS_SSL_PROTO_DTLS and/or "
-          "MBEDTLS_NET_C and/or MBEDTLS_TIMING_C and/or "
-          "MBEDTLS_ENTROPY_C and/or MBEDTLS_CTR_DRBG_C not defined.\n");
-  return;
-#endif
-
-#ifdef COAP_DTLS_CONF_WITH_CLIENT
-#if !defined(MBEDTLS_SSL_CLI_C)
-  LOG_ERR("MBEDTLS_SSL_CLI_C not defined.\n");
-  return;
-#endif
-#endif /* COAP_DTLS_CONF_WITH_CLIENT */
-
-#ifdef COAP_DTLS_CONF_WITH_SERVER
-#if !defined(MBEDTLS_SSL_SRV_C) || !defined(MBEDTLS_SSL_COOKIE_C) || \
-  !defined(MBEDTLS_SSL_CACHE_C)
-  LOG_ERR("MBEDTLS_SSL_SRV_C and/or MBEDTLS_SSL_COOKIE_C and/or "
-          "MBEDTLS_SSL_CACHE_C not defined.\n");
-  return;
-#endif
-#endif /* COAP_DTLS_CONF_WITH_SERVER */
-
-#ifdef COAP_DTLS_CONF_WITH_PSK
-#if !defined(MBEDTLS_KEY_EXCHANGE_PSK_ENABLED)
-  LOG_ERR("MBEDTLS_KEY_EXCHANGE_PSK_ENABLED not defined.\n");
-  return;
-#endif
-#endif /* COAP_DTLS_CONF_WITH_PSK */
-
-#ifdef COAP_DTLS_CONF_WITH_CERT
-#if !defined(MBEDTLS_X509_CRT_PARSE_C) || \
-  !defined(MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED) || \
-  !defined(MBEDTLS_PEM_PARSE_C)
-  LOG_ERR("MBEDTLS_X509_CRT_PARSE_C and/or "
-          "MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED and/or "
-          "MBEDTLS_PEM_PARSE_C not defined.\n");
-  return;
-#endif
-#endif /* COAP_DTLS_CONF_WITH_CERT */
 
 #if defined(MBEDTLS_ECDSA_VERIFY_ALT) || \
   defined(MBEDTLS_ECDH_COMPUTE_SHARED_ALT)
@@ -239,11 +170,6 @@ coap_dtls_init(void)
 
   LIST_STRUCT_INIT(&dtls_context, sessions);
   LIST_STRUCT_INIT(&dtls_context, send_message_fifo);
-
-#ifdef COAP_MBEDTLS_MEM_EVALUATION
-  LOG_DBG("Size of coap_dtls_session_info_t = %d bytes\n",
-          sizeof(coap_dtls_session_info_t));
-#endif /* COAP_MBEDTLS_MEM_EVALUATION */
 
   /* DTLS context initialized and ready */
   dtls_context.ready = 1;
@@ -258,18 +184,17 @@ coap_dtls_conn_init(struct uip_udp_conn *udp_conn,
   dtls_context.host_process = host_process;
 }
 /*---------------------------------------------------------------------------*/
-int
+bool
 coap_ep_is_dtls_peer(const coap_endpoint_t *ep)
 {
   coap_dtls_session_info_t *info = NULL;
 
-  for(info = list_head(dtls_context.sessions);
-      info; info = info->next) {
+  for(info = list_head(dtls_context.sessions); info; info = info->next) {
     if(coap_endpoint_cmp(&info->ep, ep)) {
-      return 1;
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 /*---------------------------------------------------------------------------*/
 #ifdef COAP_DTLS_CONF_WITH_SERVER
@@ -278,9 +203,8 @@ coap_get_free_server_session(void)
 {
   coap_dtls_session_info_t *info = NULL;
 
-  for(info = list_head(dtls_context.sessions);
-      info; info = info->next) {
-    if((info->role == COAP_MBEDTLS_ROLE_SERVER) && (info->in_use == 0)) {
+  for(info = list_head(dtls_context.sessions); info; info = info->next) {
+    if(info->role == COAP_MBEDTLS_ROLE_SERVER && !info->in_use) {
       return info;
     }
   }
@@ -294,8 +218,7 @@ coap_ep_get_dtls_session_info(const coap_endpoint_t *ep)
 {
   coap_dtls_session_info_t *info = NULL;
 
-  for(info = list_head(dtls_context.sessions);
-      info; info = info->next) {
+  for(info = list_head(dtls_context.sessions); info; info = info->next) {
     if(coap_endpoint_cmp(&info->ep, ep)) {
       break;
     }
@@ -303,40 +226,24 @@ coap_ep_get_dtls_session_info(const coap_endpoint_t *ep)
   return info;
 }
 /*---------------------------------------------------------------------------*/
-int
+bool
 coap_ep_is_dtls_connected(const coap_endpoint_t *ep)
 {
-  coap_dtls_session_info_t *info = NULL;
-
-  if((info = coap_ep_get_dtls_session_info(ep)) != NULL) {
-    return mbedtls_ssl_is_handshake_over(&info->ssl);
-  }
-  return 0;
+  coap_dtls_session_info_t *info = coap_ep_get_dtls_session_info(ep);
+  return info != NULL ? mbedtls_ssl_is_handshake_over(&info->ssl) : 0;
 }
 /*---------------------------------------------------------------------------*/
 int
 coap_ep_get_dtls_state(const coap_endpoint_t *ep)
 {
-  coap_dtls_session_info_t *info = NULL;
-
-  if((info = coap_ep_get_dtls_session_info(ep)) != NULL) {
-    return info->ssl.MBEDTLS_PRIVATE(state);
-  }
-  return 0;
+  coap_dtls_session_info_t *info = coap_ep_get_dtls_session_info(ep);
+  return info != NULL ? info->ssl.MBEDTLS_PRIVATE(state) : 0;
 }
 /*---------------------------------------------------------------------------*/
-int
+static int
 perform_handshake(coap_dtls_session_info_t *session_info)
 {
   int ret;
-#ifdef COAP_MBEDTLS_EVALUATION
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-  static rtimer_clock_t perform_hs_start_time;
-  static rtimer_clock_t perform_hs_end_time;
-  static rtimer_clock_t time_since_last_perform_hs;
-  static rtimer_clock_t cpu_hs_time;
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-#endif /* COAP_MBEDTLS_EVALUATION */
 
   etimer_stop(&session_info->retransmission_et);
   memset(&session_info->retransmission_et, 0, sizeof(struct etimer));
@@ -344,98 +251,26 @@ perform_handshake(coap_dtls_session_info_t *session_info)
 #ifdef COAP_DTLS_CONF_WITH_SERVER
   if(session_info->role == COAP_MBEDTLS_ROLE_SERVER) {
     /* For HelloVerifyRequest cookies */
-    if((ret = mbedtls_ssl_set_client_transport_id(&session_info->ssl,
-                                                  (const unsigned char *)&session_info->ep,
-                                                  sizeof(coap_endpoint_t))) != 0) {
+    ret = mbedtls_ssl_set_client_transport_id(&session_info->ssl,
+                                              (const unsigned char *)&session_info->ep,
+                                              sizeof(coap_endpoint_t));
+    if(ret != 0) {
       LOG_DBG("mbedtls_ssl_set_client_transport_id() returned -0x%x\n",
               (unsigned int)-ret);
     }
   }
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
 
-#ifdef COAP_MBEDTLS_EVALUATION
-  if(session_info->ssl.state < MBEDTLS_SSL_SERVER_HELLO) {
-    hs_eval_init();
-  }
-
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-  perform_hs_start_time = RTIMER_NOW() - hs_start_time;
-  time_since_last_perform_hs = RTIMER_NOW() - prev_perform_hs_end_time;
-  LOG_DBG("Performing DTLS HS at time %lu ms, " \
-          "time since last HS = %lu ms\n",
-          to_milliseconds(perform_hs_start_time),
-          to_milliseconds(time_since_last_perform_hs));
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-#endif /* COAP_MBEDTLS_EVALUATION */
-
-  LOG_INFO("Handshake in progress, starting.\n");
-
+  LOG_INFO("Handshake starting\n");
   ret = mbedtls_ssl_handshake(&session_info->ssl);
-
   LOG_INFO("Handshake in progress, ending with completed = %d\n",
            mbedtls_ssl_is_handshake_over(&session_info->ssl));
 
-#ifdef COAP_MBEDTLS_EVALUATION
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-  perform_hs_end_time = RTIMER_NOW() - hs_start_time;
-  prev_perform_hs_end_time = RTIMER_NOW();
-  LOG_DBG("DTLS HS returned -0x%x at %lu ms, " \
-          "Time taken = %lu ms\n", (unsigned int)-ret,
-          to_milliseconds(perform_hs_end_time),
-          to_milliseconds(perform_hs_end_time - perform_hs_start_time));
-  cpu_hs_time += to_milliseconds(perform_hs_end_time - perform_hs_start_time);
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-#endif /* COAP_MBEDTLS_EVALUATION */
-
-  /* HS successful */
   if(ret == 0) {
-    LOG_INFO("====== DTLS handshake succesful ======\n");
-
-#ifdef COAP_MBEDTLS_EVALUATION
-    hs_eval_end();
-
-#ifdef COAP_MBEDTLS_MEM_EVALUATION
-    LOG_DBG("Peak heap usage = %d, curr. heap usage = %d\n",
-            peak_heap_usage, heap_usage);
-#endif /* COAP_MBEDTLS_MEM_EVALUATION */
-
-#ifdef COAP_MBEDTLS_NETWORKING_EVALUATION
-    LOG_DBG("Max allowed payload = %d bytes\n",
-            mbedtls_ssl_get_max_out_record_payload(&session_info->ssl));
-
-    LOG_DBG("Record layer data overhead = %d bytes\n",
-            mbedtls_ssl_get_record_expansion(&session_info->ssl));
-
-    LOG_DBG("Total DTLS HS data of len = %ld bytes\n", total_hs_data_sent);
-    total_hs_data_sent = 0;
-#endif /* COAP_MBEDTLS_NETWORKING_EVALUATION */
-
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-    LOG_DBG("Total DTLS HS time = %lu ms, CPU time = %lu ms\n",
-            to_milliseconds(perform_hs_end_time), cpu_hs_time);
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-
-#ifdef COAP_MBEDTLS_ENERGY_EVALUATION
-    LOG_DBG("\nEnergest:\n");
-    LOG_DBG(" CPU          %4lums LPM      %4lums DEEP LPM %4lums  Total time %lums\n",
-            to_milliseconds(energest_type_time(ENERGEST_TYPE_CPU)),
-            to_milliseconds(energest_type_time(ENERGEST_TYPE_LPM)),
-            to_milliseconds(energest_type_time(ENERGEST_TYPE_DEEP_LPM)),
-            to_milliseconds(ENERGEST_GET_TOTAL_TIME()));
-    LOG_DBG(" Radio LISTEN %4lums TRANSMIT %4lums OFF      %4lums\n",
-            to_milliseconds(energest_type_time(ENERGEST_TYPE_LISTEN)),
-            to_milliseconds(energest_type_time(ENERGEST_TYPE_TRANSMIT)),
-            to_milliseconds(ENERGEST_GET_TOTAL_TIME()
-                            - energest_type_time(ENERGEST_TYPE_TRANSMIT)
-                            - energest_type_time(ENERGEST_TYPE_LISTEN)));
-#endif /* COAP_MBEDTLS_ENERGY_EVALUATION */
-#endif /* COAP_MBEDTLS_EVALUATION */
-  }
-
-  /* Handshake Error Handling */
-  if(ret < 0) {
-    if((ret != MBEDTLS_ERR_SSL_WANT_READ
-        && ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
+    LOG_INFO("DTLS handshake succesful\n");
+  } else if(ret < 0) {
+  /* Handshake error handling */
+    if(ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
       /* HS failed -- Clean up
        * Call coap_ep_dtls_connect() again if a retry is needed  */
@@ -451,7 +286,7 @@ perform_handshake(coap_dtls_session_info_t *session_info)
          * otherwise cleanup to allow other connections */
         mbedtls_ssl_session_reset(&session_info->ssl);
         if(ret != MBEDTLS_ERR_SSL_HELLO_VERIFY_REQUIRED) {
-          session_info->in_use = 0;
+          session_info->in_use = false;
           memset(&session_info->ep, 0, sizeof(coap_endpoint_t));
           etimer_stop(&session_info->retransmission_et);
         } else {
@@ -471,20 +306,20 @@ perform_handshake(coap_dtls_session_info_t *session_info)
 void
 coap_dtls_event_handler(void)
 {
-  coap_dtls_send_message_t *send_message;
-  coap_dtls_session_info_t *info = NULL;
-  uint32_t elapsed_ms = 0;
-  uint32_t time_left_ms = 0;
+  LOG_DBG("Call to %s\n", __func__);
 
   /* Send DTLS message event */
-  if((send_message = list_pop(dtls_context.send_message_fifo)) != NULL) {
+  coap_dtls_send_message_t *send_message = list_pop(dtls_context.send_message_fifo);
+  if(send_message == NULL) {
+    LOG_DBG("No message in the FIFO\n");
+  } else {
     uip_udp_packet_sendto(dtls_context.udp_conn, send_message->send_buf,
                           send_message->len,
                           &send_message->ep.ipaddr, send_message->ep.port);
-
-    LOG_INFO("Sent DTLS message of len = %u\n", (unsigned int)send_message->len);
-
-    heapmem_free(send_message);
+    LOG_INFO("Sent DTLS message of len = %zu\n", send_message->len);
+    if(!heapmem_free(send_message)) {
+      LOG_ERR("Failed to free a sent message\n");
+    }
 
     /* Update re-transmission timer */
     /* TODO, please note that the current timer implementation
@@ -493,13 +328,16 @@ coap_dtls_event_handler(void)
        timer.MBEDTLS_PRIVATE(<field>)
      */
 
-    info = coap_ep_get_dtls_session_info(&send_message->ep);
-    elapsed_ms = mbedtls_timing_get_timer(&info->timer.MBEDTLS_PRIVATE(timer), 0);
+    coap_dtls_session_info_t *info = coap_ep_get_dtls_session_info(&send_message->ep);
+    uint32_t elapsed_ms = mbedtls_timing_get_timer(&info->timer.MBEDTLS_PRIVATE(timer),
+                                          0);
     if(info->timer.MBEDTLS_PRIVATE(fin_ms) > 0) {
-      time_left_ms = info->timer.MBEDTLS_PRIVATE(fin_ms) - elapsed_ms;
+      uint32_t time_left_ms = info->timer.MBEDTLS_PRIVATE(fin_ms) - elapsed_ms;
       if(time_left_ms > 0) {
-        LOG_DBG("Updating re-transmission timer to %u ms\n", (unsigned int)time_left_ms);
-        etimer_set(&info->retransmission_et, (time_left_ms * CLOCK_SECOND) / 1000);
+        LOG_DBG("Updating re-transmission timer to %u ms\n",
+                (unsigned int)time_left_ms);
+        etimer_set(&info->retransmission_et,
+                   (time_left_ms * CLOCK_SECOND) / 1000);
       }
     }
 
@@ -516,18 +354,13 @@ coap_dtls_event_handler(void)
   }
 
   /* DTLS re-transmission event */
-  for(info = list_head(dtls_context.sessions);
-      info; info = info->next) {
-    if((etimer_expiration_time(&info->retransmission_et) > 0)
-       && etimer_expired(&info->retransmission_et)) {
+  for(coap_dtls_session_info_t *info = list_head(dtls_context.sessions);
+      info != NULL;
+      info = info->next) {
+    if(etimer_expiration_time(&info->retransmission_et) > 0 &&
+       etimer_expired(&info->retransmission_et)) {
       LOG_INFO("Re-transmission timer expired\n");
-      LOG_DBG("HS Retry, Calling process = %s\n", PROCESS_CURRENT()->name);
-#ifdef COAP_MBEDTLS_EVALUATION
-      /*Ignore if re-transmission happens for ClientHello */
-      if(info->ssl.state == MBEDTLS_SSL_SERVER_HELLO) {
-        hs_eval_init();
-      }
-#endif /* COAP_MBEDTLS_EVALUATION */
+      LOG_DBG("HS retry, current process = %s\n", PROCESS_CURRENT()->name);
       perform_handshake(info);
       break;
     }
@@ -539,31 +372,23 @@ coap_dtls_event_handler(void)
 static int
 coap_ep_mbedtls_sendto(void *ctx, const unsigned char *buf, size_t len)
 {
-  coap_dtls_session_info_t *session_info = (coap_dtls_session_info_t *)ctx;
-  coap_dtls_send_message_t *send_message;
+  LOG_DBG("Call to %s\n", __func__);
 
-  if(!session_info) {
+  if(ctx == NULL) {
     return MBEDTLS_ERR_NET_INVALID_CONTEXT;
   }
 
-  if((send_message = (coap_dtls_send_message_t *)heapmem_alloc(
-        sizeof(coap_dtls_send_message_t))) == NULL) {
+  coap_dtls_send_message_t *send_message = (coap_dtls_send_message_t *)heapmem_alloc(sizeof(coap_dtls_send_message_t));
+  if(send_message == NULL) {
     LOG_ERR("Unable to allocate memory for DTLS message\n");
     return MBEDTLS_ERR_NET_SEND_FAILED;
   }
 
+  coap_dtls_session_info_t *session_info = (coap_dtls_session_info_t *)ctx;
   memcpy(&send_message->ep, &session_info->ep, sizeof(coap_endpoint_t));
   memcpy(send_message->send_buf, buf, len);
   send_message->len = len;
   list_add(dtls_context.send_message_fifo, send_message);
-
-#ifdef COAP_MBEDTLS_EVALUATION
-#ifdef COAP_MBEDTLS_NETWORKING_EVALUATION
-  if(hs_started && !hs_complete) {
-    total_hs_data_sent += len;
-  }
-#endif /* COAP_MBEDTLS_NETWORKING_EVALUATION */
-#endif /* COAP_MBEDTLS_EVALUATION */
 
   process_poll(dtls_context.host_process);
 
@@ -573,36 +398,40 @@ coap_ep_mbedtls_sendto(void *ctx, const unsigned char *buf, size_t len)
 static int
 coap_ep_mbedtls_recv(void *ctx, unsigned char *buf, size_t len)
 {
-  coap_dtls_session_info_t *session_info = (coap_dtls_session_info_t *)ctx;
-
-  if(!session_info) {
-    return MBEDTLS_ERR_NET_INVALID_CONTEXT;
-  }
+  LOG_DBG("Call to %s\n", __func__);
 
   if(uip_datalen() == 0) {
+    LOG_DBG("Input data length is 0\n");
     return MBEDTLS_ERR_SSL_WANT_READ;
   }
 
-  if(session_info->is_packet_consumed == 1) {
+  if(ctx == NULL) {
+    LOG_DBG("Session info is missing\n");
+    return MBEDTLS_ERR_NET_INVALID_CONTEXT;
+  }
+  coap_dtls_session_info_t *session_info = (coap_dtls_session_info_t *)ctx;
+  if(session_info->is_packet_consumed) {
+    LOG_DBG("The packet has been consumed\n");
     return MBEDTLS_ERR_SSL_WANT_READ;
   }
 
   if(len < uip_datalen()) {
-    LOG_ERR("DTLS incoming buffer too small, len = %d, uip_datalen = %d\n",
-            (unsigned int)len, uip_datalen());
+    LOG_ERR("DTLS incoming buffer too small, len = %zu, uip_datalen = %d\n",
+            len, uip_datalen());
     return 0;
   }
 
   memcpy(buf, uip_appdata, uip_datalen());
-  session_info->is_packet_consumed = 1;
+  session_info->is_packet_consumed = true;
 
+  LOG_DBG("Read of %d bytes completed\n", uip_datalen());
   return uip_datalen();
 }
 /*---------------------------------------------------------------------------*/
 static coap_dtls_session_info_t *
-mbedtls_session_setup(const coap_mbedtls_role_t role,
-                      const coap_dtls_sec_mode_t sec_mode,
-                      const void *keystore_entry)
+setup_session(const coap_mbedtls_role_t role,
+              const coap_dtls_sec_mode_t sec_mode,
+              const void *keystore_entry)
 {
   int ret;
 #if !defined(MBEDTLS_NO_PLATFORM_ENTROPY)
@@ -610,7 +439,7 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
 #endif /* !MBEDTLS_NO_PLATFORM_ENTROPY */
   coap_dtls_session_info_t *session_info = NULL;
 
-  /* Create and add to linked-list of sessions */
+  /* Create and add to the linked list of sessions. */
   session_info = memb_alloc(&dtls_session_info_memb);
   if(!session_info) {
     LOG_ERR("Unable to allocate memory for DTLS server session\n");
@@ -662,8 +491,8 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
 
   /* Configure protocol as DTLS and role as Client or Server */
   if((ret = mbedtls_ssl_config_defaults(&session_info->conf,
-                                        (role == COAP_MBEDTLS_ROLE_CLIENT ?
-                                         MBEDTLS_SSL_IS_CLIENT : MBEDTLS_SSL_IS_SERVER),
+                                        role == COAP_MBEDTLS_ROLE_CLIENT ?
+                                         MBEDTLS_SSL_IS_CLIENT : MBEDTLS_SSL_IS_SERVER,
                                         MBEDTLS_SSL_TRANSPORT_DATAGRAM,
                                         MBEDTLS_SSL_PRESET_DEFAULT)) != 0) {
     LOG_ERR("mbedtls_ssl_config_defaults returned %d\n", ret);
@@ -697,12 +526,9 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
                        &session_info->ctr_drbg);
 #ifdef COAP_DTLS_CONF_WITH_CERT
   if(sec_mode == COAP_DTLS_SEC_MODE_CERT) {
-
     coap_keystore_cert_entry_t *ks =
       (coap_keystore_cert_entry_t *)keystore_entry;
-
-    if(ks->ca_cert == NULL || ks->own_cert == NULL
-       || ks->priv_key == NULL) {
+    if(ks->ca_cert == NULL || ks->own_cert == NULL || ks->priv_key == NULL) {
       LOG_ERR("Certificate or private key missing!\n");
       goto clean_and_ret_err;
     }
@@ -711,39 +537,36 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
     ret = mbedtls_x509_crt_parse(&session_info->ca_cert,
                                  (const unsigned char *)ks->ca_cert,
                                  ks->ca_cert_len);
-
     if(ret < 0) {
-      LOG_ERR("mbedtls_x509_crt_parse returned -0x%x\n",
-              (unsigned int)-ret);
+      LOG_ERR("mbedtls_x509_crt_parse failed for CA cert (error %d)\n", ret);
       goto clean_and_ret_err;
     }
 
-    mbedtls_ssl_conf_ca_chain(&session_info->conf, &session_info->ca_cert, NULL);
+    mbedtls_ssl_conf_ca_chain(&session_info->conf, &session_info->ca_cert,
+                              NULL);
 
     /* Load the client/server certificate and private key */
     ret = mbedtls_x509_crt_parse(&session_info->own_cert,
                                  (const unsigned char *)ks->own_cert,
                                  ks->own_cert_len);
-
     if(ret < 0) {
-      LOG_ERR("mbedtls_x509_crt_parse returned -0x%x\n",
-              (unsigned int)-ret);
+      LOG_ERR("mbedtls_x509_crt_parse for own cert (error %d)\n", ret);
       goto clean_and_ret_err;
     }
 
     ret = mbedtls_pk_parse_key(&session_info->pkey,
-                               (const unsigned char *)ks->priv_key, ks->priv_key_len,
-                               NULL, 0,
-                               mbedtls_entropy_func, NULL); /*TODO: test */
-
+                               (const unsigned char *)ks->priv_key,
+                               ks->priv_key_len, NULL, 0,
+                               mbedtls_entropy_func, NULL); /* TODO: test */
     if(ret < 0) {
-      LOG_DBG("mbedtls_pk_parse_key returned -0x%x\n",
-              (unsigned int)-ret);
+      LOG_DBG("mbedtls_pk_parse_key returned %d\n", ret);
       goto clean_and_ret_err;
     }
 
-    if((ret = mbedtls_ssl_conf_own_cert(&session_info->conf,
-                                        &session_info->own_cert, &session_info->pkey)) != 0) {
+    ret = mbedtls_ssl_conf_own_cert(&session_info->conf,
+                                    &session_info->own_cert,
+                                    &session_info->pkey);
+    if(ret != 0) {
       LOG_ERR("mbedtls_ssl_conf_own_cert returned %d\n", ret);
       goto clean_and_ret_err;
     }
@@ -777,8 +600,8 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
   mbedtls_ssl_conf_dbg(&session_info->conf, mbedtls_debug, stdout);
 #endif /* MBEDTLS_DEBUG_C */
   mbedtls_ssl_conf_handshake_timeout(&session_info->conf,
-                                     COAP_MBEDTLS_HANDHSAKE_MIN_TIMEOUT_MS,
-                                     COAP_MBEDTLS_HANDHSAKE_MAX_TIMEOUT_MS);
+                                     COAP_MBEDTLS_HANDSHAKE_MIN_TIMEOUT_MS,
+                                     COAP_MBEDTLS_HANDSHAKE_MAX_TIMEOUT_MS);
 
   mbedtls_ssl_conf_max_frag_len(&session_info->conf,
                                 COAP_MBEDTLS_MAX_FRAG_LEN);
@@ -791,19 +614,23 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
                                    mbedtls_ssl_cache_set);
 #endif /* MBEDTLS_SSL_CACHE_C */
 
-    if((ret = mbedtls_ssl_cookie_setup(&session_info->cookie_ctx,
-                                       mbedtls_ctr_drbg_random, &session_info->ctr_drbg)) != 0) {
+    ret = mbedtls_ssl_cookie_setup(&session_info->cookie_ctx,
+                                   mbedtls_ctr_drbg_random,
+                                   &session_info->ctr_drbg);
+    if(ret != 0) {
       LOG_ERR("mbedtls_ssl_cookie_setup returned %d\n", ret);
       goto clean_and_ret_err;
     }
 
     mbedtls_ssl_conf_dtls_cookies(&session_info->conf,
-                                  mbedtls_ssl_cookie_write, mbedtls_ssl_cookie_check,
+                                  mbedtls_ssl_cookie_write,
+                                  mbedtls_ssl_cookie_check,
                                   &session_info->cookie_ctx);
   }
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
 
-  if((ret = mbedtls_ssl_setup(&session_info->ssl, &session_info->conf)) != 0) {
+  ret = mbedtls_ssl_setup(&session_info->ssl, &session_info->conf);
+  if(ret != 0) {
     LOG_ERR("mbedtls_ssl_setup returned -0x%x\n", (unsigned int)-ret);
     goto clean_and_ret_err;
   }
@@ -811,28 +638,21 @@ mbedtls_session_setup(const coap_mbedtls_role_t role,
 #if defined(MBEDTLS_SSL_SERVER_NAME_INDICATION)
   /* Used for SNI extension -- Currently unused. Could be used when
    * DTLS server contains multiple certificates. */
-  if((ret = mbedtls_ssl_set_hostname(&session_info->ssl,
-                                     hostname)) != 0) {
+  ret = mbedtls_ssl_set_hostname(&session_info->ssl,
+                                 hostname);
+  if(ret != 0) {
     LOG_ERR("mbedtls_ssl_set_hostname returned %d\n", ret);
   }
 #endif /* MBEDTLS_SSL_SERVER_NAME_INDICATION */
 
-  mbedtls_ssl_set_bio(&session_info->ssl,
-                      session_info,
-                      coap_ep_mbedtls_sendto,
-                      coap_ep_mbedtls_recv,
-                      NULL);
-
-  mbedtls_ssl_set_timer_cb(&session_info->ssl,
-                           &session_info->timer,
-                           mbedtls_timing_set_delay,
-                           mbedtls_timing_get_delay);
-
+  mbedtls_ssl_set_bio(&session_info->ssl, session_info, coap_ep_mbedtls_sendto,
+                      coap_ep_mbedtls_recv, NULL);
+  mbedtls_ssl_set_timer_cb(&session_info->ssl, &session_info->timer,
+                           mbedtls_timing_set_delay, mbedtls_timing_get_delay);
   mbedtls_ssl_set_mtu(&session_info->ssl, COAP_MBEDTLS_MTU);
-
   return session_info;
 
-clean_and_ret_err:
+ clean_and_ret_err:
   list_remove(dtls_context.sessions, session_info);
   memb_free(&dtls_session_info_memb, session_info);
   return NULL;
@@ -847,40 +667,36 @@ coap_ep_dtls_connect(const coap_endpoint_t *ep,
                      const coap_dtls_sec_mode_t sec_mode,
                      const void *keystore_entry)
 {
-  coap_dtls_session_info_t *session_info = NULL;
-
   if(!dtls_context.ready) {
     LOG_WARN("DTLS not initialized but %s called!\n", __func__);
     return 0;
   }
 
   /* Create and setup session info if it does not exist already */
-  if((session_info = coap_ep_get_dtls_session_info(ep)) == NULL) {
-    if((session_info = mbedtls_session_setup(COAP_MBEDTLS_ROLE_CLIENT,
-                                             sec_mode, keystore_entry)) == NULL) {
+  coap_dtls_session_info_t *session_info = coap_ep_get_dtls_session_info(ep);
+  if(session_info == NULL) {
+    session_info = setup_session(COAP_MBEDTLS_ROLE_CLIENT,
+                                 sec_mode, keystore_entry);
+    if(session_info == NULL) {
       return 0;
     }
     memcpy(&session_info->ep, ep, sizeof(coap_endpoint_t));
   } else {
-    /* Session already exists. If this func is called again,
-     * we may want to retry handshake. But, first check if DTLS is
-     * in a valid state and the re-transmission timer is expired. */
+    /*
+     * The session already exists. If this func is called again, we
+     * may want to retry handshake. But, first check if DTLS is in a
+     * valid state and the re-transmission timer is expired.
+     */
 
     if((session_info->ssl.MBEDTLS_PRIVATE(state) == MBEDTLS_SSL_HELLO_REQUEST)
        || mbedtls_ssl_is_handshake_over(&session_info->ssl)
-       || (2 != mbedtls_timing_get_delay(&session_info->timer))) {
+       || mbedtls_timing_get_delay(&session_info->timer) != 2) {
       return 0;
     }
 
     /* Re-transmission event invoked by application process */
     LOG_INFO("Re-transmission timer expired\n");
-    LOG_DBG("HS Retry, Calling process = %s\n", PROCESS_CURRENT()->name);
-#ifdef COAP_MBEDTLS_EVALUATION
-    /*Ignore if re-transmission happens for ClientHello */
-    if(session_info->ssl.state == MBEDTLS_SSL_SERVER_HELLO) {
-      hs_eval_init();
-    }
-#endif /* COAP_MBEDTLS_EVALUATION */
+    LOG_DBG("HS retry, current process = %s\n", PROCESS_CURRENT()->name);
   }
 
   /* Client initiate handshake */
@@ -894,11 +710,10 @@ int
 coap_mbedtls_server_setup(const coap_dtls_sec_mode_t sec_mode,
                           const void *keystore_entry)
 {
-  coap_dtls_session_info_t *session_info = NULL;
-
-  /* Create and setup session info */
-  if((session_info = mbedtls_session_setup(COAP_MBEDTLS_ROLE_SERVER,
-                                           sec_mode, keystore_entry)) == NULL) {
+  /* Create and setup session info. */
+  coap_dtls_session_info_t *session_info = setup_session(COAP_MBEDTLS_ROLE_SERVER,
+                                                         sec_mode, keystore_entry);
+  if(session_info == NULL) {
     LOG_ERR("Unable to setup DTLS server\n");
     return 0;
   }
@@ -912,36 +727,25 @@ int
 coap_ep_dtls_write(const coap_endpoint_t *ep,
                    const unsigned char *message, int len)
 {
-#ifdef COAP_MBEDTLS_EVALUATION
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-  static rtimer_clock_t record_write_time;
-  record_write_time = RTIMER_NOW();
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-  record_eval_init();
-#endif /* COAP_MBEDTLS_EVALUATION */
-
-  coap_dtls_session_info_t *info = NULL;
-  int ret;
-
   if(!dtls_context.ready) {
     LOG_WARN("DTLS not initialized but %s called!\n", __func__);
     return -1;
   }
-
-  if((info = coap_ep_get_dtls_session_info(ep)) != NULL) {
-    if(!mbedtls_ssl_is_handshake_over(&info->ssl)) {
-      LOG_ERR("DTLS handshake not complete yet, but %s called!\n", __func__);
-      return -1;
-    }
-  } else {
+  coap_dtls_session_info_t *info = coap_ep_get_dtls_session_info(ep);
+  if(info == NULL) {
     LOG_ERR("Unable to find DTLS peer ");
     LOG_ERR_6ADDR(&ep->ipaddr);
     LOG_ERR_("\n");
     return -1;
   }
 
-  ret = mbedtls_ssl_get_max_out_record_payload(&info->ssl);
-  if((ret < len) && (ret >= 0)) {
+  if(!mbedtls_ssl_is_handshake_over(&info->ssl)) {
+    LOG_ERR("DTLS handshake not complete yet, but %s called!\n", __func__);
+    return -1;
+  }
+
+  int ret = mbedtls_ssl_get_max_out_record_payload(&info->ssl);
+  if(ret < len && ret >= 0) {
     /* Note: payload limit dependent on MTU, Max. Frag len, or I/O buffers */
     LOG_ERR("Payload too large to handle, Max allowed = %d, Given = %d\n",
             ret, len);
@@ -949,34 +753,10 @@ coap_ep_dtls_write(const coap_endpoint_t *ep,
   }
 
   ret = mbedtls_ssl_write(&info->ssl, message, len);
-
   if(ret < 0) {
-    LOG_ERR("mbedtls_ssl_write returned -0x%x\n", ret);
+    LOG_ERR("mbedtls_ssl_write returned 0x%x\n", ret);
     return -1;
   }
-
-#ifdef COAP_MBEDTLS_EVALUATION
-#ifdef COAP_MBEDTLS_TIMING_EVALUATION
-  record_write_time = RTIMER_NOW() - record_write_time;
-  LOG_DBG("DTLS record write time = %lu us\n",
-          to_microseconds(record_write_time));
-#endif /* COAP_MBEDTLS_TIMING_EVALUATION */
-  record_eval_end();
-#ifdef COAP_MBEDTLS_ENERGY_EVALUATION
-  LOG_DBG("\nEnergest:\n");
-  LOG_DBG(" CPU          %4luus LPM      %4luus DEEP LPM %4luus  Total time %luus\n",
-          to_microseconds(energest_type_time(ENERGEST_TYPE_CPU)),
-          to_microseconds(energest_type_time(ENERGEST_TYPE_LPM)),
-          to_microseconds(energest_type_time(ENERGEST_TYPE_DEEP_LPM)),
-          to_microseconds(ENERGEST_GET_TOTAL_TIME()));
-  LOG_DBG(" Radio LISTEN %4luus TRANSMIT %4luus OFF      %4luus\n",
-          to_microseconds(energest_type_time(ENERGEST_TYPE_LISTEN)),
-          to_microseconds(energest_type_time(ENERGEST_TYPE_TRANSMIT)),
-          to_microseconds(ENERGEST_GET_TOTAL_TIME()
-                          - energest_type_time(ENERGEST_TYPE_TRANSMIT)
-                          - energest_type_time(ENERGEST_TYPE_LISTEN)));
-#endif /* COAP_MBEDTLS_ENERGY_EVALUATION */
-#endif /* COAP_MBEDTLS_EVALUATION */
 
   return len;
 }
@@ -984,29 +764,27 @@ coap_ep_dtls_write(const coap_endpoint_t *ep,
 int
 coap_ep_dtls_handle_message(const coap_endpoint_t *ep)
 {
-  coap_dtls_session_info_t *session_info = NULL;
-  int ret, len;
-
   if(!dtls_context.ready) {
-    LOG_WARN("DTLS not initialized but %s called, dropping message\n",
+    LOG_WARN("Called %s without DTLS being initialized; dropping message\n",
              __func__);
     return -1;
   }
 
   LOG_INFO("Recieved DTLS message of len = %d\n", uip_datalen());
 
-  /* First check and process handshake messages. If the session already
-   * exists, there maybe an ongoing handshake. */
-  if((session_info = coap_ep_get_dtls_session_info(ep)) != NULL) {
+  /* First check and process handshake messages. If the session
+     already exists, there maybe an ongoing handshake. */
+  coap_dtls_session_info_t *session_info = coap_ep_get_dtls_session_info(ep);
+  if(session_info != NULL) {
     /* For both server/client check if handshake is not complete.
-     * Otherwise it maybe a DTLS record layer message. */
+       Otherwise it maybe a DTLS record layer message. */
     if(!mbedtls_ssl_is_handshake_over(&session_info->ssl)) {
       goto perform_handshake;
     }
   } else {
 #ifdef COAP_DTLS_CONF_WITH_SERVER
-    /* If the session does not exist already, a new handshake
-     * maybe initated by a client endpoint. */
+    /* If the session does not exist already, a new handshake maybe
+       initated by a client endpoint. */
     if((session_info = coap_get_free_server_session()) != NULL) {
       memcpy(&session_info->ep, ep, sizeof(coap_endpoint_t));
       goto perform_handshake;
@@ -1020,28 +798,23 @@ coap_ep_dtls_handle_message(const coap_endpoint_t *ep)
     }
   }
 
-  session_info->is_packet_consumed = 0;
+  session_info->is_packet_consumed = false;
 
-  ret = mbedtls_ssl_read(&session_info->ssl, uip_appdata, UIP_CONF_BUFFER_SIZE);
-
-  if(ret <= 0) {
-    switch(ret) {
-    case MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
-      LOG_INFO("DTLS peer closed connection\n");
-      coap_ep_dtls_disconnect(ep);
-      break;
-    default:
-      LOG_DBG("mbedtls_ssl_read returned -0x%x\n", (unsigned int)-ret);
-    }
+  int ret = mbedtls_ssl_read(&session_info->ssl, uip_appdata,
+                             UIP_CONF_BUFFER_SIZE);
+  if(ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+    LOG_INFO("DTLS peer closed connection\n");
+    coap_ep_dtls_disconnect(ep);
+  } else if(ret <= 0) {
+    LOG_DBG("mbedtls_ssl_read returned %d\n", ret);
   } else {
-    len = ret;
-    LOG_DBG("%d application data bytes read\n", len);
+    LOG_DBG("Read %d application data bytes\n", ret);
   }
 
   return ret;
 
 perform_handshake:
-  session_info->is_packet_consumed = 0;
+  session_info->is_packet_consumed = false;
   perform_handshake(session_info);
   return 0;
 }
@@ -1049,21 +822,19 @@ perform_handshake:
 void
 coap_ep_dtls_disconnect(const coap_endpoint_t *ep)
 {
-  coap_dtls_session_info_t *info = NULL;
-
-  if((info = coap_ep_get_dtls_session_info(ep)) != NULL) {
+  coap_dtls_session_info_t *info = coap_ep_get_dtls_session_info(ep);
+  if(info != NULL) {
     mbedtls_ssl_close_notify(&info->ssl);
 #ifdef COAP_DTLS_CONF_WITH_CLIENT
     if(info->role == COAP_MBEDTLS_ROLE_CLIENT) {
       list_remove(dtls_context.sessions, info);
       memb_free(&dtls_session_info_memb, info);
-      return;
     }
 #endif /* COAP_DTLS_CONF_WITH_CLIENT */
 #ifdef COAP_DTLS_CONF_WITH_SERVER
     if(info->role == COAP_MBEDTLS_ROLE_SERVER) {
       mbedtls_ssl_session_reset(&info->ssl);
-      info->in_use = 0;
+      info->in_use = false;
       memset(&info->ep, 0, sizeof(coap_endpoint_t));
       etimer_stop(&info->retransmission_et);
     }
