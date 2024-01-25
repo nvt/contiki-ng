@@ -45,9 +45,11 @@
 #include "lib/heapmem.h"
 
 #include "mbedtls-support.h"
-#include "mbedtls/net_sockets.h"
-#include "mbedtls/error.h"
+
 #include "mbedtls/debug.h"
+#include "mbedtls/error.h"
+#include "mbedtls/net_sockets.h"
+#include "mbedtls/version.h"
 
 #if !defined(MBEDTLS_SSL_PROTO_DTLS) || \
   !(defined(MBEDTLS_TIMING_C) || defined(MBEDTLS_TIMING_ALT)) || \
@@ -156,6 +158,11 @@ random_number_generator(void *ctx, unsigned char *buffer, size_t length)
 void
 coap_dtls_init(void)
 {
+  /* The buffer should be at least 18 bytes to hold the full version string. */
+  char version[20];
+  mbedtls_version_get_string_full(version);
+  LOG_INFO("Initializing DTLS support with library \"%s\"\n", version);
+
 #if defined(MBEDTLS_DEBUG_C)
   mbedtls_debug_set_threshold(COAP_MBEDTLS_LIB_DEBUG_LEVEL);
 #endif /* MBEDTLS_DEBUG_C */

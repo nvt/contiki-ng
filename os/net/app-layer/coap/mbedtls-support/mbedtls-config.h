@@ -44,6 +44,7 @@
 
 /* Basic settings */
 #define MBEDTLS_SSL_TLS_C
+#define MBEDTLS_VERSION_C
 
 /* RNG Support */
 #ifndef CONTIKI_TARGET_NATIVE
