@@ -4,6 +4,11 @@ CONTIKI_SOURCEFILES += example-ipso-temperature.c
 
 PLATFORMS_EXCLUDE = sky z1
 
+ifeq ($(MAKE_WITH_DTLS),1)
+ # Exclude platforms with insufficient memory for DTLS support.
+  PLATFORMS_EXCLUDE += zoul
+endif
+
 all: $(CONTIKI_PROJECT)
 
 CONTIKI=../..
