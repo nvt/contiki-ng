@@ -37,9 +37,6 @@
 /* Ensure debugs are compiled before increasing this value. */
 #define COAP_MBEDTLS_LIB_CONF_DEBUG_LEVEL 0
 
-/* Debug flags */
-#define HEAPMEM_DEBUG 0
-
 #if defined(NRF52840_XXAA) || defined(NRF5340_XXAA_APPLICATION) || \
     defined(NRF5340_XXAA_NETWORK)
 /* The nRF platforms do not yet implement the CSPRNG --
@@ -50,12 +47,14 @@
 #define CSPRNG_CONF_ENABLED 1
 #endif
 
-/* Dynamic mem needed for Mbed TLS library operation */
+/* Dynamic memory needed for Mbed TLS library operation */
 #define HEAPMEM_CONF_ARENA_SIZE 1024 * 30
 #define HEAPMEM_CONF_ALIGNMENT sizeof(uint64_t)
+#define HEAPMEM_DEBUG 0
 
 #ifdef COAP_DTLS_CONF_WITH_CERT
-#define CHECKED_IN_COAP_DTLS_TEST_CA_CERT  \
+/* Use Leshan test certificates. */
+#define CHECKED_IN_COAP_DTLS_TEST_CA_CERT       \
 "-----BEGIN CERTIFICATE-----\r\n" \
 "MIICITCCAcYCCQDfbROysgtSGzAKBggqhkjOPQQDAjCBljELMAkGA1UEBhMCU0Ux\r\n" \
 "EjAQBgNVBAgMCVN0b2NraG9sbTEOMAwGA1UEBwwFS2lzdGExEjAQBgNVBAoMCVJJ\r\n" \
@@ -135,8 +134,21 @@
 
 #endif /* COAP_DTLS_CONF_WITH_SERVER */
 #else /* COAP_DTLS_CONF_WITH_CERT */
+/*
+ * Private Shared Key (PSK) information.
+ *
+ * When using Leshan as the LwM2M server, you can add PSK security
+ * information for the client through the web interface. The entered
+ * PSK must be in hexadecimal format.
+ *
+ * The value for the default key "secretPSK" is "73656372657450534B" in hex
+ *
+ * To generate the hexadecimal string that corresponds to a PSK string, the
+ * following shell commands can be used:
+ *
+ * $ echo -n "<PSK string>" | od -A n -t x1 | sed 's/ //g'
+ */
 #define COAP_DTLS_PSK_DEFAULT_IDENTITY "Client_identity"
-/* Note that secretPSK is "73656372657450534B" in hex */
 #define COAP_DTLS_PSK_DEFAULT_KEY      "secretPSK"
 #endif /* COAP_DTLS_CONF_WITH_CERT */
 
