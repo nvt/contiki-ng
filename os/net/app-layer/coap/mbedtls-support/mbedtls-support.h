@@ -131,13 +131,13 @@ typedef struct coap_dtls_send_message {
 
 /* Struct stores global DTLS info */
 typedef struct coap_dtls_context {
-  bool ready; /* Determines whether DTLS is initialized and ready. */
+  struct etimer fragmentation_et;
+  LIST_STRUCT(sessions); /* List of DTLS sessions */
+  LIST_STRUCT(send_message_fifo); /* DTLS message to send queue */
   struct uip_udp_conn *udp_conn; /* DTLS will listen on this udp port */
   struct process *host_process; /* Process which will take care of sending
                                               DTLS messages -- CoAP UIP process */
-  LIST_STRUCT(sessions); /* List of DTLS sessions */
-  LIST_STRUCT(send_message_fifo); /* DTLS message to send queue */
-  struct etimer fragmentation_et;
+  bool ready; /* Determines whether DTLS is initialized and ready. */
 } coap_dtls_context_t;
 
 /**
