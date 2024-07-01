@@ -30,6 +30,21 @@
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 
+/* Use more queuebufs for DTLS. */
+#define QUEUEBUF_CONF_NUM 16
+
+#define LOG_CONF_LEVEL_DTLS LOG_LEVEL_INFO
+#define LOG_CONF_LEVEL_LWM2M LOG_LEVEL_INFO
+#define LOG_CONF_LEVEL_COAP LOG_LEVEL_INFO
+#define LOG_CONF_LEVEL_IPV6 LOG_LEVEL_INFO
+
+/*
+ * ENDPOINT_NAME "Contiki-NG36065E1DD"
+ * corresponds to CN in test-certificate with PK starting with
+ * "MHcCAQEEIDhoMzFVUcmwhmlhSWZC4crijj48IvaUslsjWvHWiFNpoAoGCCqGSM49"
+ */
+#define LWM2M_ENGINE_CLIENT_ENDPOINT_NAME "Contiki-NG36065E1DD"
+
 #ifdef BOARD_STRING
 #define LWM2M_DEVICE_MODEL_NUMBER BOARD_STRING
 #elif defined(CONTIKI_TARGET_WISMOTE)
@@ -40,6 +55,8 @@
 #define PLATFORM_REBOOT watchdog_reboot
 #endif
 
+#define LWM2M_DEFAULT_CLIENT_LIFETIME 30
+
 #if BOARD_SENSORTAG
 /* Real sensor is present... */
 #else
@@ -47,7 +64,7 @@
 #endif /* BOARD_SENSORTAG */
 
 /* Increase rpl-border-router IP-buffer when using more than 64. */
-#define COAP_MAX_CHUNK_SIZE            64
+#define COAP_MAX_CHUNK_SIZE           500
 
 /* Multiplies with chunk size, be aware of memory constraints. */
 #define COAP_MAX_OPEN_TRANSACTIONS     4
@@ -59,12 +76,20 @@
 /* Enable client-side support for COAP observe */
 #define COAP_OBSERVE_CLIENT 1
 
-/* Definitions to enable Queue Mode, include the dynamic adaptation and change the default parameters  */
-/* #define LWM2M_QUEUE_MODE_CONF_ENABLED 1
-   #define LWM2M_QUEUE_MODE_CONF_INCLUDE_DYNAMIC_ADAPTATION 1
-   #define LWM2M_QUEUE_MODE_CONF_DEFAULT_CLIENT_AWAKE_TIME 2000
-   #define LWM2M_QUEUE_MODE_CONF_DEFAULT_CLIENT_SLEEP_TIME 10000
-   #define LWM2M_QUEUE_MODE_CONF_DEFAULT_DYNAMIC_ADAPTATION_FLAG 0
-   #define LWM2M_QUEUE_MODE_OBJECT_CONF_ENABLED 1 */
+/* Definitions to enable Queue Mode, include the dynamic adaptation,
+   and change the default parameters. */
+#if USE_QUEUE_MODE
+#define LWM2M_QUEUE_MODE_CONF_ENABLED 1
+#define LWM2M_QUEUE_MODE_CONF_INCLUDE_DYNAMIC_ADAPTATION 1
+#define LWM2M_QUEUE_MODE_CONF_DEFAULT_CLIENT_AWAKE_TIME 2000
+#define LWM2M_QUEUE_MODE_CONF_DEFAULT_CLIENT_SLEEP_TIME 10000
+#define LWM2M_QUEUE_MODE_CONF_DEFAULT_DYNAMIC_ADAPTATION_FLAG 0
+#define LWM2M_QUEUE_MODE_OBJECT_CONF_ENABLED 1
+#endif /* USE_QUEUE_MODE */
+
+/* DTLS configurations */
+#define LWM2M_SERVER_ADDRESS "coaps://[fd00::1]" // Border-router + Leshan
+
+#include "project-dtls-conf.h"
 
 #endif /* PROJECT_CONF_H_ */

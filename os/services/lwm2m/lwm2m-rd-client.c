@@ -733,7 +733,7 @@ periodic_process(coap_timer_t *timer)
         len = set_rd_data(session_info);
         session_info->rd_callback = registration_callback;
 
-        LOG_INFO("Registering with [");
+        LOG_INFO(" [");
         LOG_INFO_COAP_EP(&session_info->server_ep);
         LOG_INFO_("] lwm2m endpoint '%s': '", query_data);
         if(len) {
