@@ -123,14 +123,14 @@ int     ringbuf_get(struct ringbuf *r);
  * \param r    A pointer to a struct ringbuf to hold the state of the ring buffer
  * \return     The size of the buffer.
  */
-int     ringbuf_size(struct ringbuf *r);
+int     ringbuf_size(const struct ringbuf *r);
 
 /**
  * \brief      Get the number of elements currently in the ring buffer
  * \param r    A pointer to a struct ringbuf to hold the state of the ring buffer
  * \return     The number of elements in the buffer.
  */
-int     ringbuf_elements(struct ringbuf *r);
+int     ringbuf_elements(const struct ringbuf *r);
 
 #endif /* RINGBUF_H_ */
 

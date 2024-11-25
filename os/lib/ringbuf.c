@@ -99,13 +99,13 @@ ringbuf_get(struct ringbuf *r)
 }
 /*---------------------------------------------------------------------------*/
 int
-ringbuf_size(struct ringbuf *r)
+ringbuf_size(const struct ringbuf *r)
 {
   return r->mask + 1;
 }
 /*---------------------------------------------------------------------------*/
 int
-ringbuf_elements(struct ringbuf *r)
+ringbuf_elements(const struct ringbuf *r)
 {
   return (r->put_ptr - r->get_ptr) & r->mask;
 }
