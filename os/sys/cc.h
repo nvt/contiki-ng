@@ -144,6 +144,22 @@
 
 #define CC_ACCESS_NOW(type, variable) (*(volatile type *)&(variable))
 
+
+#ifdef CC_CONF_ATOMIC_TYPE
+#define CC_ATOMIC_TYPE CC_CONF_ATOMIC_TYPE
+#else
+#if __STDC_VERSION__ >= 201112L
+#ifdef __STDC_NO_ATOMICS__
+#define CC_ATOMIC_TYPE unsigned
+#else
+#include <stdatomic.h>
+#define CC_ATOMIC_TYPE atomic_uint
+#endif /* __STDC_NO_ATOMICS__ */
+#else
+#define CC_ATOMIC_TYPE unsigned
+#endif /* __STDC_VERSION__ */
+#endif /* CC_CONF_ATOMIC_TYPE */
+
 #ifndef NULL
 #define NULL 0
 #endif /* NULL */
