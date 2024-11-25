@@ -47,7 +47,7 @@
 
 /* Initialize a ring buffer. The size must be a power of two */
 void
-ringbufindex_init(struct ringbufindex *r, uint8_t size)
+ringbufindex_init(struct ringbufindex *r, CC_ATOMIC_TYPE size)
 {
   r->mask = size - 1;
   r->put_ptr = 0;
@@ -60,11 +60,10 @@ ringbufindex_put(struct ringbufindex *r)
   /* Check if buffer is full. If it is full, return 0 to indicate that
      the element was not inserted.
 
-     XXX: there is a potential risk for a race condition here, because
+     There is a potential risk for a race condition here, because
      the ->get_ptr field may be written concurrently by the
      ringbufindex_get() function. To avoid this, access to ->get_ptr must
-     be atomic. We use an uint8_t type, which makes access atomic on
-     most platforms, but C does not guarantee this.
+     be atomic, so we use the CC_ATOMIC_TYPE type.
    */
   if(((r->put_ptr - r->get_ptr) & r->mask) == r->mask) {
     return 0;
@@ -95,11 +94,10 @@ ringbufindex_get(struct ringbufindex *r)
      first one and increase the pointer. If there are no bytes left, we
      return -1.
 
-     XXX: there is a potential risk for a race condition here, because
+     There is a potential risk for a race condition here, because
      the ->put_ptr field may be written concurrently by the
      ringbufindex_put() function. To avoid this, access to ->get_ptr must
-     be atomic. We use an uint8_t type, which makes access atomic on
-     most platforms, but C does not guarantee this.
+     be atomic, so we use the CC_ATOMIC_TYPE type.
    */
   if(((r->put_ptr - r->get_ptr) & r->mask) != 0) {
     get_ptr = r->get_ptr;
