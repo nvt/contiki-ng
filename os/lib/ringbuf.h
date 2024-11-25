@@ -67,10 +67,8 @@
  */
 struct ringbuf {
   uint8_t *data;
-  uint8_t mask;
-
-  /* XXX these must be 8-bit quantities to avoid race conditions. */
-  uint8_t put_ptr, get_ptr;
+  CC_ATOMIC_TYPE mask;
+  CC_ATOMIC_TYPE put_ptr, get_ptr;
 };
 
 /**
@@ -87,7 +85,7 @@ struct ringbuf {
  *
  */
 static inline void
-ringbuf_init(struct ringbuf *r, uint8_t *a, uint8_t size_power_of_two)
+ringbuf_init(struct ringbuf *r, uint8_t *a, CC_ATOMIC_TYPE size_power_of_two)
 {
   r->data = a;
   r->mask = size_power_of_two - 1;
