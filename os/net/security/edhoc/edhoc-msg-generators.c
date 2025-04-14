@@ -67,6 +67,7 @@ gen_mac(const edhoc_context_t *ctx, uint8_t mac_len, uint8_t *mac)
 
   return mac_len;
 }
+/*----------------------------------------------------------------------------*/
 static uint16_t
 gen_plaintext(edhoc_context_t *ctx, const uint8_t *ad, size_t ad_sz,
               bool msg2, const uint8_t *mac_or_sig,
@@ -302,6 +303,9 @@ edhoc_gen_msg_2(edhoc_context_t *ctx, const uint8_t *ad, size_t ad_sz)
                                      mac_or_signature_sz,
                                      ctx->buffers.plaintext);
   LOG_DBG("PLAINTEXT_2 (%d bytes): ", (int)plaint_sz);
+  if(plaint_sz == 0) {
+    return -1;
+  }
   print_buff_8_dbg(ctx->buffers.plaintext, plaint_sz);
   ctx->buffers.plaintext_sz = plaint_sz;
 
