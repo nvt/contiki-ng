@@ -249,7 +249,11 @@ cose_decrypt(cose_encrypt0 *enc)
   uint8_t key_len = cose_get_key_len(enc->alg);
   uint8_t iv_len = cose_get_iv_len(enc->alg);
   uint8_t tag_len = cose_get_tag_len(enc->alg);
-  if(enc->key_sz != key_len || enc->nonce_sz != iv_len || enc->plaintext_sz > COSE_MAX_BUFFER || str_sz > (2 * COSE_MAX_BUFFER)) {
+  if(enc->key_sz != key_len
+     || enc->nonce_sz != iv_len
+     || enc->plaintext_sz > COSE_MAX_BUFFER
+     || str_sz > (2 * COSE_MAX_BUFFER)
+     || tag_len == 0) {
     LOG_ERR("The COSE parameters are not corresponding with the selected algorithm or buffer sizes\n");
     return 0;
   }
@@ -282,7 +286,6 @@ cose_encrypt(cose_encrypt0 *enc)
   uint8_t key_len = cose_get_key_len(enc->alg);
   uint8_t iv_len = cose_get_iv_len(enc->alg);
   uint8_t tag_len = cose_get_tag_len(enc->alg);
-
   if(enc->key_sz != key_len || enc->nonce_sz != iv_len ||
      enc->plaintext_sz > COSE_MAX_BUFFER || str_sz > (2 * COSE_MAX_BUFFER)) {
     LOG_ERR("The COSE parameters are not corresponding with the selected algorithm or buffer sizes\n");
