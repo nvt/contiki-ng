@@ -108,6 +108,16 @@ typedef uint64_t rtimer_clock_t;
 #define RTIMER_GUARD_TIME (RTIMER_ARCH_SECOND >> 14)
 #endif /* RTIMER_CONF_GUARD_TIME */
 
+/*
+ * Maximum number of concurrent rtimers supported.
+ * Can be overridden in project-conf.h.
+ */
+#ifdef RTIMER_CONF_MAX_TIMERS
+#define RTIMER_MAX_TIMERS RTIMER_CONF_MAX_TIMERS
+#else /* RTIMER_CONF_MAX_TIMERS */
+#define RTIMER_MAX_TIMERS 8
+#endif /* RTIMER_CONF_MAX_TIMERS */
+
 /*---------------------------------------------------------------------------*/
 
 /**
@@ -140,16 +150,19 @@ struct rtimer {
   rtimer_clock_t time;
   rtimer_callback_t func;
   void *ptr;
+  uint8_t active; /**< Must be zero-initialized before first use. */
 };
 
+/** \brief Static initializer for an rtimer structure. */
+#define RTIMER_INITIALIZER { 0, NULL, NULL, 0 }
+
 /**
- * TODO: we need to document meanings of these symbols.
+ * Return codes for rtimer operations.
  */
 enum {
-  RTIMER_OK, /**< rtimer task is scheduled successfully */
-  RTIMER_ERR_FULL,
-  RTIMER_ERR_TIME,
-  RTIMER_ERR_ALREADY_SCHEDULED,
+  RTIMER_OK,             /**< rtimer task is scheduled successfully */
+  RTIMER_ERR_FULL,       /**< rtimer queue is full */
+  RTIMER_ERR_TIME,       /**< rtimer is not active (for cancel) */
 };
 
 /**
@@ -177,6 +190,25 @@ int rtimer_set(struct rtimer *task, rtimer_clock_t time,
  *
  */
 void rtimer_run_next(void);
+
+/**
+ * \brief      Cancel a scheduled rtimer
+ * \param task A pointer to the task to cancel
+ * \return     RTIMER_OK if the task was cancelled. RTIMER_ERR_TIME if the task was not active.
+ *
+ *             This function cancels a previously scheduled rtimer.
+ *
+ */
+int rtimer_cancel(struct rtimer *task);
+
+/**
+ * \brief      Get the number of currently active rtimers
+ * \return     The number of active rtimers
+ *
+ *             This function returns the current count of scheduled rtimers.
+ *
+ */
+uint8_t rtimer_active_count(void);
 
 /**
  * \brief      Get the current clock time

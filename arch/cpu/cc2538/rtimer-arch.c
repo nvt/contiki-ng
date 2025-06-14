@@ -38,6 +38,7 @@
  */
 #include "contiki.h"
 #include "sys/rtimer.h"
+#include "sys/int-master.h"
 #include "dev/nvic.h"
 #include "dev/smwdthrosc.h"
 #include "cpu.h"
@@ -65,11 +66,12 @@ void
 rtimer_arch_schedule(rtimer_clock_t t)
 {
   rtimer_clock_t now;
+  int_master_status_t status;
 
   /* STLOAD must be 1 */
   while((REG(SMWDTHROSC_STLOAD) & SMWDTHROSC_STLOAD_STLOAD) != 1);
 
-  INTERRUPTS_DISABLE();
+  status = int_master_read_and_disable();
 
   now = RTIMER_NOW();
 
@@ -87,7 +89,7 @@ rtimer_arch_schedule(rtimer_clock_t t)
   REG(SMWDTHROSC_ST1) = (t >> 8) & 0x000000FF;
   REG(SMWDTHROSC_ST0) = t & 0x000000FF;
 
-  INTERRUPTS_ENABLE();
+  int_master_status_set(status);
 
   /* Store the value. The LPM module will query us for it */
   next_trigger = t;
@@ -136,9 +138,15 @@ rtimer_isr()
    */
   lpm_exit();
 
-  next_trigger = 0;
-
   NVIC_ClearPendingIRQ(SMT_IRQn);
+
+  /*
+   * Clear next_trigger before processing. rtimer_run_next() will call
+   * rtimer_arch_schedule() for remaining timers, which sets next_trigger
+   * and re-enables the IRQ. If the queue becomes empty, next_trigger
+   * stays 0 and we disable the IRQ.
+   */
+  next_trigger = 0;
   NVIC_DisableIRQ(SMT_IRQn);
 
   rtimer_run_next();
