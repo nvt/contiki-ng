@@ -214,4 +214,15 @@
 #define SICSLOWPAN_CONF_COMPRESSION SICSLOWPAN_COMPRESSION_IPHC
 #endif /* SICSLOWPAN_CONF_COMPRESSION */
 
+/*---------------------------------------------------------------------------*/
+/* Library configurations
+ */
+
+/* BITREV_CONF_ENABLED specifies if bit reversal functionality should be
+   enabled. This is used by radio drivers for protocol compliance 
+   (e.g., 802.15.4g). Disabled by default to save memory. */
+#ifndef BITREV_CONF_ENABLED
+#define BITREV_CONF_ENABLED 0
+#endif /* BITREV_CONF_ENABLED */
+
 #endif /* CONTIKI_DEFAULT_CONF_H */

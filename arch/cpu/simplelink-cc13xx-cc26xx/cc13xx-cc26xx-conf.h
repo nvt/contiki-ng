@@ -319,6 +319,13 @@
 #define PROP_MODE_CONF_BITREV_PAYLOAD        0
 #endif
 
+/* Enable bit reversal library if prop-mode bit reversal is enabled */
+#if PROP_MODE_CONF_BITREV_PAYLOAD
+#ifndef BITREV_CONF_ENABLED
+#define BITREV_CONF_ENABLED 1
+#endif
+#endif
+
 /**
  * \brief  Configuration to set whitener in Prop-mode.
  *         0 => No whitener
