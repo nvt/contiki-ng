@@ -1,0 +1,20 @@
+[package]
+name = "contiki-rust-support"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "contiki_sys"
+path = "contiki-sys.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = "s"     # Optimize for size
+lto = true          # Enable Link Time Optimization
+panic = "abort"     # Don't include unwinding code
+codegen-units = 1   # Single codegen unit for better optimization
+
+[profile.dev]
+panic = "abort"     # Even in dev, we can't unwind in embedded

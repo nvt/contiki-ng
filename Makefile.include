@@ -99,10 +99,11 @@ endif
 define oname
 ${patsubst %.c,%.o, \
 ${patsubst %.cpp,%.o, \
+${patsubst %.rs,%.o, \
 ${patsubst %.S,%.o, \
 ${patsubst %.s,%.o, \
 $(1) \
-}}}}
+}}}}}
 endef
 
 # Rule to force rebuilds.
@@ -443,6 +444,7 @@ SOURCEDIRS += . $(PROJECTDIRS) $(CONTIKI_TARGET_DIRS_CONCAT) \
 
 vpath %.c $(SOURCEDIRS) $(EXTERNALDIRS)
 vpath %.cpp $(SOURCEDIRS) $(EXTERNALDIRS)
+vpath %.rs $(SOURCEDIRS) $(EXTERNALDIRS)
 vpath %.in $(SOURCEDIRS) $(EXTERNALDIRS)
 vpath %.S $(SOURCEDIRS) $(EXTERNALDIRS)
 vpath %.s $(SOURCEDIRS) $(EXTERNALDIRS)
@@ -588,6 +590,18 @@ endif
 ifeq ($(CHECK_STRUCTS),1)
 	$(Q)$(PAHOLE) $(PAHOLE_FLAGS) $@ | perl -ne 'exit 1 if /XXX/'
 endif
+endif
+
+# Include Rust support if enabled
+ifdef RUST_SUPPORT
+-include $(CONTIKI)/tools/rust-support/Makefile.rust
+endif
+
+ifndef CUSTOM_RULE_RS_TO_OBJECTDIR_O
+$(OBJECTDIR)/%.o: %.rs | $(OBJECTDIR)
+	$(TRACE_CC)
+	$(Q)$(RUSTC) $(RUSTFLAGS) -L $(CONTIKI)/tools/rust-support/target/$(RUST_TARGET)/release/deps \
+	  -o $@ $<
 endif
 
 ifndef CUSTOM_RULE_S_TO_OBJECTDIR_O

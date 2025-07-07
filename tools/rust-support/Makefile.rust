@@ -1,0 +1,72 @@
+# Rust support for Contiki-NG
+# This makefile provides build rules and configuration for Rust code integration
+
+# Rust source file extension
+RUST_EXTENSION = .rs
+
+# Rust flags for embedded development
+RUSTFLAGS_COMMON = -C opt-level=s -C panic=abort -C lto=fat
+RUSTFLAGS_EMBEDDED = --emit=obj -C relocation-model=static
+
+# Default values if not set
+RUSTC ?= rustc
+CARGO ?= cargo
+RUST_TARGET ?= thumbv7m-none-eabi
+
+# Target-specific Rust targets
+ifeq ($(TARGET),native)
+  RUST_TARGET = $(shell rustc -vV | sed -n 's/host: \(.*\)/\1/p' 2>/dev/null || echo x86_64-unknown-linux-gnu)
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) --emit=obj -C relocation-model=pic
+else ifeq ($(TARGET),zoul)
+  RUST_TARGET = thumbv7m-none-eabi
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+else ifeq ($(TARGET),cc2538dk)
+  RUST_TARGET = thumbv7m-none-eabi
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+else ifeq ($(TARGET),nrf52840)
+  RUST_TARGET = thumbv7em-none-eabihf
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+else ifeq ($(TARGET),sky)
+  RUST_TARGET = msp430-none-elf
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+else
+  # Default to no_std for unknown targets
+  RUST_TARGET = thumbv7m-none-eabi
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+endif
+
+# Add Rust object files to the build
+RUST_SOURCEFILES = $(filter %$(RUST_EXTENSION), $(PROJECT_SOURCEFILES))
+RUST_OBJECTFILES = $(addprefix $(OBJECTDIR)/,$(RUST_SOURCEFILES:$(RUST_EXTENSION)=.o))
+
+# Update object files list
+oname = $(patsubst %.c,%.o,$(patsubst %.cpp,%.o,$(patsubst %.rs,%.o,$(patsubst %.S,%.o,$(patsubst %.s,%.o,$(1))))))
+
+# Rust compilation rule
+$(OBJECTDIR)/%.o: %.rs | $(OBJECTDIR)
+	$(TRACE_CC)
+	$(Q)$(RUSTC) $(RUSTFLAGS) -L $(CONTIKI)/tools/rust-support/target/$(RUST_TARGET)/release/deps \
+	  -o $@ $<
+
+# Ensure Rust core library is available for the target
+ifndef RUST_SETUP_DEFINED
+RUST_SETUP_DEFINED = 1
+.PHONY: rust-setup
+rust-setup:
+	@if [ "$(TARGET)" != "native" ]; then \
+	  if command -v rustup >/dev/null 2>&1; then \
+	    if ! rustup target list --installed | grep -q $(RUST_TARGET); then \
+	      echo "Installing Rust target $(RUST_TARGET)..."; \
+	      rustup target add $(RUST_TARGET); \
+	    fi \
+	  else \
+	    if ! rustc --print target-list | grep -q "^$(RUST_TARGET)$$"; then \
+	      echo "Error: Rust target $(RUST_TARGET) not available and rustup not found"; \
+	      exit 1; \
+	    fi \
+	  fi \
+	fi
+endif
+
+# Add rust-setup as a prerequisite for Rust object files
+$(RUST_OBJECTFILES): rust-setup
