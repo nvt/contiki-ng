@@ -77,24 +77,37 @@ memb_alloc(struct memb *m)
 int
 memb_free(struct memb *m, void *ptr)
 {
-  int i;
-  char *ptr2;
+  size_t offset;
+  size_t index;
 
-  /* Walk through the list of blocks and try to find the block to
-     which the pointer "ptr" points to. */
-  ptr2 = (char *)m->mem;
-  for(i = 0; i < m->num; ++i) {
-    if(ptr2 == (char *)ptr) {
-      /* We've found the block to which "ptr" points, so we check the allocation
-         status to detect the double-free error and free the block. */
-      if (m->used[i] == false)
-        return -1;
-      m->used[i] = false;
-      return 0;
-    }
-    ptr2 += m->size;
+  /* First check if the pointer is within the valid memory range */
+  if(!memb_inmemb(m, ptr)) {
+    return -1;
   }
-  return -1;
+
+  /* Calculate the offset from the start of the memory block */
+  offset = (char *)ptr - (char *)m->mem;
+
+  /* Check if the pointer is properly aligned to a block boundary */
+  if(offset % m->size != 0) {
+    return -1;
+  }
+
+  /* Calculate the block index directly */
+  index = offset / m->size;
+
+  /* Check for double-free */
+  if(m->used[index] == false) {
+    return -1;
+  }
+
+  /* Mark the block as free */
+  m->used[index] = false;
+
+  /* Clear the memory block contents for security */
+  memset(ptr, 0, m->size);
+
+  return 0;
 }
 /*---------------------------------------------------------------------------*/
 int
