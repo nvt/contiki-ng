@@ -42,9 +42,14 @@ This guide will show you how to port Contiki-NG to a new hardware device. The gu
    - [Is it a CPU Thing or Platform Thing?](#is-it-a-cpu-thing-or-platform-thing)
    - [Common Patterns from Existing Platforms](#common-patterns-from-existing-platforms)
    - [Do Not Add Platform Code in Platform-Independent Files](#do-not-add-platform-code-in-platform-independent-files)
-9. [Troubleshooting](#troubleshooting)
-10. [Examples of Successful Ports](#examples-of-successful-ports)
-11. [Support](#support)
+9. [Advanced Topics](#advanced-topics)
+   - [Working with Vendor SDKs](#working-with-vendor-sdks)
+   - [Debugging Strategies](#debugging-strategies)
+   - [Bootloader Considerations](#bootloader-considerations)
+   - [Performance Optimization](#performance-optimization)
+10. [Troubleshooting](#troubleshooting)
+11. [Examples of Successful Ports](#examples-of-successful-ports)
+12. [Support](#support)
 
 ---
 
@@ -3034,6 +3039,698 @@ platform_specific_hook(void)
 ```
 
 **When in doubt:** Ask on Gitter before adding platform-specific code to platform-independent files.
+
+---
+
+## Advanced Topics
+
+### Working with Vendor SDKs
+
+**Difficulty:** ⚠️ Advanced
+
+Many MCU vendors provide Software Development Kits (SDKs) with drivers and libraries. Here's how to integrate them with Contiki-NG:
+
+#### Approach 1: Thin Wrapper (Recommended)
+
+Use vendor drivers internally, but provide Contiki-NG compatible API:
+
+```c
+/* uart.c - Contiki-NG driver wrapping vendor UART */
+#include "vendor_sdk/uart_driver.h"
+
+void
+uart_init(uint8_t uart)
+{
+  vendor_uart_config_t config = {
+    .baud_rate = 115200,
+    .data_bits = 8,
+    .stop_bits = 1,
+    .parity = VENDOR_UART_PARITY_NONE
+  };
+  vendor_uart_initialize(uart, &config);
+}
+
+void
+uart_write_byte(uint8_t uart, uint8_t byte)
+{
+  vendor_uart_transmit(uart, &byte, 1);
+}
+```
+
+**Benefits:**
+- Leverage tested vendor code
+- Get vendor bug fixes and updates
+- Reduce development time
+
+**Drawbacks:**
+- Increased code size (vendor libraries often bloated)
+- Potential licensing issues
+- Less control over implementation
+
+#### Approach 2: Selective Use
+
+Use vendor SDK only for complex peripherals (e.g., radio, USB), write simple drivers yourself:
+
+```Makefile
+# Use vendor radio library
+LDFLAGS += -L$(VENDOR_SDK)/lib
+LDLIBS += -lvendor_radio
+
+# But write our own simple UART driver
+CONTIKI_CPU_SOURCEFILES += uart.c
+```
+
+#### Approach 3: Header-Only
+
+Use only vendor register definitions and macros:
+
+```c
+#include "vendor_sdk/cc2538_registers.h"  /* Register defs only */
+
+void
+uart_init(uint8_t uart)
+{
+  /* Use vendor register definitions */
+  UART0_CTL |= VENDOR_UART_CTL_ENABLE;
+  UART0_BAUD = VENDOR_UART_BAUD_115200;
+  /* But our own driver logic */
+}
+```
+
+#### Best Practices for Vendor SDK Integration
+
+1. **Isolate vendor code in separate directory:**
+   ```
+   arch/cpu/my-mcu/
+   ├── vendor/              # Vendor SDK (potentially as submodule)
+   │   ├── include/
+   │   └── lib/
+   ├── uart.c               # Our wrapper
+   └── Makefile.my-mcu
+   ```
+
+2. **Add vendor paths in Makefile:**
+   ```Makefile
+   VENDOR_SDK = $(CONTIKI_CPU)/vendor
+   CFLAGS += -I$(VENDOR_SDK)/include
+   LDFLAGS += -L$(VENDOR_SDK)/lib
+   ```
+
+3. **Check licenses carefully:**
+   - Vendor SDK may have incompatible license
+   - Document any license requirements
+   - Consider alternative if license problematic
+
+4. **Version control vendor SDK:**
+   ```bash
+   # Option 1: Git submodule
+   git submodule add https://vendor.com/sdk.git arch/cpu/my-mcu/vendor
+
+   # Option 2: Copy specific version
+   # Document version in README
+   ```
+
+5. **Minimize vendor API surface:**
+   ```c
+   /* Don't expose vendor types in public headers */
+
+   /* Bad - exposes vendor types */
+   vendor_uart_handle_t uart_get_handle(uint8_t uart);
+
+   /* Good - internal only */
+   static vendor_uart_handle_t uart_handles[2];
+   ```
+
+#### Example: CC26xx/CC13xx with TI Driverlib
+
+The CC26xx port uses TI's driverlib extensively:
+
+```c
+/* arch/cpu/cc26x0-cc13x0/ uses vendor driverlib */
+#include "driverlib/driverlib_release.h"
+#include "ti-lib.h"  /* Contiki-NG wrapper around vendor API */
+
+/* Wrapper macro for vendor functions */
+#define ti_lib_gpio_write(pin, val) GPIOPinWrite(pin, val)
+```
+
+See [`arch/cpu/cc26x0-cc13x0/ti-lib.h`](https://github.com/contiki-ng/contiki-ng/tree/develop/arch/cpu/cc26x0-cc13x0/ti-lib.h) for complete example.
+
+---
+
+### Debugging Strategies
+
+**Difficulty:** 📘 Moderate - Essential skills for successful porting
+
+#### Strategy 1: Printf Debugging
+
+**Setup early:**
+```c
+/* Get printf working in stage_one if possible */
+void
+platform_init_stage_one(void)
+{
+  uart_init(0);  /* Minimal UART init */
+  printf("Boot: stage_one\n");  /* Confirm we're running */
+}
+```
+
+**Add strategic printfs:**
+```c
+void
+rtimer_arch_schedule(rtimer_clock_t t)
+{
+  printf("rtimer_schedule: t=%lu now=%lu\n",
+         (unsigned long)t, (unsigned long)rtimer_arch_now());
+  /* ... implementation ... */
+}
+```
+
+**Use LOG system for production:**
+```c
+#include "sys/log.h"
+#define LOG_MODULE "Radio"
+#define LOG_LEVEL LOG_LEVEL_DBG
+
+/* Then use LOG_DBG(), LOG_INFO(), etc. */
+LOG_DBG("Radio: TX %d bytes on channel %d\n", len, channel);
+```
+
+#### Strategy 2: Hardware Debugging (JTAG/SWD)
+
+**Setup OpenOCD:**
+```bash
+# Create openocd.cfg
+cat > openocd.cfg <<EOF
+source [find interface/jlink.cfg]
+source [find target/stm32f4x.cfg]
+EOF
+
+# Start OpenOCD
+openocd -f openocd.cfg
+```
+
+**Use GDB:**
+```bash
+arm-none-eabi-gdb firmware.elf
+
+# Connect to OpenOCD
+(gdb) target extended-remote :3333
+
+# Common commands
+(gdb) monitor reset halt        # Reset and stop
+(gdb) load                      # Flash firmware
+(gdb) break platform_init_stage_one
+(gdb) continue
+(gdb) print current_clock       # Examine variables
+(gdb) x/10x 0x20000000         # Examine memory
+(gdb) backtrace                # Show call stack
+```
+
+**Hardware breakpoints:**
+```bash
+# Set breakpoint (limited number on embedded)
+(gdb) hbreak rtimer_arch_schedule
+
+# Conditional breakpoint
+(gdb) break uart_rx_isr if data_ready == 1
+
+# Watchpoint (break on memory write)
+(gdb) watch current_clock
+```
+
+#### Strategy 3: LED Debugging
+
+When serial/JTAG unavailable:
+
+```c
+/* Define LED patterns */
+#define LED_PATTERN_BOOT       0x01  /* Red */
+#define LED_PATTERN_ERROR      0x05  /* Red blink */
+#define LED_PATTERN_RADIO_TX   0x02  /* Green */
+#define LED_PATTERN_RADIO_RX   0x04  /* Blue */
+
+void
+debug_led_pattern(uint8_t pattern)
+{
+  static uint8_t counter = 0;
+  if(counter++ % 10 == 0) {
+    leds_set(pattern);
+  }
+}
+
+/* Use in code */
+void
+radio_send(void)
+{
+  debug_led_pattern(LED_PATTERN_RADIO_TX);
+  /* ... */
+}
+```
+
+**Morse code debugging:**
+```c
+/* Blink LED in morse code: -- --- -.- = MOK */
+void
+morse_ok(void)
+{
+  morse_dash(); morse_dash();  /* M */
+  morse_space();
+  morse_dash(); morse_dash(); morse_dash();  /* O */
+  morse_space();
+  morse_dash(); morse_dot(); morse_dash();  /* K */
+}
+```
+
+#### Strategy 4: Logic Analyzer / Oscilloscope
+
+**Toggle GPIO for timing analysis:**
+```c
+/* Add debug pin toggle */
+#define DEBUG_PIN_HIGH()  GPIO_SET_PIN(GPIO_PORT_A, 5)
+#define DEBUG_PIN_LOW()   GPIO_CLR_PIN(GPIO_PORT_A, 5)
+
+void
+rtimer_isr(void)
+{
+  DEBUG_PIN_HIGH();  /* Measure ISR timing */
+
+  /* ISR code */
+
+  DEBUG_PIN_LOW();
+}
+```
+
+**Measure radio timing:**
+```c
+void
+radio_transmit(void)
+{
+  DEBUG_PIN_HIGH();
+  /* Radio TX */
+  DEBUG_PIN_LOW();
+  /* Can now measure TX duration on scope */
+}
+```
+
+#### Strategy 5: Crash Analysis
+
+**Implement fault handlers:**
+```c
+/* For ARM Cortex-M */
+void
+HardFault_Handler(void)
+{
+  /* Print fault information */
+  printf("HARD FAULT!\n");
+  printf("SCB->HFSR = 0x%08lx\n", SCB->HFSR);
+  printf("SCB->CFSR = 0x%08lx\n", SCB->CFSR);
+  printf("SCB->BFAR = 0x%08lx\n", SCB->BFAR);
+
+  /* Infinite loop or reboot */
+  while(1);
+}
+```
+
+**Preserve crash info across reboot:**
+```c
+/* In NOINIT section (preserved across reset) */
+__attribute__((section(".noinit")))
+static struct {
+  uint32_t magic;
+  uint32_t lr;   /* Link register */
+  uint32_t pc;   /* Program counter */
+  uint32_t psr;  /* Program status */
+} crash_info;
+
+void
+HardFault_Handler(void)
+{
+  crash_info.magic = 0xDEADBEEF;
+  /* Save registers */
+  __asm volatile("mov %0, lr" : "=r"(crash_info.lr));
+  /* ... */
+  NVIC_SystemReset();  /* Reboot */
+}
+
+void
+platform_init_stage_one(void)
+{
+  if(crash_info.magic == 0xDEADBEEF) {
+    printf("Previous crash: PC=0x%08lx\n", crash_info.pc);
+    crash_info.magic = 0;
+  }
+}
+```
+
+#### Strategy 6: Assert and Sanity Checks
+
+**Add assertions liberally:**
+```c
+#include "sys/log.h"
+#define LOG_MODULE "Platform"
+
+#define ASSERT(condition) \
+  do { \
+    if(!(condition)) { \
+      LOG_ERR("ASSERT FAILED: %s:%d: %s\n", \
+              __FILE__, __LINE__, #condition); \
+      while(1); \
+    } \
+  } while(0)
+
+/* Use in code */
+void
+rtimer_arch_schedule(rtimer_clock_t t)
+{
+  ASSERT(t > rtimer_arch_now());  /* Catch scheduling in past */
+  ASSERT(t < rtimer_arch_now() + RTIMER_SECOND * 60);  /* Sanity check */
+  /* ... */
+}
+```
+
+**Runtime sanity checks:**
+```c
+void
+platform_init_stage_three(void)
+{
+  /* Verify clock running */
+  clock_time_t t1 = clock_time();
+  clock_delay_usec(10000);  /* 10ms */
+  clock_time_t t2 = clock_time();
+  ASSERT(t2 > t1);  /* Clock must advance */
+
+  /* Verify rtimer running */
+  rtimer_clock_t r1 = rtimer_arch_now();
+  clock_delay_usec(1000);
+  rtimer_clock_t r2 = rtimer_arch_now();
+  ASSERT(r2 > r1);
+
+  LOG_INFO("Sanity checks passed\n");
+}
+```
+
+---
+
+### Bootloader Considerations
+
+**Difficulty:** ⚠️⚠️ Advanced - Important for production deployments
+
+#### Bootloader vs Direct Flashing
+
+**Direct flashing (development):**
+- Program via JTAG/SWD
+- Full chip erase possible
+- No bootloader overhead
+
+**Bootloader (production):**
+- Program via UART/USB/OTA
+- No debugger needed
+- Enables field updates
+- Requires reserved flash space
+
+#### Linker Script Adjustments
+
+**Without bootloader:**
+```ld
+MEMORY
+{
+  FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 256K
+  RAM (rwx)  : ORIGIN = 0x20000000, LENGTH = 64K
+}
+```
+
+**With bootloader:**
+```ld
+MEMORY
+{
+  /* Bootloader at 0x00000000 - 0x00007FFF (32K) */
+  FLASH (rx) : ORIGIN = 0x00008000, LENGTH = 224K  /* Offset! */
+  RAM (rwx)  : ORIGIN = 0x20000000, LENGTH = 64K
+}
+
+/* Vector table must be relocated */
+_vector_table_offset = 0x00008000;
+```
+
+#### Vector Table Relocation (ARM Cortex-M)
+
+```c
+/* In startup code */
+void
+SystemInit(void)
+{
+  /* Set vector table offset */
+  SCB->VTOR = 0x00008000;  /* Match linker script */
+}
+```
+
+#### Bootloader Communication
+
+**Shared memory approach:**
+```c
+/* Define shared region in linker script */
+__attribute__((section(".shared")))
+struct {
+  uint32_t magic;
+  uint32_t boot_mode;  /* 0=app, 1=stay in bootloader */
+  uint32_t app_crc;
+} bootloader_info;
+
+/* Application can request bootloader mode */
+void
+enter_bootloader_mode(void)
+{
+  bootloader_info.magic = 0xB00710AD;
+  bootloader_info.boot_mode = 1;
+  NVIC_SystemReset();
+}
+```
+
+#### Image Validation
+
+Bootloader should validate application before booting:
+
+```c
+/* Add CRC/checksum to application */
+/* In application linker script */
+.app_crc : {
+  KEEP(*(.app_crc))
+} > FLASH
+
+/* In application code */
+__attribute__((section(".app_crc")))
+const uint32_t app_crc = 0x12345678;  /* Calculated at build time */
+```
+
+**Calculate at build time:**
+```Makefile
+%.bin: %.elf
+	$(OBJCOPY) -O binary $< $@
+	# Calculate CRC and append
+	python tools/add_crc.py $@
+```
+
+#### Common Bootloader Protocols
+
+**1. cc2538-bsl (CC2538, CC26xx):**
+```bash
+# Already integrated in CC2538 platforms
+python tools/cc2538-bsl/cc2538-bsl.py -p /dev/ttyUSB0 -e -w -v firmware.bin
+```
+
+**2. STM32 UART bootloader:**
+```bash
+stm32flash -w firmware.bin -v -g 0x0 /dev/ttyUSB0
+```
+
+**3. Nordic DFU (nRF52):**
+```bash
+nrfutil dfu usb-serial -pkg firmware.zip -p /dev/ttyACM0
+```
+
+#### Configuration for Bootloader Builds
+
+```Makefile
+# Support bootloader builds
+ifdef WITH_BOOTLOADER
+  LDSCRIPT = $(CONTIKI_CPU)/cc2538-bootloader.ld
+  CFLAGS += -DVECTOR_TABLE_OFFSET=0x8000
+else
+  LDSCRIPT = $(CONTIKI_CPU)/cc2538.ld
+endif
+```
+
+**Usage:**
+```bash
+# Normal build
+make TARGET=cc2538dk
+
+# Bootloader-compatible build
+make TARGET=cc2538dk WITH_BOOTLOADER=1
+```
+
+---
+
+### Performance Optimization
+
+**Difficulty:** 📘 Moderate - Important for resource-constrained devices
+
+#### Memory Optimization
+
+**1. Measure first:**
+```bash
+# Check memory usage
+arm-none-eabi-size firmware.elf
+   text    data     bss     dec     hex filename
+  45678    1234    5678   52590    cd6e firmware.elf
+
+# Detailed section info
+arm-none-eabi-nm --size-sort -S firmware.elf | tail -20
+```
+
+**2. Reduce code size:**
+
+```c
+/* Use size optimization */
+CFLAGS += -Os  /* Optimize for size */
+
+/* Disable unused features in project-conf.h */
+#define NBR_TABLE_CONF_MAX_NEIGHBORS 10  /* Reduce from default 20 */
+#define QUEUEBUF_CONF_NUM 4              /* Reduce from default 8 */
+#define UIP_CONF_MAX_ROUTES 10           /* Reduce routing table */
+
+/* Disable unused modules */
+#define LOG_CONF_LEVEL_MAIN LOG_LEVEL_WARN  /* Less logging */
+```
+
+**3. Use function attributes:**
+```c
+/* Inline small, frequently called functions */
+static inline void
+led_on(uint8_t led)
+{
+  GPIO_SET_PIN(LED_PORT, led);
+}
+
+/* Don't inline large functions */
+__attribute__((noinline))
+void
+complex_computation(void)
+{
+  /* ... lots of code ... */
+}
+```
+
+**4. Reduce RAM usage:**
+```c
+/* Use const for read-only data */
+static const uint8_t lookup_table[256] = { /* ... */ };
+
+/* Use smaller types */
+uint8_t counter;  /* Not 'int' */
+
+/* Pack structures */
+struct __attribute__((packed)) sensor_data {
+  uint8_t id;
+  uint16_t value;
+  uint8_t flags;
+};  /* 4 bytes instead of 8 */
+```
+
+#### CPU Performance
+
+**1. Compiler optimizations:**
+```Makefile
+# Speed optimization
+CFLAGS += -O3
+
+# Architecture-specific optimizations
+CFLAGS += -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
+```
+
+**2. Use hardware accelerators:**
+```c
+/* Use hardware AES instead of software */
+#include "dev/crypto.h"
+crypto_init();
+crypto_enable();
+
+/* Hardware will be much faster */
+AES_LOAD_KEY(key);
+AES_ENCRYPT(plaintext, ciphertext);
+```
+
+**3. Optimize critical paths:**
+```c
+/* Before: */
+void
+timer_isr(void)
+{
+  current_time = current_time + 1;  /* Read-modify-write */
+  if(current_time > next_event) {
+    trigger_event();
+  }
+}
+
+/* After: */
+void
+timer_isr(void)
+{
+  uint32_t time = ++current_time;  /* Increment and read once */
+  if(time > next_event) {  /* Use local variable */
+    trigger_event();
+  }
+}
+```
+
+#### Radio Performance
+
+**Optimize packet processing:**
+```c
+/* Use DMA for radio */
+#define RADIO_CONF_USE_DMA 1
+
+/* Reduce RX buffer overhead */
+#define RADIO_CONF_RX_BUFFERS 2  /* Minimum for TSCH */
+
+/* Tune CCA threshold */
+#define RADIO_CONF_CCA_THRESHOLD -85  /* dBm */
+```
+
+#### Power vs Performance Trade-offs
+
+```c
+/* Low power - slower wakeup */
+#define LPM_CONF_MAX_PM 2  /* Deep sleep */
+
+/* High performance - fast response */
+#define LPM_CONF_MAX_PM 0  /* Light sleep only */
+
+/* Balanced */
+#define LPM_CONF_MAX_PM 1  /* Medium sleep */
+```
+
+#### Benchmarking
+
+**Add timing measurements:**
+```c
+#include "sys/rtimer.h"
+
+void
+benchmark_function(void)
+{
+  rtimer_clock_t start = RTIMER_NOW();
+
+  /* Function to measure */
+  complex_operation();
+
+  rtimer_clock_t elapsed = RTIMER_NOW() - start;
+  printf("Operation took %lu rtimer ticks (%lu us)\n",
+         (unsigned long)elapsed,
+         (unsigned long)(elapsed * 1000000 / RTIMER_SECOND));
+}
+```
 
 ---
 
