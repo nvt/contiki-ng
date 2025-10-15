@@ -36,6 +36,12 @@ This guide will show you how to port Contiki-NG to a new hardware device. The gu
    - [Add CI Tests](#add-ci-tests)
 7. [Documentation](#documentation)
 8. [Common Good Practices](#common-good-practices)
+   - [File Naming Conventions](#file-naming-conventions)
+   - [Observe the Code Style Convention](#observe-the-code-style-convention)
+   - [Avoid Code Duplication](#avoid-code-duplication)
+   - [Is it a CPU Thing or Platform Thing?](#is-it-a-cpu-thing-or-platform-thing)
+   - [Common Patterns from Existing Platforms](#common-patterns-from-existing-platforms)
+   - [Do Not Add Platform Code in Platform-Independent Files](#do-not-add-platform-code-in-platform-independent-files)
 9. [Troubleshooting](#troubleshooting)
 10. [Examples of Successful Ports](#examples-of-successful-ports)
 11. [Support](#support)
@@ -2430,6 +2436,36 @@ This example code is in the public domain.
 
 ## Common Good Practices
 
+### File Naming Conventions
+
+**Difficulty:** 📘 Easy - Follow established patterns
+
+**Common file names across platforms:**
+
+| File Purpose | Standard Name | Location |
+|--------------|---------------|----------|
+| Platform init | `platform.c` | `arch/platform/xxx/` |
+| Board init | `board.c` | `arch/platform/xxx/boardname/` |
+| LED driver | `leds-arch.c` | `arch/platform/xxx/` |
+| Button driver | `board-buttons.c` | `arch/platform/xxx/` |
+| Platform config | `contiki-conf.h` | `arch/platform/xxx/` |
+| Platform defs | `xxx-def.h` | `arch/platform/xxx/` |
+| Board header | `board.h` | `arch/platform/xxx/boardname/` |
+| CPU defs | `xxx-def.h` | `arch/cpu/xxx/` |
+| CPU config | `xxx-conf.h` | `arch/cpu/xxx/` |
+| Clock driver | `clock.c` | `arch/cpu/xxx/` |
+| Rtimer driver | `rtimer-arch.c`, `rtimer-arch.h` | `arch/cpu/xxx/` |
+| Watchdog | `watchdog.c` | `arch/cpu/xxx/` |
+| UART driver | `uart.c` | `arch/cpu/xxx/` |
+| Radio driver | `xxx-rf.c` (e.g., `cc2538-rf.c`) | `arch/cpu/xxx/` |
+| Linker script | `xxx.ld` | `arch/cpu/xxx/` |
+| Startup code | `startup-gcc.c` or `startup-xxx.c` | `arch/cpu/xxx/` |
+
+**Benefits of following conventions:**
+- Users instantly recognize file purposes
+- Easier to compare across platforms
+- Reduces cognitive load for maintainers
+
 ### Observe the Code Style Convention
 
 **Difficulty:** 📘 Easy - **Mandatory for upstream**
@@ -2609,6 +2645,269 @@ Some things could go either place:
 #define LED_RED_PORT GPIO_PORT_A
 #define LED_RED_PIN 5
 ```
+
+### Common Patterns from Existing Platforms
+
+**Difficulty:** 📘 Moderate - Learn from successful implementations
+
+#### Pattern 1: Board Initialization via `board_init()`
+
+Most platforms use a separate `board_init()` function called from platform initialization:
+
+```c
+/* In platform.c */
+void board_init(void);  /* Forward declaration */
+
+void platform_init_stage_one(void) {
+    /* Early CPU init */
+    board_init();  /* Board-specific init */
+    /* Continue with platform init */
+}
+```
+
+```c
+/* In board.c (per-board variant) */
+void board_init(void) {
+    configure_unused_pins();
+    /* Board-specific peripheral init */
+    ext_flash_init(NULL);
+    /* Register with LPM if needed */
+}
+```
+
+**Benefits:**
+- Separates board-specific code from platform code
+- Each board variant has its own `board.c`
+- Clean separation of concerns
+
+**Example:** See `arch/platform/cc26x0-cc13x0/launchpad/board.c`
+
+#### Pattern 2: LED Fade/Blink for Boot Progress
+
+Many platforms use LED patterns to show boot stages:
+
+```c
+static void fade(leds_mask_t l) {
+    /* Smooth LED fade effect */
+}
+
+void platform_init_stage_one() {
+    leds_init();
+    fade(LEDS_RED);    /* Stage 1 complete */
+}
+
+void platform_init_stage_two() {
+    /* ... */
+    fade(LEDS_YELLOW); /* Stage 2 complete */
+}
+
+void platform_init_stage_three() {
+    /* ... */
+    fade(LEDS_GREEN);  /* Stage 3 complete, ready */
+}
+```
+
+**Benefits:**
+- Visual feedback during boot (useful for debugging)
+- No serial required to see boot progress
+- Different colors = different stages
+
+#### Pattern 3: Default Board Selection
+
+Always provide a default board:
+
+```Makefile
+# In Makefile.my-platform
+BOARD ?= default-board
+BOARDS = board-a board-b board-c  # List all supported boards
+```
+
+**Benefits:**
+- Users can build without specifying BOARD
+- Clear documentation of supported boards
+- `make boards` can list available options
+
+#### Pattern 4: Unused Pin Configuration
+
+Configure unused pins to reduce power consumption:
+
+```c
+static void configure_unused_pins(void) {
+    uint32_t pins[] = BOARD_UNUSED_PINS;
+
+    for(uint32_t *pin = pins; *pin != IOID_UNUSED; pin++) {
+        /* Set as input with pull-down */
+        gpio_set_input(*pin);
+        gpio_set_pull(*pin, GPIO_PULL_DOWN);
+    }
+}
+
+void board_init() {
+    configure_unused_pins();
+    /* Other init */
+}
+```
+
+**Define in board header:**
+```c
+/* In board.h */
+#define BOARD_UNUSED_PINS { \
+    IOID_4, IOID_5, IOID_15, IOID_18, \
+    IOID_UNUSED  /* Sentinel */ \
+}
+```
+
+#### Pattern 5: LPM Module Registration
+
+For platforms with complex power management:
+
+```c
+/* In board.c */
+static void wakeup_handler(void) {
+    /* Re-enable power domains after wake */
+    power_domain_on(PERIPH_DOMAIN);
+}
+
+LPM_MODULE(board_module, NULL, NULL, wakeup_handler, LPM_DOMAIN_NONE);
+
+void board_init() {
+    lpm_register_module(&board_module);
+}
+```
+
+**Benefits:**
+- Modular power management
+- Each peripheral/board can register wake callbacks
+- Clean separation of concerns
+
+#### Pattern 6: RF Parameters Configuration
+
+Common pattern for setting radio addresses and channel:
+
+```c
+static void set_rf_params(void) {
+    uint8_t ext_addr[8];
+    uint16_t short_addr;
+
+    /* Get IEEE address from hardware */
+    ieee_addr_cpy_to(ext_addr, 8);
+
+    /* Derive short address from IEEE address */
+    short_addr = ext_addr[7] | (ext_addr[6] << 8);
+
+    /* Configure radio */
+    NETSTACK_RADIO.set_value(RADIO_PARAM_PAN_ID, IEEE802154_PANID);
+    NETSTACK_RADIO.set_value(RADIO_PARAM_16BIT_ADDR, short_addr);
+    NETSTACK_RADIO.set_value(RADIO_PARAM_CHANNEL, IEEE802154_DEFAULT_CHANNEL);
+    NETSTACK_RADIO.set_object(RADIO_PARAM_64BIT_ADDR, ext_addr, 8);
+}
+
+void platform_init_stage_three() {
+    set_rf_params();  /* After radio initialized */
+}
+```
+
+#### Pattern 7: Makefile Variables Pattern
+
+Common Makefile structure:
+
+```Makefile
+# Error if CONTIKI not defined
+ifndef CONTIKI
+  $(error CONTIKI not defined! You must specify where CONTIKI resides!)
+endif
+
+# Default board
+BOARD ?= default-board
+BOARDS = board-a board-b board-c
+
+# Platform root (for board includes)
+PLATFORM_ROOT_DIR = $(CONTIKI_NG_RELOC_PLATFORM_DIR)/$(TARGET)
+
+# Include board Makefile
+-include $(PLATFORM_ROOT_DIR)/$(BOARD)/Makefile.$(BOARD)
+
+# Platform directories
+CONTIKI_TARGET_DIRS += . dev $(BOARD)
+
+# Platform sources (common + board-specific)
+CONTIKI_TARGET_SOURCEFILES += platform.c leds-arch.c
+CONTIKI_TARGET_SOURCEFILES += $(BOARD_SOURCEFILES)  # From board Makefile
+
+# Merge into global list
+CONTIKI_SOURCEFILES += $(CONTIKI_TARGET_SOURCEFILES)
+
+# Define CPU and include CPU Makefile
+CONTIKI_CPU = $(CONTIKI_NG_RELOC_CPU_DIR)/my-cpu
+include $(CONTIKI_CPU)/Makefile.my-cpu
+
+# Optional modules
+MODULES += $(CONTIKI_NG_STORAGE_DIR)/cfs
+```
+
+#### Pattern 8: Upload/Flash Tool Integration
+
+```Makefile
+# Define flash tool
+BSL = $(CONTIKI_NG_TOOLS_DIR)/cc2538-bsl/cc2538-bsl.py
+BSL_FLAGS += -e -w -v -b 460800
+
+# Board-specific flags
+ifeq ($(BOARD),special-board)
+  BSL_FLAGS += --bootloader-invert-lines
+endif
+
+# Upload target
+%.upload: $(OUT_BIN)
+ifeq ($(wildcard $(BSL)), )
+	$(error Could not find "$(BSL)". Did you run 'git submodule update --init'?)
+else
+	$(BSL) $(BSL_FLAGS) $<
+endif
+```
+
+#### Pattern 9: Port Auto-Detection
+
+```Makefile
+# Auto-detect port based on MOTE number
+ifndef PORT
+  ifndef MOTE
+    MOTE = 1
+  endif
+  INDEX = $(shell echo $(MOTE)-1 | bc)
+  PORT = /dev/ttyUSB$(INDEX)
+endif
+```
+
+**Benefits:**
+- Multi-device development convenience
+- `make MOTE=2 upload` uploads to second device
+- Easy to override: `make PORT=/dev/ttyACM0 upload`
+
+#### Pattern 10: Conditional Sensor Process
+
+```c
+/* In platform.c */
+#ifdef BOARD_CONF_HAS_SENSORS
+#define BOARD_HAS_SENSORS BOARD_CONF_HAS_SENSORS
+#else
+#define BOARD_HAS_SENSORS 1  /* Default: yes */
+#endif
+
+void platform_init_stage_three() {
+#if BOARD_HAS_SENSORS
+    process_start(&sensors_process, NULL);
+#endif
+}
+```
+
+**In board header:**
+```c
+/* For boards without sensors */
+#define BOARD_CONF_HAS_SENSORS 0
+```
+
+---
 
 ### Do Not Add Platform Code in Platform-Independent Files
 
