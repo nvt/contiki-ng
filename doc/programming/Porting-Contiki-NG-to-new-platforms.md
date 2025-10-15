@@ -519,11 +519,11 @@ Provides the system tick and timing functions.
 **API to implement** (from [`os/sys/clock.h`](https://github.com/contiki-ng/contiki-ng/tree/develop/os/sys/clock.h)):
 
 ```c
-void clock_init(void);                    /* Initialize clock */
-clock_time_t clock_time(void);            /* Get current time in ticks */
-unsigned long clock_seconds(void);        /* Get seconds since boot */
-void clock_wait(clock_time_t t);          /* Busy-wait for t ticks */
-void clock_delay_usec(uint16_t dt);       /* Busy-wait for dt microseconds */
+void clock_init(void);               /* Initialize clock */
+clock_time_t clock_time(void);       /* Get current time in ticks */
+unsigned long clock_seconds(void);   /* Get seconds since boot */
+void clock_wait(clock_time_t t);     /* Busy-wait for t ticks */
+void clock_delay_usec(uint16_t dt);  /* Busy-wait for dt microseconds */
 ```
 
 **Configuration required in `my-new-mcu-def.h`:**
@@ -550,36 +550,40 @@ static volatile clock_time_t current_clock = 0;
 static volatile unsigned long current_seconds = 0;
 static unsigned int second_countdown = CLOCK_CONF_SECOND;
 
-void clock_init(void)
+void
+clock_init(void)
 {
-    /* Configure hardware timer to interrupt at CLOCK_CONF_SECOND Hz */
-    /* Example: Configure Timer0 to interrupt every 1/CLOCK_CONF_SECOND seconds */
+  /* Configure hardware timer to interrupt at CLOCK_CONF_SECOND Hz */
+  /* Example: Configure Timer0 to interrupt every 1/CLOCK_CONF_SECOND seconds */
 }
 
 /* Timer interrupt handler */
-void timer_isr(void)
+void
+timer_isr(void)
 {
-    current_clock++;
+  current_clock++;
 
-    if(--second_countdown == 0) {
-        current_seconds++;
-        second_countdown = CLOCK_CONF_SECOND;
-    }
+  if(--second_countdown == 0) {
+    current_seconds++;
+    second_countdown = CLOCK_CONF_SECOND;
+  }
 
-    /* Notify process scheduler if etimer needs servicing */
-    if(etimer_pending()) {
-        etimer_request_poll();
-    }
+  /* Notify process scheduler if etimer needs servicing */
+  if(etimer_pending()) {
+    etimer_request_poll();
+  }
 }
 
-clock_time_t clock_time(void)
+clock_time_t
+clock_time(void)
 {
-    return current_clock;
+  return current_clock;
 }
 
-unsigned long clock_seconds(void)
+unsigned long
+clock_seconds(void)
 {
-    return current_seconds;
+  return current_seconds;
 }
 ```
 
@@ -590,9 +594,9 @@ Provides high-resolution timing for time-critical operations (e.g., TSCH, radio 
 **API to implement** (from [`os/sys/rtimer.h`](https://github.com/contiki-ng/contiki-ng/tree/develop/os/sys/rtimer.h)):
 
 ```c
-void rtimer_arch_init(void);                          /* Initialize rtimer */
-rtimer_clock_t rtimer_arch_now(void);                 /* Get current time */
-void rtimer_arch_schedule(rtimer_clock_t t);          /* Schedule callback at time t */
+void rtimer_arch_init(void);                 /* Initialize rtimer */
+rtimer_clock_t rtimer_arch_now(void);        /* Get current time */
+void rtimer_arch_schedule(rtimer_clock_t t); /* Schedule callback at time t */
 ```
 
 **Configuration in `my-new-mcu-def.h`:**
@@ -619,20 +623,21 @@ Enables `printf()` for debugging - absolutely essential during development.
 
 ```c
 /* In uart.c */
-int putchar(int c)
+int
+putchar(int c)
 {
-    /* Wait for UART to be ready */
-    while(!(UART0->STATUS & UART_TX_READY));
+  /* Wait for UART to be ready */
+  while(!(UART0->STATUS & UART_TX_READY));
 
-    /* Send character */
-    UART0->DATA = c;
+  /* Send character */
+  UART0->DATA = c;
 
-    /* Convert \n to \r\n for proper line endings */
-    if(c == '\n') {
-        putchar('\r');
-    }
+  /* Convert \n to \r\n for proper line endings */
+  if(c == '\n') {
+    putchar('\r');
+  }
 
-    return c;
+  return c;
 }
 ```
 
@@ -727,35 +732,36 @@ Many Contiki-NG functions are **NOT safe** to call from interrupt context. See [
 /* Interrupt handler */
 static volatile bool data_ready = false;
 
-void uart_rx_isr(void)
+void
+uart_rx_isr(void)
 {
-    /* Minimal work in ISR */
-    received_data = UART0->DATA;
-    data_ready = true;
+  /* Minimal work in ISR */
+  received_data = UART0->DATA;
+  data_ready = true;
 
-    /* Notify process to handle data */
-    process_poll(&uart_process);
+  /* Notify process to handle data */
+  process_poll(&uart_process);
 
-    /* Clear interrupt flag */
-    UART0->INT_CLEAR = UART_RX_FLAG;
+  /* Clear interrupt flag */
+  UART0->INT_CLEAR = UART_RX_FLAG;
 }
 
 /* Process handles data outside interrupt context */
 PROCESS_THREAD(uart_process, ev, data)
 {
-    PROCESS_BEGIN();
+  PROCESS_BEGIN();
 
-    while(1) {
-        PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_POLL);
+  while(1) {
+    PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_POLL);
 
-        if(data_ready) {
-            data_ready = false;
-            /* Safe to call complex functions here */
-            handle_received_data(received_data);
-        }
+    if(data_ready) {
+      data_ready = false;
+      /* Safe to call complex functions here */
+      handle_received_data(received_data);
     }
+  }
 
-    PROCESS_END();
+  PROCESS_END();
 }
 ```
 
@@ -781,11 +787,11 @@ Provides system reset capability for error recovery.
 **API** (from [`os/dev/watchdog.h`](https://github.com/contiki-ng/contiki-ng/tree/develop/os/dev/watchdog.h)):
 
 ```c
-void watchdog_init(void);        /* Initialize watchdog */
-void watchdog_start(void);       /* Enable watchdog */
-void watchdog_stop(void);        /* Disable watchdog */
-void watchdog_periodic(void);    /* Reset/kick watchdog */
-void watchdog_reboot(void);      /* Force immediate reboot */
+void watchdog_init(void);      /* Initialize watchdog */
+void watchdog_start(void);     /* Enable watchdog */
+void watchdog_stop(void);      /* Disable watchdog */
+void watchdog_periodic(void);  /* Reset/kick watchdog */
+void watchdog_reboot(void);    /* Force immediate reboot */
 ```
 
 #### GPIO HAL - 📘 **Recommended**
@@ -820,20 +826,20 @@ One of the most complex drivers to implement.
 
 ```c
 const struct radio_driver my_radio_driver = {
-    init,              /* Initialize radio */
-    prepare,           /* Prepare packet for transmission */
-    transmit,          /* Transmit prepared packet */
-    send,              /* Prepare and transmit in one call */
-    read,              /* Read received packet */
-    channel_clear,     /* CCA - channel assessment */
-    receiving_packet,  /* Check if currently receiving */
-    pending_packet,    /* Check if packet received */
-    on,                /* Turn radio on */
-    off,               /* Turn radio off */
-    get_value,         /* Get radio parameter */
-    set_value,         /* Set radio parameter */
-    get_object,        /* Get radio object */
-    set_object         /* Set radio object */
+  init,              /* Initialize radio */
+  prepare,           /* Prepare packet for transmission */
+  transmit,          /* Transmit prepared packet */
+  send,              /* Prepare and transmit in one call */
+  read,              /* Read received packet */
+  channel_clear,     /* CCA - channel assessment */
+  receiving_packet,  /* Check if currently receiving */
+  pending_packet,    /* Check if packet received */
+  on,                /* Turn radio on */
+  off,               /* Turn radio off */
+  get_value,         /* Get radio parameter */
+  set_value,         /* Set radio parameter */
+  get_object,        /* Get radio object */
+  set_object         /* Set radio object */
 };
 ```
 
@@ -909,19 +915,20 @@ Most embedded MCUs support multiple low-power modes (sleep, deep sleep, etc.).
 **Sleep Mode Selection Strategy:**
 
 ```c
-void platform_idle(void)
+void
+platform_idle(void)
 {
-    /* Determine deepest sleep mode possible */
-    if(rtimer_soon()) {
-        /* Rtimer event soon - light sleep only */
-        enter_light_sleep();
-    } else if(etimer_pending()) {
-        /* Etimer pending - can sleep until next event */
-        enter_medium_sleep();
-    } else {
-        /* Nothing pending - deepest sleep */
-        enter_deep_sleep();
-    }
+  /* Determine deepest sleep mode possible */
+  if(rtimer_soon()) {
+    /* Rtimer event soon - light sleep only */
+    enter_light_sleep();
+  } else if(etimer_pending()) {
+    /* Etimer pending - can sleep until next event */
+    enter_medium_sleep();
+  } else {
+    /* Nothing pending - deepest sleep */
+    enter_deep_sleep();
+  }
 }
 ```
 
@@ -1181,16 +1188,17 @@ Contiki-NG provides a platform-independent `main()` routine in [`os/contiki-main
 
 **Typical contents:**
 ```c
-void platform_init_stage_one(void)
+void
+platform_init_stage_one(void)
 {
-    /* Disable watchdog if it starts enabled */
-    watchdog_stop();
+  /* Disable watchdog if it starts enabled */
+  watchdog_stop();
 
-    /* Initialize clocks to known state (if not done in startup code) */
-    /* Note: Detailed clock config usually in CPU code */
+  /* Initialize clocks to known state (if not done in startup code) */
+  /* Note: Detailed clock config usually in CPU code */
 
-    /* Initialize GPIO direction registers for LEDs/buttons */
-    /* (Actual LED/button drivers initialized later) */
+  /* Initialize GPIO direction registers for LEDs/buttons */
+  /* (Actual LED/button drivers initialized later) */
 }
 ```
 
@@ -1208,26 +1216,27 @@ void platform_init_stage_one(void)
 
 **Typical contents:**
 ```c
-void platform_init_stage_two(void)
+void
+platform_init_stage_two(void)
 {
-    /* Initialize LEDs */
-    leds_init();
-    leds_on(LEDS_RED);  /* Show we're booting */
+  /* Initialize LEDs */
+  leds_init();
+  leds_on(LEDS_RED);  /* Show we're booting */
 
-    /* Initialize buttons */
-    button_hal_init();
+  /* Initialize buttons */
+  button_hal_init();
 
-    /* Initialize sensors */
-    SENSORS_ACTIVATE(temperature_sensor);
+  /* Initialize sensors */
+  SENSORS_ACTIVATE(temperature_sensor);
 
-    /* Initialize radio hardware (but don't turn on yet) */
-    /* Radio driver's init() will be called by netstack later */
+  /* Initialize radio hardware (but don't turn on yet) */
+  /* Radio driver's init() will be called by netstack later */
 
-    /* Platform-specific peripheral initialization */
-    platform_uart_init();
+  /* Platform-specific peripheral initialization */
+  platform_uart_init();
 
-    leds_off(LEDS_RED);
-    leds_on(LEDS_GREEN);  /* Show we're ready */
+  leds_off(LEDS_RED);
+  leds_on(LEDS_GREEN);  /* Show we're ready */
 }
 ```
 
@@ -1248,22 +1257,23 @@ void platform_init_stage_two(void)
 
 **Typical contents:**
 ```c
-void platform_init_stage_three(void)
+void
+platform_init_stage_three(void)
 {
-    /* Print platform information */
-    printf("Platform: My Platform\n");
-    printf("CPU: My New MCU @ %lu Hz\n", system_get_cpu_freq());
+  /* Print platform information */
+  printf("Platform: My Platform\n");
+  printf("CPU: My New MCU @ %lu Hz\n", system_get_cpu_freq());
 
-    /* Start platform-specific processes */
-    process_start(&sensors_process, NULL);
-    process_start(&serial_line_process, NULL);
+  /* Start platform-specific processes */
+  process_start(&sensors_process, NULL);
+  process_start(&serial_line_process, NULL);
 
-    /* Enable interrupts that trigger process polls */
-    uart_enable_rx_interrupt();
-    button_enable_interrupts();
+  /* Enable interrupts that trigger process polls */
+  uart_enable_rx_interrupt();
+  button_enable_interrupts();
 
-    /* Final LED indication */
-    leds_off(LEDS_ALL);
+  /* Final LED indication */
+  leds_off(LEDS_ALL);
 }
 ```
 
@@ -1282,22 +1292,23 @@ void platform_init_stage_three(void)
 **Example implementation:**
 
 ```c
-void platform_idle(void)
+void
+platform_idle(void)
 {
-    /* Option 1: Simple implementation - just wait for interrupt */
-    __WFI();  /* ARM Wait For Interrupt instruction */
+  /* Option 1: Simple implementation - just wait for interrupt */
+  __WFI();  /* ARM Wait For Interrupt instruction */
 
-    /* Option 2: Intelligent sleep mode selection */
-    if(rtimer_arch_next() < RTIMER_NOW() + 100) {
-        /* Rtimer event very soon - stay awake or light sleep */
-        __WFI();
-    } else if(etimer_pending()) {
-        /* Etimer pending - medium sleep OK */
-        enter_sleep_mode_2();
-    } else {
-        /* Nothing pending - deep sleep */
-        enter_sleep_mode_3();
-    }
+  /* Option 2: Intelligent sleep mode selection */
+  if(rtimer_arch_next() < RTIMER_NOW() + 100) {
+    /* Rtimer event very soon - stay awake or light sleep */
+    __WFI();
+  } else if(etimer_pending()) {
+    /* Etimer pending - medium sleep OK */
+    enter_sleep_mode_2();
+  } else {
+    /* Nothing pending - deep sleep */
+    enter_sleep_mode_3();
+  }
 }
 ```
 
@@ -1373,22 +1384,23 @@ while(1) {
 
 **Example** (from native platform):
 ```c
-void platform_main_loop(void)
+void
+platform_main_loop(void)
 {
-    while(1) {
-        fd_set fds;
-        int n;
-        struct timeval tv;
+  while(1) {
+    fd_set fds;
+    int n;
+    struct timeval tv;
 
-        /* Run processes */
-        n = process_run();
+    /* Run processes */
+    n = process_run();
 
-        /* If nothing to do, wait for I/O or timer */
-        if(n == 0) {
-            tv = select_set_timeout(&fds);
-            select(max_fd + 1, &fds, NULL, NULL, &tv);
-        }
+    /* If nothing to do, wait for I/O or timer */
+    if(n == 0) {
+      tv = select_set_timeout(&fds);
+      select(max_fd + 1, &fds, NULL, NULL, &tv);
     }
+  }
 }
 ```
 
@@ -1431,36 +1443,39 @@ void leds_arch_set(leds_mask_t leds);
 **Example implementation:**
 
 ```c
-void leds_arch_init(void)
+void
+leds_arch_init(void)
 {
-    /* Configure LED pins as outputs */
-    GPIO_SET_OUTPUT(LED_RED_PORT, LED_RED_PIN);
-    GPIO_SET_OUTPUT(LED_GREEN_PORT, LED_GREEN_PIN);
+  /* Configure LED pins as outputs */
+  GPIO_SET_OUTPUT(LED_RED_PORT, LED_RED_PIN);
+  GPIO_SET_OUTPUT(LED_GREEN_PORT, LED_GREEN_PIN);
 
-    /* Turn all LEDs off initially */
-    leds_arch_set(0);
+  /* Turn all LEDs off initially */
+  leds_arch_set(0);
 }
 
-leds_mask_t leds_arch_get(void)
+leds_mask_t
+leds_arch_get(void)
 {
-    leds_mask_t mask = 0;
+  leds_mask_t mask = 0;
 
-    if(GPIO_READ_PIN(LED_RED_PORT, LED_RED_PIN)) {
-        mask |= LEDS_CONF_RED;
-    }
-    /* ... check other LEDs ... */
+  if(GPIO_READ_PIN(LED_RED_PORT, LED_RED_PIN)) {
+    mask |= LEDS_CONF_RED;
+  }
+  /* ... check other LEDs ... */
 
-    return mask;
+  return mask;
 }
 
-void leds_arch_set(leds_mask_t leds)
+void
+leds_arch_set(leds_mask_t leds)
 {
-    /* Set LED states based on mask */
-    GPIO_WRITE_PIN(LED_RED_PORT, LED_RED_PIN,
-                   (leds & LEDS_CONF_RED) ? 1 : 0);
-    GPIO_WRITE_PIN(LED_GREEN_PORT, LED_GREEN_PIN,
-                   (leds & LEDS_CONF_GREEN) ? 1 : 0);
-    /* ... set other LEDs ... */
+  /* Set LED states based on mask */
+  GPIO_WRITE_PIN(LED_RED_PORT, LED_RED_PIN,
+                 (leds & LEDS_CONF_RED) ? 1 : 0);
+  GPIO_WRITE_PIN(LED_GREEN_PORT, LED_GREEN_PIN,
+                 (leds & LEDS_CONF_GREEN) ? 1 : 0);
+  /* ... set other LEDs ... */
 }
 ```
 
@@ -1522,18 +1537,18 @@ void gpio_button_isr(void)
 
 PROCESS_THREAD(my_process, ev, data)
 {
-    PROCESS_BEGIN();
+  PROCESS_BEGIN();
 
-    while(1) {
-        PROCESS_WAIT_EVENT();
+  while(1) {
+    PROCESS_WAIT_EVENT();
 
-        if(ev == button_hal_press_event) {
-            button_hal_button_t *btn = (button_hal_button_t *)data;
-            printf("Button on pin %d pressed!\n", btn->pin);
-        }
+    if(ev == button_hal_press_event) {
+      button_hal_button_t *btn = (button_hal_button_t *)data;
+      printf("Button on pin %d pressed!\n", btn->pin);
     }
+  }
 
-    PROCESS_END();
+  PROCESS_END();
 }
 ```
 
@@ -2658,20 +2673,24 @@ Most platforms use a separate `board_init()` function called from platform initi
 /* In platform.c */
 void board_init(void);  /* Forward declaration */
 
-void platform_init_stage_one(void) {
-    /* Early CPU init */
-    board_init();  /* Board-specific init */
-    /* Continue with platform init */
+void
+platform_init_stage_one(void)
+{
+  /* Early CPU init */
+  board_init();  /* Board-specific init */
+  /* Continue with platform init */
 }
 ```
 
 ```c
 /* In board.c (per-board variant) */
-void board_init(void) {
-    configure_unused_pins();
-    /* Board-specific peripheral init */
-    ext_flash_init(NULL);
-    /* Register with LPM if needed */
+void
+board_init(void)
+{
+  configure_unused_pins();
+  /* Board-specific peripheral init */
+  ext_flash_init(NULL);
+  /* Register with LPM if needed */
 }
 ```
 
@@ -2687,23 +2706,31 @@ void board_init(void) {
 Many platforms use LED patterns to show boot stages:
 
 ```c
-static void fade(leds_mask_t l) {
-    /* Smooth LED fade effect */
+static void
+fade(leds_mask_t l)
+{
+  /* Smooth LED fade effect */
 }
 
-void platform_init_stage_one() {
-    leds_init();
-    fade(LEDS_RED);    /* Stage 1 complete */
+void
+platform_init_stage_one()
+{
+  leds_init();
+  fade(LEDS_RED);    /* Stage 1 complete */
 }
 
-void platform_init_stage_two() {
-    /* ... */
-    fade(LEDS_YELLOW); /* Stage 2 complete */
+void
+platform_init_stage_two()
+{
+  /* ... */
+  fade(LEDS_YELLOW); /* Stage 2 complete */
 }
 
-void platform_init_stage_three() {
-    /* ... */
-    fade(LEDS_GREEN);  /* Stage 3 complete, ready */
+void
+platform_init_stage_three()
+{
+  /* ... */
+  fade(LEDS_GREEN);  /* Stage 3 complete, ready */
 }
 ```
 
@@ -2732,19 +2759,23 @@ BOARDS = board-a board-b board-c  # List all supported boards
 Configure unused pins to reduce power consumption:
 
 ```c
-static void configure_unused_pins(void) {
-    uint32_t pins[] = BOARD_UNUSED_PINS;
+static void
+configure_unused_pins(void)
+{
+  uint32_t pins[] = BOARD_UNUSED_PINS;
 
-    for(uint32_t *pin = pins; *pin != IOID_UNUSED; pin++) {
-        /* Set as input with pull-down */
-        gpio_set_input(*pin);
-        gpio_set_pull(*pin, GPIO_PULL_DOWN);
-    }
+  for(uint32_t *pin = pins; *pin != IOID_UNUSED; pin++) {
+    /* Set as input with pull-down */
+    gpio_set_input(*pin);
+    gpio_set_pull(*pin, GPIO_PULL_DOWN);
+  }
 }
 
-void board_init() {
-    configure_unused_pins();
-    /* Other init */
+void
+board_init()
+{
+  configure_unused_pins();
+  /* Other init */
 }
 ```
 
@@ -2763,15 +2794,19 @@ For platforms with complex power management:
 
 ```c
 /* In board.c */
-static void wakeup_handler(void) {
-    /* Re-enable power domains after wake */
-    power_domain_on(PERIPH_DOMAIN);
+static void
+wakeup_handler(void)
+{
+  /* Re-enable power domains after wake */
+  power_domain_on(PERIPH_DOMAIN);
 }
 
 LPM_MODULE(board_module, NULL, NULL, wakeup_handler, LPM_DOMAIN_NONE);
 
-void board_init() {
-    lpm_register_module(&board_module);
+void
+board_init()
+{
+  lpm_register_module(&board_module);
 }
 ```
 
@@ -2785,25 +2820,29 @@ void board_init() {
 Common pattern for setting radio addresses and channel:
 
 ```c
-static void set_rf_params(void) {
-    uint8_t ext_addr[8];
-    uint16_t short_addr;
+static void
+set_rf_params(void)
+{
+  uint8_t ext_addr[8];
+  uint16_t short_addr;
 
-    /* Get IEEE address from hardware */
-    ieee_addr_cpy_to(ext_addr, 8);
+  /* Get IEEE address from hardware */
+  ieee_addr_cpy_to(ext_addr, 8);
 
-    /* Derive short address from IEEE address */
-    short_addr = ext_addr[7] | (ext_addr[6] << 8);
+  /* Derive short address from IEEE address */
+  short_addr = ext_addr[7] | (ext_addr[6] << 8);
 
-    /* Configure radio */
-    NETSTACK_RADIO.set_value(RADIO_PARAM_PAN_ID, IEEE802154_PANID);
-    NETSTACK_RADIO.set_value(RADIO_PARAM_16BIT_ADDR, short_addr);
-    NETSTACK_RADIO.set_value(RADIO_PARAM_CHANNEL, IEEE802154_DEFAULT_CHANNEL);
-    NETSTACK_RADIO.set_object(RADIO_PARAM_64BIT_ADDR, ext_addr, 8);
+  /* Configure radio */
+  NETSTACK_RADIO.set_value(RADIO_PARAM_PAN_ID, IEEE802154_PANID);
+  NETSTACK_RADIO.set_value(RADIO_PARAM_16BIT_ADDR, short_addr);
+  NETSTACK_RADIO.set_value(RADIO_PARAM_CHANNEL, IEEE802154_DEFAULT_CHANNEL);
+  NETSTACK_RADIO.set_object(RADIO_PARAM_64BIT_ADDR, ext_addr, 8);
 }
 
-void platform_init_stage_three() {
-    set_rf_params();  /* After radio initialized */
+void
+platform_init_stage_three()
+{
+  set_rf_params();  /* After radio initialized */
 }
 ```
 
@@ -2894,9 +2933,11 @@ endif
 #define BOARD_HAS_SENSORS 1  /* Default: yes */
 #endif
 
-void platform_init_stage_three() {
+void
+platform_init_stage_three()
+{
 #if BOARD_HAS_SENSORS
-    process_start(&sensors_process, NULL);
+  process_start(&sensors_process, NULL);
 #endif
 }
 ```
@@ -2971,7 +3012,8 @@ platform_specific_hook(void)
 }
 
 /* Platform code can override */
-void platform_specific_hook(void)
+void
+platform_specific_hook(void)
 {
   /* My platform's implementation */
 }
@@ -3034,11 +3076,13 @@ void platform_specific_hook(void)
 **Debug technique:**
 ```c
 /* Toggle LED in known locations */
-void platform_init_stage_one(void) {
-    LED_INIT();  /* Initialize LED directly (not via HAL) */
-    LED_ON();    /* If this lights, we're booting */
-    /* ... rest of init ... */
-    LED_OFF();   /* If this happens, init completed */
+void
+platform_init_stage_one(void)
+{
+  LED_INIT();  /* Initialize LED directly (not via HAL) */
+  LED_ON();    /* If this lights, we're booting */
+  /* ... rest of init ... */
+  LED_OFF();   /* If this happens, init completed */
 }
 ```
 
@@ -3130,12 +3174,14 @@ arm-none-eabi-gdb firmware.elf
 **Test:**
 ```c
 /* Verify clock accuracy */
-void test_clock(void) {
-    clock_time_t start = clock_time();
-    clock_delay_usec(1000000);  /* Wait 1 second */
-    clock_time_t elapsed = clock_time() - start;
-    printf("Elapsed: %lu ticks (expected %d)\n",
-           (unsigned long)elapsed, CLOCK_SECOND);
+void
+test_clock(void)
+{
+  clock_time_t start = clock_time();
+  clock_delay_usec(1000000);  /* Wait 1 second */
+  clock_time_t elapsed = clock_time() - start;
+  printf("Elapsed: %lu ticks (expected %d)\n",
+         (unsigned long)elapsed, CLOCK_SECOND);
 }
 ```
 
