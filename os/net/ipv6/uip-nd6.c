@@ -133,6 +133,54 @@ extract_lladdr_from_llao_aligned(uip_lladdr_t *dest)
 }
 #endif /* UIP_ND6_SEND_NA || UIP_ND6_SEND_RA || !UIP_CONF_ROUTER */
 /*------------------------------------------------------------------*/
+#if UIP_ND6_SEND_NA || !UIP_CONF_ROUTER
+/**
+ * Update or add a neighbor cache entry from LLAO option
+ * Consolidates common neighbor update logic used in NS and RA processing
+ */
+static int
+nd6_update_neighbor_from_llao(const uip_ipaddr_t *ipaddr, uint8_t is_router)
+{
+  uip_lladdr_t lladdr_aligned;
+
+  if(!extract_lladdr_from_llao_aligned(&lladdr_aligned)) {
+    return -1;
+  }
+
+  nbr = uip_ds6_nbr_lookup(ipaddr);
+  if(nbr == NULL) {
+    nbr = uip_ds6_nbr_add(ipaddr, &lladdr_aligned, is_router,
+                          NBR_STALE, NBR_TABLE_REASON_IPV6_ND, NULL);
+    return 0;
+  }
+
+  /* Neighbor exists, check if we need to update it */
+  const uip_lladdr_t *lladdr = uip_ds6_nbr_get_ll(nbr);
+  if(lladdr == NULL) {
+    return -1;
+  }
+
+  /* Check if link-layer address changed */
+  if(memcmp(&nd6_opt_llao[UIP_ND6_OPT_DATA_OFFSET], lladdr, UIP_LLADDR_LEN) != 0) {
+    /* Address changed, update it */
+    if(uip_ds6_nbr_update_ll(&nbr, &lladdr_aligned) < 0) {
+      return -1;
+    }
+    nbr->state = NBR_STALE;
+  } else if(nbr->state == NBR_INCOMPLETE) {
+    /* Address same but state is INCOMPLETE, move to STALE */
+    nbr->state = NBR_STALE;
+  }
+
+  /* Update router flag if needed */
+  if(is_router) {
+    nbr->isrouter = 1;
+  }
+
+  return 0;
+}
+#endif /* UIP_ND6_SEND_NA || !UIP_CONF_ROUTER */
+/*------------------------------------------------------------------*/
 #if UIP_ND6_SEND_NA /* UIP_ND6_SEND_NA */
 /* create a llao */
 static void
@@ -218,31 +266,8 @@ ns_input(void)
         LOG_ERR("Discarding invalid NS\n");
         goto discard;
       } else {
-        uip_lladdr_t lladdr_aligned;
-        extract_lladdr_from_llao_aligned(&lladdr_aligned);
-        nbr = uip_ds6_nbr_lookup(&UIP_IP_BUF->srcipaddr);
-        if(nbr == NULL) {
-          uip_ds6_nbr_add(&UIP_IP_BUF->srcipaddr, &lladdr_aligned,
-                          0, NBR_STALE, NBR_TABLE_REASON_IPV6_ND, NULL);
-        } else {
-          const uip_lladdr_t *lladdr = uip_ds6_nbr_get_ll(nbr);
-          if(lladdr == NULL) {
-            goto discard;
-          }
-          if(memcmp(&nd6_opt_llao[UIP_ND6_OPT_DATA_OFFSET],
-                    lladdr, UIP_LLADDR_LEN) != 0) {
-            if(uip_ds6_nbr_update_ll(&nbr,
-                                     (const uip_lladdr_t *)&lladdr_aligned)
-               < 0) {
-              /* failed to update the lladdr */
-              goto discard;
-            }
-            nbr->state = NBR_STALE;
-          } else {
-            if(nbr->state == NBR_INCOMPLETE) {
-              nbr->state = NBR_STALE;
-            }
-          }
+        if(nd6_update_neighbor_from_llao(&UIP_IP_BUF->srcipaddr, 0) < 0) {
+          goto discard;
         }
       }
       break;
@@ -834,8 +859,6 @@ uip_nd6_rs_output(void)
 void
 ra_input(void)
 {
-  uip_lladdr_t lladdr_aligned;
-
   LOG_INFO("Received RA from ");
   LOG_INFO_6ADDR(&UIP_IP_BUF->srcipaddr);
   LOG_INFO_(" to ");
@@ -877,33 +900,8 @@ ra_input(void)
     case UIP_ND6_OPT_SLLAO:
       LOG_DBG("Processing SLLAO option in RA\n");
       nd6_opt_llao = (uint8_t *)ND6_OPT_HDR_BUF(nd6_opt_offset);
-      nbr = uip_ds6_nbr_lookup(&UIP_IP_BUF->srcipaddr);
-      if(!extract_lladdr_from_llao_aligned(&lladdr_aligned)) {
-        /* failed to extract llao - discard packet */
+      if(nd6_update_neighbor_from_llao(&UIP_IP_BUF->srcipaddr, 1) < 0) {
         goto discard;
-      }
-      if(nbr == NULL) {
-        nbr = uip_ds6_nbr_add(&UIP_IP_BUF->srcipaddr, &lladdr_aligned,
-                              1, NBR_STALE, NBR_TABLE_REASON_IPV6_ND, NULL);
-      } else {
-        const uip_lladdr_t *lladdr = uip_ds6_nbr_get_ll(nbr);
-        if(lladdr == NULL) {
-          goto discard;
-        }
-        if(nbr->state == NBR_INCOMPLETE) {
-          nbr->state = NBR_STALE;
-        }
-        if(memcmp(&nd6_opt_llao[UIP_ND6_OPT_DATA_OFFSET],
-                  lladdr, UIP_LLADDR_LEN) != 0) {
-          /* change of link layer address */
-          if(uip_ds6_nbr_update_ll(&nbr,
-                                   (const uip_lladdr_t *)&lladdr_aligned) < 0) {
-            /* failed to update the lladdr */
-            goto discard;
-          }
-          nbr->state = NBR_STALE;
-        }
-        nbr->isrouter = 1;
       }
       break;
     case UIP_ND6_OPT_MTU:
