@@ -155,7 +155,7 @@ coap_remove_observer_by_uri(const coap_endpoint_t *endpoint,
     LOG_DBG("Remove check URL %p\n", uri);
     if((endpoint == NULL
         || (coap_endpoint_cmp(&obs->endpoint, endpoint)))
-       && (obs->url == uri || memcmp(obs->url, uri, strlen(obs->url)) == 0)) {
+       && (obs->url == uri || strcmp(obs->url, uri) == 0)) {
       coap_remove_observer(obs);
       removed++;
     }
