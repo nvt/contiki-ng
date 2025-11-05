@@ -204,6 +204,19 @@ create_llao(uint8_t *llao, uint8_t type)
 }
 #endif /* UIP_ND6_SEND_NA */
 /*------------------------------------------------------------------*/
+#if UIP_ND6_SEND_NS || UIP_ND6_SEND_RA || !UIP_CONF_ROUTER
+/* Initialize common IPv6 header fields for ND messages */
+static inline void
+init_nd6_hdr(void)
+{
+  UIP_IP_BUF->vtc = 0x60;
+  UIP_IP_BUF->tcflow = 0;
+  UIP_IP_BUF->flow = 0;
+  UIP_IP_BUF->proto = UIP_PROTO_ICMP6;
+  UIP_IP_BUF->ttl = UIP_ND6_HOP_LIMIT;
+}
+#endif /* UIP_ND6_SEND_NS || UIP_ND6_SEND_RA || !UIP_CONF_ROUTER */
+/*------------------------------------------------------------------*/
 /**
  * Neighbor Solicitation Processing
  *
@@ -392,11 +405,7 @@ uip_nd6_ns_output(const uip_ipaddr_t *src, const uip_ipaddr_t *dest,
                   uip_ipaddr_t *tgt)
 {
   uipbuf_clear();
-  UIP_IP_BUF->vtc = 0x60;
-  UIP_IP_BUF->tcflow = 0;
-  UIP_IP_BUF->flow = 0;
-  UIP_IP_BUF->proto = UIP_PROTO_ICMP6;
-  UIP_IP_BUF->ttl = UIP_ND6_HOP_LIMIT;
+  init_nd6_hdr();
 
   if(dest == NULL) {
     uip_create_solicited_node(tgt, &UIP_IP_BUF->destipaddr);
@@ -709,12 +718,7 @@ discard:
 void
 uip_nd6_ra_output(const uip_ipaddr_t *dest)
 {
-
-  UIP_IP_BUF->vtc = 0x60;
-  UIP_IP_BUF->tcflow = 0;
-  UIP_IP_BUF->flow = 0;
-  UIP_IP_BUF->proto = UIP_PROTO_ICMP6;
-  UIP_IP_BUF->ttl = UIP_ND6_HOP_LIMIT;
+  init_nd6_hdr();
 
   if(dest == NULL) {
     uip_create_linklocal_allnodes_mcast(&UIP_IP_BUF->destipaddr);
@@ -815,11 +819,7 @@ uip_nd6_ra_output(const uip_ipaddr_t *dest)
 void
 uip_nd6_rs_output(void)
 {
-  UIP_IP_BUF->vtc = 0x60;
-  UIP_IP_BUF->tcflow = 0;
-  UIP_IP_BUF->flow = 0;
-  UIP_IP_BUF->proto = UIP_PROTO_ICMP6;
-  UIP_IP_BUF->ttl = UIP_ND6_HOP_LIMIT;
+  init_nd6_hdr();
   uip_create_linklocal_allrouters_mcast(&UIP_IP_BUF->destipaddr);
   uip_ds6_select_src(&UIP_IP_BUF->srcipaddr, &UIP_IP_BUF->destipaddr);
   UIP_ICMP_BUF->type = ICMP6_RS;
