@@ -673,8 +673,16 @@ coap_parse_message(coap_message_t *coap_pkt, uint8_t *data, uint16_t data_len)
                                                    option_length);
       coap_pkt->block2_more = (coap_pkt->block2_num & 0x08) >> 3;
       coap_pkt->block2_size = 16 << (coap_pkt->block2_num & 0x07);
-      coap_pkt->block2_offset = (coap_pkt->block2_num & ~0x0000000F)
-        << (coap_pkt->block2_num & 0x07);
+      /* Check for overflow before calculating offset */
+      {
+        uint8_t szx = coap_pkt->block2_num & 0x07;
+        uint32_t num = (coap_pkt->block2_num & ~0x0000000F);
+        if(num > (UINT32_MAX >> szx)) {
+          LOG_DBG_("Block2 offset overflow\n");
+          return BAD_REQUEST_4_00;
+        }
+        coap_pkt->block2_offset = num << szx;
+      }
       coap_pkt->block2_num >>= 4;
       LOG_DBG_("Block2 [%lu%s (%u B/blk)]\n",
                (unsigned long)coap_pkt->block2_num,
@@ -685,8 +693,16 @@ coap_parse_message(coap_message_t *coap_pkt, uint8_t *data, uint16_t data_len)
                                                    option_length);
       coap_pkt->block1_more = (coap_pkt->block1_num & 0x08) >> 3;
       coap_pkt->block1_size = 16 << (coap_pkt->block1_num & 0x07);
-      coap_pkt->block1_offset = (coap_pkt->block1_num & ~0x0000000F)
-        << (coap_pkt->block1_num & 0x07);
+      /* Check for overflow before calculating offset */
+      {
+        uint8_t szx = coap_pkt->block1_num & 0x07;
+        uint32_t num = (coap_pkt->block1_num & ~0x0000000F);
+        if(num > (UINT32_MAX >> szx)) {
+          LOG_DBG_("Block1 offset overflow\n");
+          return BAD_REQUEST_4_00;
+        }
+        coap_pkt->block1_offset = num << szx;
+      }
       coap_pkt->block1_num >>= 4;
       LOG_DBG_("Block1 [%lu%s (%u B/blk)]\n",
                (unsigned long)coap_pkt->block1_num,
