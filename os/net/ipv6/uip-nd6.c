@@ -100,6 +100,15 @@
 #define ND6_OPT_RDNSS_BUF(opt)             ((uip_nd6_opt_dns *)ND6_OPT(opt))
 /** @} */
 
+/** Validation helper macro */
+#define ND6_DISCARD_INVALID_IF(condition, msg_type) \
+  do { \
+    if(condition) { \
+      LOG_ERR("Discarding invalid " msg_type "\n"); \
+      goto discard; \
+    } \
+  } while(0)
+
 #if UIP_ND6_SEND_NS || UIP_ND6_SEND_NA || UIP_ND6_SEND_RA || !UIP_CONF_ROUTER
 static uint16_t nd6_opt_offset; /** Offset from the end of the icmpv6 header to the option in uip_buf*/
 static uint8_t *nd6_opt_llao;   /**  Pointer to llao option in uip_buf */
@@ -236,12 +245,9 @@ ns_input(void)
   LOG_INFO_("\n");
   UIP_STAT(++uip_stat.nd6.recv);
 
-  if((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) ||
-     (uip_is_addr_mcast(&UIP_ND6_NS_BUF->tgtipaddr)) ||
-     (UIP_ICMP_BUF->icode != 0)) {
-    LOG_ERR("Discarding invalid NS\n");
-    goto discard;
-  }
+  ND6_DISCARD_INVALID_IF((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) ||
+                         (uip_is_addr_mcast(&UIP_ND6_NS_BUF->tgtipaddr)) ||
+                         (UIP_ICMP_BUF->icode != 0), "NS");
 
   /* Options processing */
   nd6_opt_llao = NULL;
@@ -492,13 +498,10 @@ na_input(void)
   is_override =
     ((UIP_ND6_NA_BUF->flagsreserved & UIP_ND6_NA_FLAG_OVERRIDE));
 
-  if((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) ||
-     (UIP_ICMP_BUF->icode != 0) ||
-     (uip_is_addr_mcast(&UIP_ND6_NA_BUF->tgtipaddr)) ||
-     (is_solicited && uip_is_addr_mcast(&UIP_IP_BUF->destipaddr))) {
-    LOG_ERR("Discarding invalid NA\n");
-    goto discard;
-  }
+  ND6_DISCARD_INVALID_IF((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) ||
+                         (UIP_ICMP_BUF->icode != 0) ||
+                         (uip_is_addr_mcast(&UIP_ND6_NA_BUF->tgtipaddr)) ||
+                         (is_solicited && uip_is_addr_mcast(&UIP_IP_BUF->destipaddr)), "NA");
 
   /* Options processing: we handle TLLAO, and must ignore others */
   nd6_opt_offset = UIP_ND6_NA_LEN;
@@ -634,10 +637,8 @@ rs_input(void)
    * target address must not be multicast
    * if the NA is solicited, dest must not be multicast
    */
-  if((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) || (UIP_ICMP_BUF->icode != 0)) {
-    LOG_ERR("Discarding invalid RS\n");
-    goto discard;
-  }
+  ND6_DISCARD_INVALID_IF((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) ||
+                         (UIP_ICMP_BUF->icode != 0), "RS");
 
   /* Only valid option is Source Link-Layer Address option any thing
      else is discarded */
@@ -866,12 +867,9 @@ ra_input(void)
   LOG_INFO_("\n");
   UIP_STAT(++uip_stat.nd6.recv);
 
-  if((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) ||
-     (!uip_is_addr_linklocal(&UIP_IP_BUF->srcipaddr)) ||
-     (UIP_ICMP_BUF->icode != 0)) {
-    LOG_ERR("Discarding invalid RA");
-    goto discard;
-  }
+  ND6_DISCARD_INVALID_IF((UIP_IP_BUF->ttl != UIP_ND6_HOP_LIMIT) ||
+                         (!uip_is_addr_linklocal(&UIP_IP_BUF->srcipaddr)) ||
+                         (UIP_ICMP_BUF->icode != 0), "RA");
 
   if(UIP_ND6_RA_BUF->cur_ttl != 0) {
     uip_ds6_if.cur_hop_limit = UIP_ND6_RA_BUF->cur_ttl;
