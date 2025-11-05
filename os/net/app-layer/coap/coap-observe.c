@@ -97,8 +97,8 @@ coap_remove_observer(coap_observer_t *o)
   LOG_INFO("Removing observer for /%s [0x%02X%02X]\n", o->url, o->token[0],
            o->token[1]);
 
-  memb_free(&observers_memb, o);
   list_remove(observers_list, o);
+  memb_free(&observers_memb, o);
 }
 /*---------------------------------------------------------------------------*/
 int
@@ -106,12 +106,13 @@ coap_remove_observer_by_client(const coap_endpoint_t *endpoint)
 {
   int removed = 0;
   coap_observer_t *obs = NULL;
+  coap_observer_t *next = NULL;
 
   LOG_DBG("Remove check client ");
   LOG_DBG_COAP_EP(endpoint);
   LOG_DBG_("\n");
-  for(obs = (coap_observer_t *)list_head(observers_list); obs;
-      obs = obs->next) {
+  for(obs = (coap_observer_t *)list_head(observers_list); obs; obs = next) {
+    next = obs->next;
     if(coap_endpoint_cmp(&obs->endpoint, endpoint)) {
       coap_remove_observer(obs);
       removed++;
@@ -126,9 +127,10 @@ coap_remove_observer_by_token(const coap_endpoint_t *endpoint,
 {
   int removed = 0;
   coap_observer_t *obs = NULL;
+  coap_observer_t *next = NULL;
 
-  for(obs = (coap_observer_t *)list_head(observers_list); obs;
-      obs = obs->next) {
+  for(obs = (coap_observer_t *)list_head(observers_list); obs; obs = next) {
+    next = obs->next;
     LOG_DBG("Remove check Token 0x%02X%02X\n", token[0], token[1]);
     if(coap_endpoint_cmp(&obs->endpoint, endpoint)
        && obs->token_len == token_len
@@ -146,9 +148,10 @@ coap_remove_observer_by_uri(const coap_endpoint_t *endpoint,
 {
   int removed = 0;
   coap_observer_t *obs = NULL;
+  coap_observer_t *next = NULL;
 
-  for(obs = (coap_observer_t *)list_head(observers_list); obs;
-      obs = obs->next) {
+  for(obs = (coap_observer_t *)list_head(observers_list); obs; obs = next) {
+    next = obs->next;
     LOG_DBG("Remove check URL %p\n", uri);
     if((endpoint == NULL
         || (coap_endpoint_cmp(&obs->endpoint, endpoint)))
@@ -165,9 +168,10 @@ coap_remove_observer_by_mid(const coap_endpoint_t *endpoint, uint16_t mid)
 {
   int removed = 0;
   coap_observer_t *obs = NULL;
+  coap_observer_t *next = NULL;
 
-  for(obs = (coap_observer_t *)list_head(observers_list); obs;
-      obs = obs->next) {
+  for(obs = (coap_observer_t *)list_head(observers_list); obs; obs = next) {
+    next = obs->next;
     LOG_DBG("Remove check MID %u\n", mid);
     if(coap_endpoint_cmp(&obs->endpoint, endpoint)
        && obs->last_mid == mid) {
