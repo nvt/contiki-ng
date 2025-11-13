@@ -44,8 +44,9 @@ SOURCEDIRS += $(dir $(RUST_RUNTIME_C))
 ifndef RUST_NO_AUTO_DETECT
   RUST_AUTO_SOURCES := $(foreach dir,$(SOURCEDIRS),$(wildcard $(dir)/*.rs))
   RUST_AUTO_SOURCES := $(notdir $(RUST_AUTO_SOURCES))
-  # Add auto-detected sources if not already in PROJECT_SOURCEFILES
-  PROJECT_SOURCEFILES += $(filter-out $(PROJECT_SOURCEFILES),$(RUST_AUTO_SOURCES))
+  # Add auto-detected sources if not already present
+  # Use immediate assignment to avoid recursion
+  PROJECT_SOURCEFILES := $(PROJECT_SOURCEFILES) $(filter-out $(PROJECT_SOURCEFILES),$(RUST_AUTO_SOURCES))
 endif
 
 # Add Rust object files to the build
