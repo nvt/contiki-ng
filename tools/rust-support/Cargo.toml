@@ -10,6 +10,11 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 
+[features]
+default = []
+allocator = []  # Enable global allocator support (adds ~100 bytes overhead)
+panic-handler = []  # Include default panic handler in library
+
 [profile.release]
 opt-level = "s"     # Optimize for size
 lto = true          # Enable Link Time Optimization

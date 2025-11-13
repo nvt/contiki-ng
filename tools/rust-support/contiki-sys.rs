@@ -453,13 +453,51 @@ impl<const N: usize> StaticBuffer<N> {
     }
 }
 
-// Panic handler for no_std
-#[cfg(not(target_os = "none"))]
+// Optional allocator support
+// Enable with "allocator" feature flag in Cargo.toml
+#[cfg(feature = "allocator")]
+pub mod allocator {
+    use core::alloc::{GlobalAlloc, Layout};
+    use core::ffi::c_void;
+
+    // External C memory allocation functions
+    // These should be provided by the platform or a custom implementation
+    extern "C" {
+        fn malloc(size: usize) -> *mut c_void;
+        fn free(ptr: *mut c_void);
+    }
+
+    /// Global allocator that uses C's malloc/free
+    /// This is a simple wrapper suitable for platforms with malloc support
+    pub struct ContikiAllocator;
+
+    unsafe impl GlobalAlloc for ContikiAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            malloc(layout.size()) as *mut u8
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+            free(ptr as *mut c_void);
+        }
+    }
+
+    #[global_allocator]
+    static ALLOCATOR: ContikiAllocator = ContikiAllocator;
+}
+
+// Optional panic handler
+// Enable with "panic-handler" feature flag in Cargo.toml
+// Most applications should provide their own panic handler for better debug output
+#[cfg(feature = "panic-handler")]
 use core::panic::PanicInfo;
 
-#[cfg(not(target_os = "none"))]
+#[cfg(feature = "panic-handler")]
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     // In embedded context, just halt
+    // Applications can provide their own panic handler for better debugging
     loop {}
 }
+
+// Note: If not using the "panic-handler" feature, applications must provide
+// their own #[panic_handler] function
