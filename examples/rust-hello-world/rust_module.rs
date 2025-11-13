@@ -105,15 +105,18 @@ pub extern "C" fn rust_demo_static_buffer() -> u32 {
         BUFFER.len = 0;
         for i in 0..10 {
             if BUFFER.len < 32 {
-                BUFFER.data[BUFFER.len] = i * 2;
+                // Use get_unchecked_mut to avoid bounds check
+                *BUFFER.data.get_unchecked_mut(BUFFER.len) = i * 2;
                 BUFFER.len += 1;
             }
         }
 
         printf(c_str!("Buffer filled with %u items\n"), BUFFER.len as u32);
-        printf(c_str!("First item: %u, Last item: %u\n"),
-               BUFFER.data[0] as u32,
-               BUFFER.data[BUFFER.len - 1] as u32);
+        if BUFFER.len > 0 {
+            printf(c_str!("First item: %u, Last item: %u\n"),
+                   *BUFFER.data.get_unchecked(0) as u32,
+                   *BUFFER.data.get_unchecked(BUFFER.len - 1) as u32);
+        }
 
         BUFFER.len as u32
     }
@@ -146,7 +149,7 @@ pub extern "C" fn rust_process_sensor_data(data: *const i16, len: u32) -> i16 {
         let readings = core::slice::from_raw_parts(data, len as usize);
 
         let mut sum: i32 = 0;
-        let mut count = 0;
+        let mut count: i32 = 0;
 
         // Filter out invalid readings and compute average
         for &reading in readings {
@@ -160,7 +163,9 @@ pub extern "C" fn rust_process_sensor_data(data: *const i16, len: u32) -> i16 {
             return -1;
         }
 
-        (sum / count) as i16
+        // Manual division to avoid panic on divide-by-zero
+        // (count is guaranteed > 0 here, but use wrapping_div to be explicit)
+        (sum.wrapping_div(count)) as i16
     }
 }
 
