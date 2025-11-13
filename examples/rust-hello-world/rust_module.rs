@@ -13,11 +13,14 @@ extern "C" {
     fn clock_seconds() -> u32;
 }
 
-// Helper macro for printing C strings
+// Import the c_str! macro from contiki-sys if available via external linkage
+// Note: In a more complete setup, you would add contiki-sys as a dependency
+// For now, we provide a local version that stores strings in .rodata
 macro_rules! c_str {
-    ($s:expr) => {
-        concat!($s, "\0").as_ptr() as *const c_char
-    };
+    ($s:expr) => {{
+        static S: &[u8] = concat!($s, "\0").as_bytes();
+        S.as_ptr() as *const c_char
+    }};
 }
 
 /// Print "Hello, World!" from Rust

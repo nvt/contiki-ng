@@ -7,6 +7,9 @@
 
 use core::ffi::{c_char, c_void, c_int, c_uint};
 
+// Re-export c_char for use in macros
+pub use core::ffi::c_char;
+
 // Process types
 #[repr(C)]
 pub struct process {
@@ -127,6 +130,26 @@ extern "C" {
 }
 
 // Helper macros for Rust
+
+/// Create a null-terminated C string stored in static memory (.rodata)
+/// This is more efficient than creating strings on the stack, especially
+/// for embedded systems with limited RAM.
+///
+/// # Example
+/// ```
+/// unsafe {
+///     printf(c_str!("Hello from Rust!\n"));
+/// }
+/// ```
+#[macro_export]
+macro_rules! c_str {
+    ($s:expr) => {{
+        // Store the string in static memory to avoid stack usage
+        static S: &[u8] = concat!($s, "\0").as_bytes();
+        S.as_ptr() as *const $crate::c_char
+    }};
+}
+
 #[macro_export]
 macro_rules! PROCESS_BEGIN {
     () => {
