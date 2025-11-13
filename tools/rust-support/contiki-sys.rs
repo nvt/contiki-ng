@@ -6,7 +6,7 @@
 #![allow(non_snake_case)]
 
 // Import and re-export types for use in macros and external code
-pub use core::ffi::{c_char, c_void, c_int, c_uint};
+pub use core::ffi::{c_char, c_int, c_uint, c_void};
 
 // Process types
 #[repr(C)]
@@ -50,7 +50,8 @@ extern "C" {
     pub fn etimer_reset(et: *mut etimer);
     pub fn etimer_restart(et: *mut etimer);
     pub fn etimer_adjust(et: *mut etimer, timediff: c_int);
-    pub fn etimer_expired(et: *mut etimer) -> c_int;
+    // Note: etimer_expired is a static inline function in C, not linkable
+    // Use the Rust helper function etimer_expired() below instead
     pub fn etimer_expiration_time(et: *mut etimer) -> clock_time_t;
     pub fn etimer_start_time(et: *mut etimer) -> clock_time_t;
     pub fn etimer_stop(et: *mut etimer);
@@ -70,6 +71,9 @@ extern "C" {
     // Random number generation
     pub fn random_init(seed: c_uint);
     pub fn random_rand() -> c_uint;
+
+    // System functions
+    pub fn watchdog_reboot();
 
     // Memory management (memb - static memory blocks)
     pub fn memb_numfree(m: *const c_void) -> c_int;
@@ -121,10 +125,25 @@ pub const LEDS_RED: u8 = 4;
 pub const LEDS_BLUE: u8 = 8;
 pub const LEDS_ALL: u8 = 15;
 
-// Clock constant (typically defined by platform, 128 is common)
-// Note: Applications should use CLOCK_SECOND from their platform config
+// Clock constant provided by C wrapper
 extern "C" {
-    pub static CLOCK_SECOND: clock_time_t;
+    static CLOCK_SECOND_VALUE: clock_time_t;
+}
+
+/// Get the platform's clock ticks per second
+///
+/// This value is automatically set by the Contiki-NG build system based on the target platform.
+/// Use this to convert between seconds and clock ticks.
+///
+/// # Example
+/// ```
+/// // Set a timer for 2 seconds
+/// etimer_set(&mut timer, clock_second() * 2);
+/// ```
+#[inline]
+pub fn clock_second() -> clock_time_t {
+    // SAFETY: CLOCK_SECOND_VALUE is a valid extern static provided by C wrappers
+    unsafe { CLOCK_SECOND_VALUE }
 }
 
 // Helper macros for Rust
@@ -150,14 +169,12 @@ macro_rules! c_str {
 
 #[macro_export]
 macro_rules! PROCESS_BEGIN {
-    () => {
-        {
-            let mut PT_YIELD_FLAG: u8 = 1;
-            if PT_YIELD_FLAG != 0 {
-                return $crate::PT_YIELDED;
-            }
+    () => {{
+        let mut PT_YIELD_FLAG: u8 = 1;
+        if PT_YIELD_FLAG != 0 {
+            return $crate::PT_YIELDED;
         }
-    };
+    }};
 }
 
 #[macro_export]
@@ -169,22 +186,18 @@ macro_rules! PROCESS_END {
 
 #[macro_export]
 macro_rules! PROCESS_WAIT_EVENT {
-    () => {
-        {
-            return $crate::PT_YIELDED;
-        }
-    };
+    () => {{
+        return $crate::PT_YIELDED;
+    }};
 }
 
 #[macro_export]
 macro_rules! PROCESS_WAIT_EVENT_UNTIL {
-    ($cond:expr) => {
-        {
-            if !($cond) {
-                return $crate::PT_YIELDED;
-            }
+    ($cond:expr) => {{
+        if !($cond) {
+            return $crate::PT_YIELDED;
         }
-    };
+    }};
 }
 
 // Rust-native process support
@@ -258,7 +271,95 @@ macro_rules! rust_process {
     };
 }
 
-// Safe wrapper functions
+// Safe wrapper functions for common operations
+
+/// Print a message to the console
+///
+/// The message must be a null-terminated C string created with the `c_str!` macro.
+///
+/// # Example
+/// ```
+/// print(c_str!("Hello from Rust!\n"));
+/// ```
+#[inline]
+pub fn print(msg: *const c_char) {
+    // SAFETY: We only accept messages from c_str! macro which creates valid C strings
+    unsafe {
+        printf(msg);
+    }
+}
+
+/// Print a formatted message with a u32 value
+///
+/// The format string must be a null-terminated C string with a valid `%u` or `%lu` format specifier.
+///
+/// # Example
+/// ```
+/// print_u32(c_str!("Counter: %u\n"), 42);
+/// ```
+#[inline]
+pub fn print_u32(format: *const c_char, value: u32) {
+    // SAFETY: We only accept format strings from c_str! macro which creates valid C strings
+    unsafe {
+        printf(format, value as c_uint);
+    }
+}
+
+// ============================================================================
+// Timer Helper Functions
+// ============================================================================
+
+/// Start an etimer with the given interval
+///
+/// # Example
+/// ```
+/// static mut TIMER: etimer = etimer { ... };
+/// timer_set(&mut TIMER, clock_second() * 2);  // Fire every 2 seconds
+/// ```
+#[inline]
+pub fn timer_set(timer: &mut etimer, interval: clock_time_t) {
+    // SAFETY: timer is a valid mutable reference and Contiki-NG is single-threaded
+    unsafe {
+        etimer_set(timer, interval);
+    }
+}
+
+/// Check if an etimer has expired
+///
+/// # Example
+/// ```
+/// static mut TIMER: etimer = etimer { ... };
+/// if timer_expired(&mut TIMER) {
+///     // Timer fired, do work
+/// }
+/// ```
+#[inline]
+pub fn timer_expired(timer: &mut etimer) -> bool {
+    // SAFETY: timer is a valid reference
+    unsafe { etimer_expired(timer) }
+}
+
+/// Reset an etimer to its original interval
+///
+/// This restarts the timer with the same interval it was originally set with.
+///
+/// # Example
+/// ```
+/// static mut TIMER: etimer = etimer { ... };
+/// timer_reset(&mut TIMER);  // Restart with original interval
+/// ```
+#[inline]
+pub fn timer_reset(timer: &mut etimer) {
+    // SAFETY: timer is a valid mutable reference and Contiki-NG is single-threaded
+    unsafe {
+        etimer_reset(timer);
+    }
+}
+
+/// Print a null-terminated byte string
+///
+/// # Safety
+/// The slice must contain a null terminator and be a valid C string.
 pub unsafe fn print_cstr(s: &[u8]) {
     if let Some(nul_pos) = s.iter().position(|&c| c == 0) {
         puts(s[..=nul_pos].as_ptr() as *const c_char);
@@ -285,7 +386,7 @@ impl ETimer {
 
     /// Check if the timer has expired
     pub fn expired(&self) -> bool {
-        unsafe { etimer_expired(self.0) != 0 }
+        unsafe { etimer_expired(self.0) }
     }
 
     /// Reset the timer to its original interval
@@ -312,6 +413,13 @@ impl ETimer {
     pub fn start_time(&self) -> clock_time_t {
         unsafe { etimer_start_time(self.0) }
     }
+}
+
+/// Check if an etimer has expired
+/// This replicates the C static inline function: `return et->p == PROCESS_NONE;`
+#[inline(always)]
+pub unsafe fn etimer_expired(et: *mut etimer) -> bool {
+    (*et).p.is_null()
 }
 
 /// Safe LED control wrapper
@@ -483,22 +591,42 @@ pub mod allocator {
     static ALLOCATOR: ContikiAllocator = ContikiAllocator;
 }
 
-// Optional panic handler
-// Enable with "panic-handler" feature flag in Cargo.toml
-// Most applications should provide their own panic handler for better debug output
-#[cfg(feature = "panic-handler")]
+// Default panic handler for no_std environment
+// Applications can override this by providing their own #[panic_handler]
 use core::panic::PanicInfo;
 
-#[cfg(feature = "panic-handler")]
+/// Default panic handler that prints diagnostic information and reboots
+///
+/// This handler:
+/// 1. Prints panic information (message and location)
+/// 2. Triggers a watchdog reboot for a clean restart
+///
+/// Applications can provide their own panic handler if they need different behavior
+/// (e.g., storing panic info to flash, custom recovery logic).
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    // In embedded context, just halt
-    // Applications can provide their own panic handler for better debugging
+fn panic(info: &PanicInfo) -> ! {
+    // SAFETY: printf is safe to call with valid C strings
+    unsafe {
+        printf(c_str!("PANIC: Rust code panicked!\n"));
+        if let Some(location) = info.location() {
+            printf(
+                c_str!("Panic at %s:%u\n"),
+                location.file().as_ptr() as *const c_char,
+                location.line(),
+            );
+        }
+        // Note: info.message() provides the panic message but we can't easily
+        // print the formatted message without std library support
+
+        // Trigger watchdog reboot for clean system restart
+        // This is more portable than architecture-specific assembly
+        printf(c_str!("Triggering watchdog reboot...\n"));
+        watchdog_reboot();
+    }
+
+    // Should never reach here, but required by never type
     loop {}
 }
-
-// Note: If not using the "panic-handler" feature, applications must provide
-// their own #[panic_handler] function
 
 // Unit tests (only compiled for native target)
 #[cfg(test)]
