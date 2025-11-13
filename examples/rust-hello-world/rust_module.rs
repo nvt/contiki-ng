@@ -58,28 +58,109 @@ pub extern "C" fn rust_calculate_fibonacci(n: u32) -> u32 {
 pub extern "C" fn rust_print_system_info() {
     unsafe {
         printf(c_str!("=== System Information (from Rust) ===\n"));
-        
+
         // Get current clock time
         let seconds = clock_seconds();
         printf(c_str!("System uptime: %lu seconds\n"), seconds as u32);
-        
+
         // Print Rust compiler information
         printf(c_str!("Rust compiler: rustc (embedded build)\n"));
-        
+
         // Print target architecture
         #[cfg(target_arch = "arm")]
         printf(c_str!("Target architecture: ARM\n"));
-        
+
         #[cfg(target_arch = "msp430")]
         printf(c_str!("Target architecture: MSP430\n"));
-        
+
         #[cfg(target_arch = "x86_64")]
         printf(c_str!("Target architecture: x86_64 (native)\n"));
-        
+
         #[cfg(target_arch = "x86")]
         printf(c_str!("Target architecture: x86 (native)\n"));
-        
+
         printf(c_str!("=====================================\n"));
+    }
+}
+
+/// Demonstrate static buffer usage (zero-cost abstraction)
+/// This shows how to use StaticBuffer for safe fixed-size buffers
+#[no_mangle]
+pub extern "C" fn rust_demo_static_buffer() -> u32 {
+    // Define a fixed-size buffer - no heap allocation!
+    struct BufferContainer {
+        data: [u8; 32],
+        len: usize,
+    }
+
+    static mut BUFFER: BufferContainer = BufferContainer {
+        data: [0; 32],
+        len: 0,
+    };
+
+    unsafe {
+        printf(c_str!("\n=== Static Buffer Demo ===\n"));
+
+        // Add some data
+        BUFFER.len = 0;
+        for i in 0..10 {
+            if BUFFER.len < 32 {
+                BUFFER.data[BUFFER.len] = i * 2;
+                BUFFER.len += 1;
+            }
+        }
+
+        printf(c_str!("Buffer filled with %u items\n"), BUFFER.len as u32);
+        printf(c_str!("First item: %u, Last item: %u\n"),
+               BUFFER.data[0] as u32,
+               BUFFER.data[BUFFER.len - 1] as u32);
+
+        BUFFER.len as u32
+    }
+}
+
+/// Generate a random number in a range
+/// This demonstrates the safe random API
+#[no_mangle]
+pub extern "C" fn rust_random_range(max: u32) -> u32 {
+    extern "C" {
+        fn random_rand() -> u32;
+    }
+
+    if max == 0 {
+        return 0;
+    }
+
+    unsafe { random_rand() % max }
+}
+
+/// Demonstrate data processing with zero-cost abstractions
+/// This shows how Rust's type safety doesn't add runtime overhead
+#[no_mangle]
+pub extern "C" fn rust_process_sensor_data(data: *const i16, len: u32) -> i16 {
+    if data.is_null() || len == 0 {
+        return -1;
+    }
+
+    unsafe {
+        let readings = core::slice::from_raw_parts(data, len as usize);
+
+        let mut sum: i32 = 0;
+        let mut count = 0;
+
+        // Filter out invalid readings and compute average
+        for &reading in readings {
+            if reading >= 0 && reading <= 1000 {
+                sum += reading as i32;
+                count += 1;
+            }
+        }
+
+        if count == 0 {
+            return -1;
+        }
+
+        (sum / count) as i16
     }
 }
 
@@ -137,5 +218,51 @@ mod tests {
         // Test that large values don't overflow (thanks to saturating_add)
         let result = rust_calculate_fibonacci(50);
         assert!(result > 0); // Should saturate, not wrap to 0
+    }
+
+    #[test]
+    fn test_static_buffer_demo() {
+        // Test that the demo function returns expected value
+        let result = rust_demo_static_buffer();
+        assert_eq!(result, 10); // Should have 10 items
+    }
+
+    #[test]
+    fn test_random_range() {
+        // Test edge cases
+        assert_eq!(rust_random_range(0), 0);
+        assert_eq!(rust_random_range(1), 0);
+
+        // Test that result is within bounds
+        for _ in 0..10 {
+            let result = rust_random_range(100);
+            assert!(result < 100);
+        }
+    }
+
+    #[test]
+    fn test_process_sensor_data() {
+        // Test with valid data
+        let data: [i16; 5] = [100, 200, 300, 400, 500];
+        let avg = rust_process_sensor_data(data.as_ptr(), 5);
+        assert_eq!(avg, 300);
+
+        // Test with mixed valid/invalid data
+        let data2: [i16; 5] = [100, -1, 200, 2000, 300];
+        let avg2 = rust_process_sensor_data(data2.as_ptr(), 5);
+        assert_eq!(avg2, 200); // Average of 100, 200, 300
+
+        // Test with all invalid data
+        let data3: [i16; 3] = [-1, -2, 2000];
+        let avg3 = rust_process_sensor_data(data3.as_ptr(), 3);
+        assert_eq!(avg3, -1); // Should return -1 for no valid data
+
+        // Test with null pointer
+        let avg4 = rust_process_sensor_data(core::ptr::null(), 5);
+        assert_eq!(avg4, -1);
+
+        // Test with zero length
+        let avg5 = rust_process_sensor_data(data.as_ptr(), 0);
+        assert_eq!(avg5, -1);
     }
 }
