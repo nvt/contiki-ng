@@ -42,7 +42,9 @@ SOURCEDIRS += $(dir $(RUST_RUNTIME_C))
 
 # Auto-detect Rust source files in SOURCEDIRS (unless disabled)
 ifndef RUST_NO_AUTO_DETECT
+  # Find all .rs files but exclude the rust-support library directory
   RUST_AUTO_SOURCES := $(foreach dir,$(SOURCEDIRS),$(wildcard $(dir)/*.rs))
+  RUST_AUTO_SOURCES := $(filter-out $(CONTIKI)/tools/rust-support/contiki-sys.rs,$(RUST_AUTO_SOURCES))
   RUST_AUTO_SOURCES := $(notdir $(RUST_AUTO_SOURCES))
   # Add auto-detected sources if not already present
   # Use immediate assignment to avoid recursion

@@ -5,10 +5,8 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-use core::ffi::{c_char, c_void, c_int, c_uint};
-
-// Re-export types for use in macros and external code
-pub use core::ffi::{c_char, c_int, c_uint, c_void};
+// Import and re-export types for use in macros and external code
+pub use core::ffi::{c_char, c_void, c_int, c_uint};
 
 // Process types
 #[repr(C)]
