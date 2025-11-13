@@ -38,7 +38,8 @@ endif
 # Add Rust runtime support
 RUST_RUNTIME_C = $(CONTIKI)/tools/rust-support/rust-runtime.c
 PROJECT_SOURCEFILES += $(notdir $(RUST_RUNTIME_C))
-SOURCEDIRS += $(dir $(RUST_RUNTIME_C))
+# Use vpath instead of adding to SOURCEDIRS to avoid picking up contiki-sys.rs
+vpath %.c $(CONTIKI)/tools/rust-support
 
 # Auto-detect Rust source files in SOURCEDIRS (unless disabled)
 ifndef RUST_NO_AUTO_DETECT
