@@ -501,3 +501,55 @@ fn panic(_info: &PanicInfo) -> ! {
 
 // Note: If not using the "panic-handler" feature, applications must provide
 // their own #[panic_handler] function
+
+// Unit tests (only compiled for native target)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_static_buffer_push() {
+        let mut buf = StaticBuffer::<16>::new();
+        assert_eq!(buf.len(), 0);
+        assert!(buf.is_empty());
+
+        assert!(buf.push(42).is_ok());
+        assert_eq!(buf.len(), 1);
+        assert_eq!(buf.as_slice()[0], 42);
+    }
+
+    #[test]
+    fn test_static_buffer_full() {
+        let mut buf = StaticBuffer::<4>::new();
+        for i in 0..4 {
+            assert!(buf.push(i).is_ok());
+        }
+        assert!(buf.is_full());
+        assert!(buf.push(5).is_err());
+    }
+
+    #[test]
+    fn test_static_buffer_clear() {
+        let mut buf = StaticBuffer::<8>::new();
+        buf.push(1).unwrap();
+        buf.push(2).unwrap();
+        assert_eq!(buf.len(), 2);
+
+        buf.clear();
+        assert_eq!(buf.len(), 0);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_random_range() {
+        // Test edge cases
+        assert_eq!(Random::rand_range(0), 0);
+        assert_eq!(Random::rand_range(1), 0);
+
+        // Test that result is within range
+        for _ in 0..10 {
+            let result = Random::rand_range(100);
+            assert!(result < 100);
+        }
+    }
+}

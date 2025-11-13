@@ -110,3 +110,32 @@ fn panic(_info: &PanicInfo) -> ! {
 
 // Note: ARM EABI unwinding functions (__aeabi_unwind_cpp_pr0/1) are now
 // provided by rust-runtime.c, avoiding duplication across Rust modules
+
+// Unit tests (run with: cargo test or make rust-test)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fibonacci_base_cases() {
+        assert_eq!(rust_calculate_fibonacci(0), 0);
+        assert_eq!(rust_calculate_fibonacci(1), 1);
+    }
+
+    #[test]
+    fn test_fibonacci_sequence() {
+        assert_eq!(rust_calculate_fibonacci(2), 1);
+        assert_eq!(rust_calculate_fibonacci(3), 2);
+        assert_eq!(rust_calculate_fibonacci(4), 3);
+        assert_eq!(rust_calculate_fibonacci(5), 5);
+        assert_eq!(rust_calculate_fibonacci(6), 8);
+        assert_eq!(rust_calculate_fibonacci(10), 55);
+    }
+
+    #[test]
+    fn test_fibonacci_saturation() {
+        // Test that large values don't overflow (thanks to saturating_add)
+        let result = rust_calculate_fibonacci(50);
+        assert!(result > 0); // Should saturate, not wrap to 0
+    }
+}

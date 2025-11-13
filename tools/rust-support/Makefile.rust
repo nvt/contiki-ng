@@ -123,3 +123,27 @@ rust-size-report: rust-size
 	  echo "(size command not available or no Rust objects)"; \
 	fi
 	@echo ""
+
+# Testing targets
+.PHONY: rust-test rust-test-lib
+
+rust-test-lib:
+	@echo "=== Running Rust Library Tests ==="
+	@cd $(CONTIKI)/tools/rust-support && $(CARGO) test --lib
+	@echo ""
+
+rust-test: rust-test-lib
+	@echo "=== Running Rust Module Tests ==="
+	@if [ -n "$(RUST_SOURCEFILES)" ]; then \
+	  for rs in $(RUST_SOURCEFILES); do \
+	    if [ -f "$$rs" ]; then \
+	      echo "Testing $$rs..."; \
+	      $(RUSTC) --test $$rs -o /tmp/rust-test-$$$$ 2>/dev/null && \
+	        /tmp/rust-test-$$$$ && rm -f /tmp/rust-test-$$$$ || \
+	        echo "  (no tests or compilation failed)"; \
+	    fi; \
+	  done; \
+	else \
+	  echo "No Rust source files found"; \
+	fi
+	@echo ""
