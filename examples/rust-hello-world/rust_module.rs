@@ -85,15 +85,15 @@ pub extern "C" fn rust_print_system_info() {
 fn panic(_info: &PanicInfo) -> ! {
     unsafe {
         printf(c_str!("PANIC: Rust code panicked!\n"));
-        
+
         // Try to print panic location if available
         if let Some(location) = _info.location() {
-            printf(c_str!("Panic at %s:%u\n"), 
+            printf(c_str!("Panic at %s:%u\n"),
                    location.file().as_ptr() as *const c_char,
                    location.line());
         }
     }
-    
+
     // Halt execution
     loop {
         // In embedded systems, we typically just loop forever on panic
@@ -105,15 +105,5 @@ fn panic(_info: &PanicInfo) -> ! {
     }
 }
 
-/// Required by Rust compiler for certain targets
-#[no_mangle]
-pub extern "C" fn __aeabi_unwind_cpp_pr0() {
-    // This is a dummy implementation for ARM EABI
-    // Required for some ARM targets even with panic=abort
-}
-
-#[no_mangle]
-pub extern "C" fn __aeabi_unwind_cpp_pr1() {
-    // This is a dummy implementation for ARM EABI
-    // Required for some ARM targets even with panic=abort
-}
+// Note: ARM EABI unwinding functions (__aeabi_unwind_cpp_pr0/1) are now
+// provided by rust-runtime.c, avoiding duplication across Rust modules

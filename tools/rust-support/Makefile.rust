@@ -35,6 +35,11 @@ else
   RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
 endif
 
+# Add Rust runtime support
+RUST_RUNTIME_C = $(CONTIKI)/tools/rust-support/rust-runtime.c
+PROJECT_SOURCEFILES += $(notdir $(RUST_RUNTIME_C))
+SOURCEDIRS += $(dir $(RUST_RUNTIME_C))
+
 # Add Rust object files to the build
 RUST_SOURCEFILES = $(filter %$(RUST_EXTENSION), $(PROJECT_SOURCEFILES))
 RUST_OBJECTFILES = $(addprefix $(OBJECTDIR)/,$(RUST_SOURCEFILES:$(RUST_EXTENSION)=.o))
