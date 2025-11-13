@@ -7,8 +7,8 @@
 
 use core::ffi::{c_char, c_void, c_int, c_uint};
 
-// Re-export c_char for use in macros
-pub use core::ffi::c_char;
+// Re-export types for use in macros and external code
+pub use core::ffi::{c_char, c_int, c_uint, c_void};
 
 // Process types
 #[repr(C)]
@@ -184,6 +184,77 @@ macro_rules! PROCESS_WAIT_EVENT_UNTIL {
         {
             if !($cond) {
                 return $crate::PT_YIELDED;
+            }
+        }
+    };
+}
+
+// Rust-native process support
+// These provide a more ergonomic way to write processes in Rust
+
+/// Trait for Rust processes
+/// Implement this trait to create a Rust process with proper state management
+pub trait RustProcess {
+    /// Called once when the process starts
+    fn init(&mut self);
+
+    /// Called on each event
+    /// Return true to continue processing, false to yield
+    fn handle_event(&mut self, ev: process_event_t, data: process_data_t) -> bool;
+}
+
+/// Helper macro to define a Rust process
+/// This creates the necessary boilerplate to integrate with Contiki-NG's process system
+///
+/// # Example
+/// ```
+/// struct MyProcess {
+///     counter: u32,
+/// }
+///
+/// impl MyProcess {
+///     const fn new() -> Self {
+///         Self { counter: 0 }
+///     }
+/// }
+///
+/// impl RustProcess for MyProcess {
+///     fn init(&mut self) {
+///         // Initialization code
+///     }
+///
+///     fn handle_event(&mut self, ev: process_event_t, _data: process_data_t) -> bool {
+///         // Event handling code
+///         true
+///     }
+/// }
+///
+/// rust_process!(my_process_handler, MyProcess);
+/// ```
+#[macro_export]
+macro_rules! rust_process {
+    ($name:ident, $state_type:ty) => {
+        static mut PROCESS_STATE: $state_type = <$state_type>::new();
+
+        #[no_mangle]
+        pub extern "C" fn $name(
+            ev: $crate::process_event_t,
+            data: $crate::process_data_t,
+        ) -> $crate::c_int {
+            unsafe {
+                match ev {
+                    $crate::PROCESS_EVENT_INIT => {
+                        PROCESS_STATE.init();
+                        $crate::PT_YIELDED
+                    }
+                    _ => {
+                        if PROCESS_STATE.handle_event(ev, data) {
+                            $crate::PT_YIELDED
+                        } else {
+                            $crate::PT_ENDED
+                        }
+                    }
+                }
             }
         }
     };
