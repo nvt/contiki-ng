@@ -9,8 +9,10 @@ RUSTFLAGS_COMMON = -C opt-level=s -C panic=abort -C lto=fat
 RUSTFLAGS_EMBEDDED = --emit=obj -C relocation-model=static
 
 # Default values if not set
-RUSTC ?= rustc
-CARGO ?= cargo
+# Use rustup run to ensure we use the rustup-managed toolchain
+RUSTUP ?= rustup
+RUSTC ?= $(shell command -v rustup >/dev/null 2>&1 && echo "$(RUSTUP) run stable rustc" || echo "rustc")
+CARGO ?= $(shell command -v rustup >/dev/null 2>&1 && echo "$(RUSTUP) run stable cargo" || echo "cargo")
 RUST_TARGET ?= thumbv7m-none-eabi
 
 # Target-specific Rust targets
@@ -62,8 +64,7 @@ oname = $(patsubst %.c,%.o,$(patsubst %.cpp,%.o,$(patsubst %.rs,%.o,$(patsubst %
 # Rust compilation rule
 $(OBJECTDIR)/%.o: %.rs | $(OBJECTDIR)
 	$(TRACE_CC)
-	$(Q)$(RUSTC) $(RUSTFLAGS) -L $(CONTIKI)/tools/rust-support/target/$(RUST_TARGET)/release/deps \
-	  -o $@ $<
+	$(Q)$(RUSTC) $(RUSTFLAGS) -o $@ $<
 
 # Ensure Rust core library is available for the target
 ifndef RUST_SETUP_DEFINED
