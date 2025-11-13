@@ -7,6 +7,16 @@
  * systems with panic=abort.
  */
 
+#include "sys/clock.h"
+
+/*
+ * Export CLOCK_SECOND as a variable for Rust FFI
+ *
+ * Rust cannot directly use C macros, so we export CLOCK_SECOND
+ * as a constant variable that Rust code can link against.
+ */
+const unsigned int CLOCK_SECOND_VALUE = CLOCK_SECOND;
+
 /*
  * ARM EABI unwinding functions
  *
