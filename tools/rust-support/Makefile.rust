@@ -83,3 +83,43 @@ endif
 
 # Add rust-setup as a prerequisite for Rust object files
 $(RUST_OBJECTFILES): rust-setup
+
+# Size reporting targets
+.PHONY: rust-size rust-size-report
+
+rust-size: $(RUST_OBJECTFILES)
+	@echo "=== Rust Module Sizes ==="
+	@if [ -n "$(RUST_OBJECTFILES)" ]; then \
+	  for obj in $(RUST_OBJECTFILES); do \
+	    if [ -f "$$obj" ]; then \
+	      echo ""; \
+	      echo "File: $$obj"; \
+	      size "$$obj" 2>/dev/null || echo "  (size command not available)"; \
+	    fi; \
+	  done; \
+	else \
+	  echo "No Rust object files found"; \
+	fi
+	@echo ""
+
+rust-size-report: rust-size
+	@echo "=== Total Rust Code Size ==="
+	@if [ -n "$(RUST_OBJECTFILES)" ] && command -v size >/dev/null 2>&1; then \
+	  total_text=0; total_data=0; total_bss=0; \
+	  for obj in $(RUST_OBJECTFILES); do \
+	    if [ -f "$$obj" ]; then \
+	      eval $$(size "$$obj" 2>/dev/null | awk 'NR==2 {print "text="$$1" data="$$2" bss="$$3}'); \
+	      total_text=$$((total_text + text)); \
+	      total_data=$$((total_data + data)); \
+	      total_bss=$$((total_bss + bss)); \
+	    fi; \
+	  done; \
+	  echo "Total text (code):  $$total_text bytes"; \
+	  echo "Total data (initialized): $$total_data bytes"; \
+	  echo "Total bss (uninitialized): $$total_bss bytes"; \
+	  echo "Total ROM usage: $$((total_text + total_data)) bytes"; \
+	  echo "Total RAM usage: $$((total_data + total_bss)) bytes"; \
+	else \
+	  echo "(size command not available or no Rust objects)"; \
+	fi
+	@echo ""
