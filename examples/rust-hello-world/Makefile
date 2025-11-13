@@ -1,8 +1,9 @@
 CONTIKI_PROJECT = hello-world
 all: $(CONTIKI_PROJECT)
 
-# Include Rust source files
-PROJECT_SOURCEFILES += rust_module.rs
+# Rust source files are auto-detected from the current directory
+# No need to manually add them to PROJECT_SOURCEFILES anymore!
+# (To disable auto-detection, set RUST_NO_AUTO_DETECT = 1)
 
 # Platforms that don't support Rust yet
 PLATFORMS_EXCLUDE += sky z1
