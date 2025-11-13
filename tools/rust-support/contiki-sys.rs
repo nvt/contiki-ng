@@ -4,6 +4,8 @@
 #![no_std]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
+#![allow(dead_code)]
+#![allow(unused_attributes)]
 
 // Import and re-export types for use in macros and external code
 pub use core::ffi::{c_char, c_int, c_uint, c_void};
