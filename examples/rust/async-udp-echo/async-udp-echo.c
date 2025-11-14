@@ -39,11 +39,19 @@
 /*---------------------------------------------------------------------------*/
 /* External Rust function - the async UDP echo server implementation */
 extern int rust_async_udp_echo_handler(process_event_t ev, process_data_t data);
+extern struct process *rust_get_process_ptr(void);
 
 /*---------------------------------------------------------------------------*/
 /* Process registration */
 PROCESS(async_udp_echo_process, "Async Rust UDP Echo");
 AUTOSTART_PROCESSES(&async_udp_echo_process);
+
+/*---------------------------------------------------------------------------*/
+/* Rust needs to know the process pointer */
+struct process *rust_get_process_ptr(void)
+{
+  return &async_udp_echo_process;
+}
 
 /*---------------------------------------------------------------------------*/
 /* Process thread - delegates to Rust */

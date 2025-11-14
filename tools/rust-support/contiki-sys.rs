@@ -339,7 +339,7 @@ extern "C" {
     fn process_exit(p: *mut process);
     fn process_post(p: *mut process, ev: process_event_t, data: process_data_t) -> c_int;
     fn process_post_synch(p: *mut process, ev: process_event_t, data: process_data_t);
-    fn process_poll(p: *mut process);
+    pub fn process_poll(p: *mut process);
 
     // Clock functions
     pub fn clock_time() -> clock_time_t;
