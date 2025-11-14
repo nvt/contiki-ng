@@ -49,3 +49,33 @@ void __aeabi_unwind_cpp_pr1(void) {
  * The panic handler itself is implemented in Rust (see contiki-sys.rs)
  * to allow for platform-specific panic behavior and debug output.
  */
+
+/*
+ * Slice index failure handler
+ *
+ * Called when slice bounds checking fails. With panic=abort, this will
+ * halt execution immediately.
+ *
+ * Note: The symbol name uses Rust's name mangling format. The actual
+ * function name is core::slice::index::slice_index_fail but mangled
+ * for the linker.
+ */
+void _ZN4core5slice5index16slice_index_fail17hfe436548ecebea33E(
+    unsigned long index,
+    unsigned long len
+) __attribute__((noreturn));
+
+void _ZN4core5slice5index16slice_index_fail17hfe436548ecebea33E(
+    unsigned long index,
+    unsigned long len
+) {
+  /* Halt execution - index out of bounds */
+  (void)index;
+  (void)len;
+
+  while(1) {
+    /* Infinite loop - execution will not continue */
+  }
+
+  __builtin_unreachable();
+}

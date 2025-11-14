@@ -2902,13 +2902,232 @@ pub mod async_support {
         }
     }
 
+    // ========================================================================
+    // Static Future Storage
+    // ========================================================================
+
+    use core::mem::{self, MaybeUninit};
+    use core::marker::PhantomData;
+    use core::ptr;
+
+    /// Fixed-size storage for futures without heap allocation
+    ///
+    /// This allows storing `async fn` futures in static memory by providing
+    /// a fixed-size buffer. The buffer must be large enough to hold the
+    /// future's state machine.
+    ///
+    /// # Example
+    /// ```rust
+    /// static mut FUTURE: StaticFuture<(), 512> = StaticFuture::new();
+    ///
+    /// async fn my_process() {
+    ///     for i in 0..10 {
+    ///         AsyncTimer::delay_seconds(&mut TIMER, 2).await;
+    ///         print_u32(c_str!("Counter: %u\n"), i);
+    ///     }
+    /// }
+    ///
+    /// // In PROCESS_EVENT_INIT:
+    /// unsafe { FUTURE.init(my_process()); }
+    ///
+    /// // Later, to poll:
+    /// let pinned = unsafe { FUTURE.as_pin_mut().unwrap() };
+    /// match pinned.poll(&mut context) {
+    ///     Poll::Ready(()) => { /* done */ },
+    ///     Poll::Pending => { /* wait */ },
+    /// }
+    /// ```
+    pub struct StaticFuture<T, const SIZE: usize> {
+        storage: MaybeUninit<[u8; SIZE]>,
+        initialized: bool,
+        _phantom: PhantomData<T>,
+    }
+
+    impl<T, const SIZE: usize> StaticFuture<T, SIZE> {
+        /// Create a new uninitialized static future
+        pub const fn new() -> Self {
+            Self {
+                storage: MaybeUninit::uninit(),
+                initialized: false,
+                _phantom: PhantomData,
+            }
+        }
+
+        /// Initialize the future with an async function
+        ///
+        /// # Safety
+        /// - Must only be called once
+        /// - The future F must fit in SIZE bytes
+        /// - Must call drop() before re-initializing
+        pub unsafe fn init<F>(&mut self, future: F)
+        where
+            F: Future<Output = T>,
+        {
+            assert!(
+                mem::size_of::<F>() <= SIZE,
+                "Future size {} exceeds buffer size {}",
+                mem::size_of::<F>(),
+                SIZE
+            );
+
+            // Write the future to storage
+            let ptr = self.storage.as_mut_ptr() as *mut F;
+            ptr::write(ptr, future);
+            self.initialized = true;
+        }
+
+        /// Get a pinned mutable reference to the future
+        ///
+        /// # Safety
+        /// - Future must be initialized
+        /// - Must not move the future after pinning
+        pub unsafe fn as_pin_mut<F>(&mut self) -> Option<Pin<&mut F>>
+        where
+            F: Future<Output = T>,
+        {
+            if !self.initialized {
+                return None;
+            }
+
+            let ptr = self.storage.as_mut_ptr() as *mut F;
+            Some(Pin::new_unchecked(&mut *ptr))
+        }
+
+        /// Check if the future is initialized
+        pub fn is_initialized(&self) -> bool {
+            self.initialized
+        }
+
+        /// Drop the stored future
+        ///
+        /// # Safety
+        /// - Future must be initialized with type F
+        pub unsafe fn drop_future<F>(&mut self)
+        where
+            F: Future<Output = T>,
+        {
+            if self.initialized {
+                let ptr = self.storage.as_mut_ptr() as *mut F;
+                ptr::drop_in_place(ptr);
+                self.initialized = false;
+            }
+        }
+    }
+
+    // ========================================================================
+    // Async UDP Support
+    // ========================================================================
+
+    /// Async UDP connection
+    ///
+    /// Wraps SimpleUdpConnection with async recv/send capabilities
+    pub struct AsyncUdp {
+        conn: *mut simple_udp_connection,
+        rx_ready: bool,
+        rx_data: Option<UdpPacket>,
+    }
+
+    /// Received UDP packet data
+    pub struct UdpPacket {
+        pub data: StaticBuffer<256>,
+        pub sender_addr: uip_ipaddr_t,
+        pub sender_port: u16,
+    }
+
+    impl AsyncUdp {
+        /// Create a new AsyncUdp wrapper
+        ///
+        /// # Safety
+        /// The connection pointer must be valid and properly registered
+        pub unsafe fn new(conn: *mut simple_udp_connection) -> Self {
+            Self {
+                conn,
+                rx_ready: false,
+                rx_data: None,
+            }
+        }
+
+        /// Signal that data has been received (called from callback)
+        ///
+        /// # Safety
+        /// Must be called from the UDP receive callback
+        pub unsafe fn notify_rx(
+            &mut self,
+            data: &[u8],
+            sender_addr: *const uip_ipaddr_t,
+            sender_port: u16,
+        ) {
+            let mut buf = StaticBuffer::<256>::new();
+            for &byte in data {
+                let _ = buf.push(byte);
+            }
+
+            self.rx_data = Some(UdpPacket {
+                data: buf,
+                sender_addr: *sender_addr,
+                sender_port,
+            });
+            self.rx_ready = true;
+        }
+
+        /// Async receive - waits for a packet
+        pub fn recv(&mut self) -> AsyncUdpRecv<'_> {
+            AsyncUdpRecv { udp: self }
+        }
+
+        /// Async send - sends a packet
+        pub async fn send(&mut self, data: &[u8]) -> Result<()> {
+            unsafe {
+                simple_udp_send(
+                    self.conn,
+                    data.as_ptr() as *const core::ffi::c_void,
+                    data.len() as u16,
+                )
+            };
+            Ok(())
+        }
+
+        /// Async send to specific address and port
+        pub async fn send_to(
+            &mut self,
+            data: &[u8],
+            addr: *const uip_ipaddr_t,
+            port: u16,
+        ) -> Result<()> {
+            unsafe {
+                simple_udp_sendto_port(self.conn, data.as_ptr() as *const core::ffi::c_void, data.len() as u16, addr, port)
+            };
+            Ok(())
+        }
+    }
+
+    /// Future for receiving UDP data
+    pub struct AsyncUdpRecv<'a> {
+        udp: &'a mut AsyncUdp,
+    }
+
+    impl<'a> Future for AsyncUdpRecv<'a> {
+        type Output = UdpPacket;
+
+        fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            if self.udp.rx_ready {
+                self.udp.rx_ready = false;
+                if let Some(packet) = self.udp.rx_data.take() {
+                    Poll::Ready(packet)
+                } else {
+                    Poll::Pending
+                }
+            } else {
+                Poll::Pending
+            }
+        }
+    }
+
 }
 
-// NOTE: Full async/await support is complex in no_std without heap allocation.
-// For now, we provide the core async primitives (AsyncTimer, AsyncEvent)
-// but users need to manage future storage themselves or use a simpler pattern.
-//
-// See the examples for practical patterns that work today.
+// NOTE: StaticFuture provides heap-free storage for async fn futures.
+// AsyncUdp provides async networking capabilities.
+// See examples for usage patterns.
 
 /// Macro to create a timer for async use
 ///
@@ -2934,6 +3153,135 @@ macro_rules! async_timer {
             next: core::ptr::null_mut(),
             p: core::ptr::null_mut(),
         };
+    };
+}
+
+/// Macro to create an async process handler using StaticFuture
+///
+/// This generates a process event handler that stores an async function
+/// in a StaticFuture and polls it on events.
+///
+/// # Example
+///
+/// ```rust
+/// async_timer!(TIMER);
+///
+/// async fn my_async_process() {
+///     for i in 0..10 {
+///         unsafe { AsyncTimer::delay_seconds(&mut TIMER, 2).await; }
+///         print_u32(c_str!("Counter: %u\n"), i);
+///     }
+/// }
+///
+/// async_fn_process!(my_handler, my_async_process, 512);
+/// ```
+#[macro_export]
+macro_rules! async_fn_process {
+    ($handler_name:ident, $async_fn:ident, $size:expr) => {
+        mod __async_process_impl {
+            use super::*;
+            use core::mem::MaybeUninit;
+            use core::pin::Pin;
+            use core::task::{Context, Poll};
+
+            // Wrapper to hold the future with its concrete type
+            pub struct FutureHolder {
+                storage: MaybeUninit<[u8; $size]>,
+                initialized: bool,
+            }
+
+            impl FutureHolder {
+                pub const fn new() -> Self {
+                    Self {
+                        storage: MaybeUninit::uninit(),
+                        initialized: false,
+                    }
+                }
+
+                pub unsafe fn init_and_poll(&mut self, waker: &core::task::Waker) -> (bool, Poll<()>) {
+                    // Create the future - type is inferred here
+                    let mut future = $async_fn();
+
+                    // Check size
+                    assert!(
+                        core::mem::size_of_val(&future) <= $size,
+                        "Future size {} exceeds buffer size {}",
+                        core::mem::size_of_val(&future),
+                        $size
+                    );
+
+                    // Poll it once before storing
+                    let pinned = Pin::new_unchecked(&mut future);
+                    let mut context = Context::from_waker(waker);
+                    let result = pinned.poll(&mut context);
+
+                    // If still pending, store it
+                    if matches!(result, Poll::Pending) {
+                        core::ptr::write(self.storage.as_mut_ptr() as *mut _, future);
+                        self.initialized = true;
+                    }
+
+                    (matches!(result, Poll::Pending), result)
+                }
+
+                pub unsafe fn poll(&mut self, waker: &core::task::Waker) -> Poll<()> {
+                    if !self.initialized {
+                        return Poll::Ready(());
+                    }
+
+                    // Reconstruct the future reference from storage
+                    // This works because we stored it with the exact same type
+                    let future_ptr = self.storage.as_mut_ptr() as *mut _;
+                    let future = &mut *future_ptr;
+
+                    // Create a helper function to poll with proper type inference
+                    fn poll_helper<F: core::future::Future<Output = ()>>(
+                        future: &mut F,
+                        waker: &core::task::Waker,
+                    ) -> Poll<()> {
+                        let pinned = unsafe { Pin::new_unchecked(future) };
+                        let mut context = Context::from_waker(waker);
+                        pinned.poll(&mut context)
+                    }
+
+                    poll_helper(future, waker)
+                }
+            }
+        }
+
+        static mut __FUTURE_HOLDER: __async_process_impl::FutureHolder =
+            __async_process_impl::FutureHolder::new();
+
+        #[no_mangle]
+        pub extern "C" fn $handler_name(
+            ev: $crate::process_event_t,
+            _data: $crate::process_data_t,
+        ) -> $crate::c_int {
+            use $crate::async_support::AsyncExecutor;
+            use core::task::Poll;
+
+            unsafe {
+                match ev {
+                    $crate::PROCESS_EVENT_INIT => {
+                        let waker = AsyncExecutor::dummy_waker();
+                        let (pending, _) = __FUTURE_HOLDER.init_and_poll(&waker);
+
+                        if pending {
+                            $crate::PT_WAITING
+                        } else {
+                            $crate::PT_ENDED
+                        }
+                    }
+                    _ => {
+                        let waker = AsyncExecutor::dummy_waker();
+                        match __FUTURE_HOLDER.poll(&waker) {
+                            Poll::Ready(()) => $crate::PT_ENDED,
+                            Poll::Pending => $crate::PT_WAITING,
+                        }
+                    }
+                }
+            }
+        }
     };
 }
 
