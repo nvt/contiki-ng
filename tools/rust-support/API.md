@@ -1,6 +1,6 @@
 # Contiki-NG Rust Support Library API Reference
 
-**Version:** 1.0
+**Version:** 2.0
 **Module:** `contiki-sys`
 **Target:** `no_std` embedded environments
 
@@ -12,6 +12,10 @@ The `contiki-sys` library provides safe Rust bindings for Contiki-NG, an operati
 - **Safe wrapper functions** that hide unsafe operations
 - **Type-safe abstractions** for common operations
 - **Zero-cost abstractions** suitable for embedded systems
+- **Result-based error handling** for robust applications
+- **Comprehensive networking support** (UDP, RPL, TSCH)
+- **Energy monitoring** and power management
+- **Storage APIs** for persistent data
 - **Macros** for ergonomic process development
 
 ---
@@ -19,15 +23,23 @@ The `contiki-sys` library provides safe Rust bindings for Contiki-NG, an operati
 ## Table of Contents
 
 1. [Core Types](#core-types)
-2. [Process Management](#process-management)
-3. [Timer APIs](#timer-apis)
-4. [Clock APIs](#clock-apis)
-5. [I/O Functions](#io-functions)
-6. [LED Control](#led-control)
-7. [Random Number Generation](#random-number-generation)
-8. [Utility Types](#utility-types)
-9. [Macros](#macros)
-10. [Complete Examples](#complete-examples)
+2. [Error Handling](#error-handling)
+3. [Process Management](#process-management)
+4. [Timer APIs](#timer-apis)
+5. [Clock APIs](#clock-apis)
+6. [I/O Functions](#io-functions)
+7. [LED Control](#led-control)
+8. [Random Number Generation](#random-number-generation)
+9. [Networking APIs](#networking-apis)
+10. [Sensor APIs](#sensor-apis)
+11. [Energy Monitoring (Energest)](#energy-monitoring-energest)
+12. [Logging APIs](#logging-apis)
+13. [Packet Buffer (Packetbuf)](#packet-buffer-packetbuf)
+14. [TSCH (Time-Slotted Channel Hopping)](#tsch-time-slotted-channel-hopping)
+15. [Storage (CFS)](#storage-cfs)
+16. [Utility Types](#utility-types)
+17. [Macros](#macros)
+18. [Complete Examples](#complete-examples)
 
 ---
 
@@ -50,6 +62,52 @@ pub type clock_time_t = c_uint;
 ```
 
 Represents clock ticks. Use `clock_second()` to convert to/from seconds.
+
+---
+
+## Error Handling
+
+### Result Type
+
+```rust
+pub type Result<T> = core::result::Result<T, Error>;
+```
+
+All fallible operations return `Result<T>` for robust error handling.
+
+### Error Type
+
+```rust
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Error {
+    InvalidParameter,
+    BufferOverflow,
+    NotAvailable,
+    OperationFailed,
+    NullPointer,
+    TimerError,
+    ProcessError,
+    NetworkError,
+}
+```
+
+Each error variant includes a descriptive string accessible via `error.as_str()`.
+
+**Example:**
+```rust
+match conn.register(8765, None, 0, Some(callback)) {
+    Ok(()) => print(c_str!("Success\n")),
+    Err(e) => {
+        print(c_str!("Error: "));
+        print(c_str!(e.as_str()));
+        print(c_str!("\n"));
+    }
+}
+```
+
+---
+
+## Process Management
 
 ### Timer Structures
 
@@ -427,6 +485,519 @@ extern "C" {
     pub fn random_init(seed: c_uint);
     pub fn random_rand() -> c_uint;
 }
+```
+
+---
+
+## Networking APIs
+
+### Simple UDP
+
+Type-safe wrapper for UDP networking with IPv6 support.
+
+#### IPv6 Address Type
+
+```rust
+#[repr(C)]
+pub union uip_ipaddr_t {
+    pub u8: [u8; 16],
+    pub u16: [u16; 8],
+}
+
+impl uip_ipaddr_t {
+    pub fn from_bytes(bytes: [u8; 16]) -> Self;
+    pub fn as_bytes(&self) -> &[u8; 16];
+    pub fn is_null(&self) -> bool;
+}
+```
+
+#### SimpleUdpConnection
+
+```rust
+pub struct SimpleUdpConnection {
+    pub inner: simple_udp_connection,
+    pub registered: bool,
+}
+
+impl SimpleUdpConnection {
+    pub fn new() -> Self;
+
+    pub fn register(
+        &mut self,
+        local_port: u16,
+        remote_addr: Option<&uip_ipaddr_t>,
+        remote_port: u16,
+        receive_callback: simple_udp_callback
+    ) -> Result<()>;
+
+    pub fn send(&mut self, data: &[u8]) -> Result<()>;
+    pub fn send_to(&mut self, data: &[u8], to: &uip_ipaddr_t) -> Result<()>;
+    pub fn send_to_port(&mut self, data: &[u8], to: &uip_ipaddr_t, to_port: u16) -> Result<()>;
+}
+```
+
+**Example:**
+```rust
+static mut UDP_CONN: simple_udp_connection = /* ... */;
+
+unsafe extern "C" fn udp_rx_callback(
+    c: *mut simple_udp_connection,
+    sender_addr: *const uip_ipaddr_t,
+    sender_port: u16,
+    receiver_addr: *const uip_ipaddr_t,
+    receiver_port: u16,
+    data: *const u8,
+    datalen: u16,
+) {
+    // Handle received packet
+}
+
+// In process init:
+let mut conn = SimpleUdpConnection::new();
+conn.register(8765, None, 0, Some(udp_rx_callback))?;
+
+// Send data
+conn.send(b"Hello, World!")?;
+```
+
+### RPL Routing
+
+Routing Protocol for Low-Power and Lossy Networks.
+
+#### RplDagRoot
+
+```rust
+pub struct RplDagRoot;
+
+impl RplDagRoot {
+    pub fn set_prefix(prefix: Option<&uip_ipaddr_t>, iid: Option<&uip_ipaddr_t>);
+    pub fn start() -> Result<()>;
+    pub fn is_root() -> bool;
+}
+```
+
+#### Rpl
+
+```rust
+pub struct Rpl;
+
+impl Rpl {
+    pub fn get_global_address() -> Result<&'static uip_ipaddr_t>;
+    pub fn is_reachable() -> bool;
+    pub fn set_leaf_only(leaf_only: bool);
+}
+```
+
+**Example:**
+```rust
+// Configure as DAG root
+RplDagRoot::set_prefix(Some(&prefix), Some(&iid));
+RplDagRoot::start()?;
+
+// Check if we're the root
+if RplDagRoot::is_root() {
+    print(c_str!("I am the DAG root\n"));
+}
+
+// Get global IPv6 address
+if let Ok(addr) = Rpl::get_global_address() {
+    print(c_str!("My address: "));
+    Log::ip6addr_compact(addr);
+    print(c_str!("\n"));
+}
+```
+
+---
+
+## Sensor APIs
+
+### Sensor
+
+Generic sensor interface for reading hardware sensors.
+
+```rust
+pub struct Sensor {
+    inner: *const sensors_sensor,
+}
+
+impl Sensor {
+    pub fn find(type_name: *const c_char) -> Result<Self>;
+    pub fn activate(&self) -> Result<()>;
+    pub fn deactivate(&self) -> Result<()>;
+    pub fn value(&self, type_: c_int) -> Result<c_int>;
+    pub fn status(&self, type_: c_int) -> Result<c_int>;
+}
+```
+
+**Example:**
+```rust
+// Find temperature sensor
+let sensor = Sensor::find(c_str!("temp"))?;
+sensor.activate()?;
+
+// Read value
+let temp = sensor.value(0)?;
+print_u32(c_str!("Temperature: %d\n"), temp as u32);
+
+sensor.deactivate()?;
+```
+
+### Button HAL
+
+Hardware abstraction for buttons with event support.
+
+```rust
+pub struct ButtonHal;
+
+impl ButtonHal {
+    pub fn init();
+    pub fn get_by_index(index: u8) -> Option<&'static button_hal_button>;
+    pub fn get_by_id(id: *const c_char) -> Option<&'static button_hal_button>;
+}
+```
+
+**Button Events:**
+```rust
+pub static button_hal_press_event: process_event_t;
+pub static button_hal_release_event: process_event_t;
+pub static button_hal_periodic_event: process_event_t;
+```
+
+**Example:**
+```rust
+ButtonHal::init();
+
+// In event handler
+match ev {
+    ev if ev == unsafe { button_hal_press_event } => {
+        print(c_str!("Button pressed!\n"));
+    }
+    _ => {}
+}
+```
+
+---
+
+## Energy Monitoring (Energest)
+
+Track power consumption across different device states.
+
+### Energest
+
+```rust
+pub struct Energest;
+
+impl Energest {
+    pub fn init();
+    pub fn flush();
+    pub fn type_time(type_: energest_type_t) -> u64;
+    pub fn type_set(type_: energest_type_t, value: u64);
+    pub fn on(type_: energest_type_t);
+    pub fn off(type_: energest_type_t);
+    pub fn switch(type_off: energest_type_t, type_on: energest_type_t);
+    pub fn get_total_time() -> u64;
+    pub fn percentage(type_: energest_type_t) -> f32;
+    pub fn snapshot() -> [u64; 5];
+    pub fn reset_all();
+}
+```
+
+### Energy Types
+
+```rust
+pub enum energest_type_t {
+    CPU = 0,
+    LPM = 1,         // Low-Power Mode
+    DEEP_LPM = 2,    // Deep Low-Power Mode
+    TRANSMIT = 3,    // Radio transmit
+    LISTEN = 4,      // Radio receive/listen
+    MAX = 5,
+}
+```
+
+**Example:**
+```rust
+use energest_type_t::*;
+
+Energest::init();
+
+// Track transmission time
+Energest::on(TRANSMIT);
+// ... do transmission ...
+Energest::off(TRANSMIT);
+
+// Get statistics
+let tx_time = Energest::type_time(TRANSMIT);
+let tx_percent = Energest::percentage(TRANSMIT);
+
+print_u32(c_str!("TX time: %lu ticks\n"), tx_time as u32);
+
+// Get all measurements at once
+let snapshot = Energest::snapshot();
+print_u32(c_str!("CPU: %lu\n"), snapshot[0] as u32);
+```
+
+---
+
+## Logging APIs
+
+Structured logging with multiple levels and specialized formatting.
+
+### Log Levels
+
+```rust
+pub const LOG_LEVEL_NONE: c_int = 0;
+pub const LOG_LEVEL_ERR: c_int = 1;
+pub const LOG_LEVEL_WARN: c_int = 2;
+pub const LOG_LEVEL_INFO: c_int = 3;
+pub const LOG_LEVEL_DBG: c_int = 4;
+```
+
+### Log
+
+```rust
+pub struct Log;
+
+impl Log {
+    pub fn lladdr(lladdr: &linkaddr_t);
+    pub fn lladdr_compact(lladdr: &linkaddr_t);
+    pub fn ip6addr(ipaddr: &uip_ipaddr_t);
+    pub fn ip6addr_compact(ipaddr: &uip_ipaddr_t);
+    pub unsafe fn ip6addr_to_buffer(buf: &mut [u8], ipaddr: &uip_ipaddr_t) -> Result<usize>;
+    pub fn bytes(data: &[u8]);
+    pub fn string(text: &[u8]);
+    pub fn set_level(module: *const c_char, level: c_int);
+    pub fn get_level(module: *const c_char) -> c_int;
+    pub fn level_to_str(level: c_int) -> *const c_char;
+}
+```
+
+**Example:**
+```rust
+// Log addresses
+let mac_addr = linkaddr_t::from_bytes([0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
+Log::lladdr_compact(&mac_addr);
+
+// Log IPv6 address
+if let Ok(addr) = Rpl::get_global_address() {
+    Log::ip6addr_compact(addr);
+}
+
+// Log hex dump
+let packet = [0xCA, 0xFE, 0xBA, 0xBE];
+Log::bytes(&packet);
+
+// Configure logging
+Log::set_level(c_str!("rpl"), LOG_LEVEL_DBG);
+```
+
+---
+
+## Packet Buffer (Packetbuf)
+
+Safe packet buffer management for MAC-layer operations.
+
+### Packetbuf
+
+```rust
+pub struct Packetbuf;
+
+impl Packetbuf {
+    pub fn clear();
+    pub fn data_mut() -> &'static mut [u8];
+    pub fn data() -> &'static [u8];
+    pub fn header() -> &'static [u8];
+    pub fn data_len() -> usize;
+    pub fn header_len() -> usize;
+    pub fn total_len() -> usize;
+    pub fn remaining_len() -> usize;
+    pub fn set_data_len(len: usize);
+    pub fn copy_from(data: &[u8]) -> Result<usize>;
+    pub fn copy_to(buf: &mut [u8]) -> Result<usize>;
+    pub fn hdr_alloc(size: usize) -> Result<()>;
+    pub fn hdr_reduce(size: usize) -> Result<()>;
+    pub fn set_attr(attr_type: u8, value: u16);
+    pub fn attr(attr_type: u8) -> u16;
+    pub fn set_addr(addr_type: u8, addr: &linkaddr_t);
+    pub fn addr(addr_type: u8) -> Option<&'static linkaddr_t>;
+    pub fn is_broadcast() -> bool;
+    pub fn clear_attrs();
+}
+```
+
+### Packet Attributes
+
+```rust
+pub const PACKETBUF_ATTR_CHANNEL: u8 = 1;
+pub const PACKETBUF_ATTR_NETWORK_ID: u8 = 2;
+pub const PACKETBUF_ATTR_LINK_QUALITY: u8 = 3;
+pub const PACKETBUF_ATTR_RSSI: u8 = 4;
+pub const PACKETBUF_ATTR_MAX_MAC_TRANSMISSIONS: u8 = 5;
+pub const PACKETBUF_ADDR_SENDER: u8 = 12;
+pub const PACKETBUF_ADDR_RECEIVER: u8 = 13;
+```
+
+**Example:**
+```rust
+// Prepare a packet
+Packetbuf::clear();
+Packetbuf::copy_from(b"Hello, World!")?;
+
+// Add header
+Packetbuf::hdr_alloc(10)?;
+
+// Set attributes
+Packetbuf::set_attr(PACKETBUF_ATTR_CHANNEL, 26);
+
+// Set addresses
+let sender = linkaddr_t::from_bytes([0x01, 0x02, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]);
+Packetbuf::set_addr(PACKETBUF_ADDR_SENDER, &sender);
+
+// Check broadcast
+if Packetbuf::is_broadcast() {
+    print(c_str!("Broadcast packet\n"));
+}
+```
+
+---
+
+## TSCH (Time-Slotted Channel Hopping)
+
+IEEE 802.15.4e TSCH MAC protocol for scheduled communication.
+
+### Tsch
+
+```rust
+pub struct Tsch;
+
+impl Tsch {
+    pub fn set_join_priority(priority: u8);
+    pub fn set_eb_period(period: u32);
+    pub fn set_ka_timeout(timeout: u32);
+    pub fn set_coordinator(enable: bool);
+    pub fn set_pan_secured(enable: bool);
+    pub fn schedule_keepalive(immediate: bool);
+    pub fn get_network_uptime_ticks() -> u64;
+    pub fn disassociate();
+    pub fn is_coordinator() -> bool;
+    pub fn is_associated() -> bool;
+    pub fn is_pan_secured() -> bool;
+}
+```
+
+### Link Types and Options
+
+```rust
+pub enum link_type {
+    LINK_TYPE_NORMAL = 0,
+    LINK_TYPE_ADVERTISING = 1,
+    LINK_TYPE_ADVERTISING_ONLY = 2,
+}
+
+pub const LINK_OPTION_TX: u8 = 1 << 0;
+pub const LINK_OPTION_RX: u8 = 1 << 1;
+pub const LINK_OPTION_SHARED: u8 = 1 << 2;
+pub const LINK_OPTION_TIMEKEEPING: u8 = 1 << 3;
+```
+
+**Example:**
+```rust
+// Configure as coordinator
+Tsch::set_coordinator(true);
+Tsch::set_join_priority(0x10);
+Tsch::set_eb_period(clock_second() * 4);
+
+// Check status
+if Tsch::is_coordinator() {
+    print(c_str!("TSCH Coordinator ready\n"));
+}
+
+if Tsch::is_associated() {
+    let uptime = Tsch::get_network_uptime_ticks();
+    print_u32(c_str!("Network uptime: %lu\n"), uptime as u32);
+}
+```
+
+---
+
+## Storage (CFS)
+
+Coffee File System API for persistent storage.
+
+### CfsFile
+
+```rust
+pub struct CfsFile {
+    fd: c_int,
+}
+
+impl CfsFile {
+    pub fn open(name: *const c_char, flags: c_int) -> Result<Self>;
+    pub fn read(&self, buf: &mut [u8]) -> Result<usize>;
+    pub fn write(&self, data: &[u8]) -> Result<usize>;
+    pub fn seek(&self, offset: isize, whence: c_int) -> Result<isize>;
+    pub fn close(self);
+    pub fn as_raw_fd(&self) -> c_int;
+}
+
+impl Drop for CfsFile {
+    fn drop(&mut self);  // Auto-closes file
+}
+```
+
+### Cfs Utilities
+
+```rust
+pub struct Cfs;
+
+impl Cfs {
+    pub fn remove(name: *const c_char) -> Result<()>;
+    pub fn opendir(name: *const c_char) -> Result<cfs_dir>;
+    pub fn readdir(dir: &mut cfs_dir) -> Option<cfs_dirent>;
+    pub fn closedir(dir: cfs_dir);
+}
+```
+
+### File Flags and Seek Modes
+
+```rust
+pub const CFS_READ: c_int = 1;
+pub const CFS_WRITE: c_int = 2;
+pub const CFS_APPEND: c_int = 4;
+
+pub const CFS_SEEK_SET: c_int = 0;
+pub const CFS_SEEK_CUR: c_int = 1;
+pub const CFS_SEEK_END: c_int = 2;
+```
+
+**Example:**
+```rust
+// Write to a file
+{
+    let file = CfsFile::open(c_str!("data.txt"), CFS_WRITE)?;
+    file.write(b"Hello, World!")?;
+    // File automatically closed when dropped
+}
+
+// Read from a file
+{
+    let file = CfsFile::open(c_str!("data.txt"), CFS_READ)?;
+    let mut buf = [0u8; 64];
+    let n = file.read(&mut buf)?;
+    print_u32(c_str!("Read %u bytes\n"), n as u32);
+}
+
+// List directory
+let mut dir = Cfs::opendir(c_str!("/"))?;
+while let Some(entry) = Cfs::readdir(&mut dir) {
+    print(c_str!("File: "));
+    print(c_str!(entry.name_str()));
+    print_u32(c_str!(" Size: %d\n"), entry.size() as u32);
+}
+Cfs::closedir(dir);
+
+// Remove file
+Cfs::remove(c_str!("old_data.txt"))?;
 ```
 
 ---
