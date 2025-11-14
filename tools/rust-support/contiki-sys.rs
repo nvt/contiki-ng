@@ -2715,6 +2715,112 @@ pub mod async_support {
     use core::future::Future;
     use core::pin::Pin;
     use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+    use core::cell::UnsafeCell;
+
+    // ========================================================================
+    // Safe Timer Wrapper
+    // ========================================================================
+
+    /// Thread-safe timer that can be used from static context
+    ///
+    /// This wrapper encapsulates all unsafe timer operations, providing
+    /// a safe API that can be used without unsafe blocks.
+    ///
+    /// # Example
+    /// ```rust
+    /// static TIMER: SafeTimer = SafeTimer::new();
+    ///
+    /// // In process - no unsafe needed!
+    /// TIMER.delay_seconds(2).await;
+    /// ```
+    pub struct SafeTimer {
+        inner: UnsafeCell<etimer>,
+    }
+
+    unsafe impl Sync for SafeTimer {}
+
+    impl SafeTimer {
+        /// Create a new timer (const, for static initialization)
+        pub const fn new() -> Self {
+            Self {
+                inner: UnsafeCell::new(etimer {
+                    timer: timer {
+                        start: 0,
+                        interval: 0,
+                    },
+                    next: core::ptr::null_mut(),
+                    p: core::ptr::null_mut(),
+                }),
+            }
+        }
+
+        /// Set timer interval
+        pub fn set(&self, interval: clock_time_t) {
+            unsafe {
+                etimer_set(self.inner.get(), interval);
+            }
+        }
+
+        /// Check if expired
+        pub fn expired(&self) -> bool {
+            unsafe {
+                etimer_expired(self.inner.get())
+            }
+        }
+
+        /// Reset timer
+        pub fn reset(&self) {
+            unsafe {
+                etimer_reset(self.inner.get());
+            }
+        }
+
+        /// Create a delay future for the specified number of seconds
+        ///
+        /// # Example
+        /// ```rust
+        /// TIMER.delay_seconds(2).await;  // Wait 2 seconds
+        /// ```
+        pub fn delay_seconds(&self, seconds: u32) -> AsyncTimer {
+            AsyncTimer {
+                timer: self.inner.get(),
+                interval: unsafe { clock_second() } * seconds,
+                started: false,
+            }
+        }
+
+        /// Create a delay future for the specified number of milliseconds
+        ///
+        /// # Example
+        /// ```rust
+        /// TIMER.delay_ms(500).await;  // Wait 500ms
+        /// ```
+        pub fn delay_ms(&self, ms: u32) -> AsyncTimer {
+            let ticks = (unsafe { clock_second() } * ms) / 1000;
+            AsyncTimer {
+                timer: self.inner.get(),
+                interval: ticks,
+                started: false,
+            }
+        }
+
+        /// Create a delay future with a specific tick interval
+        pub fn delay_ticks(&self, ticks: clock_time_t) -> AsyncTimer {
+            AsyncTimer {
+                timer: self.inner.get(),
+                interval: ticks,
+                started: false,
+            }
+        }
+
+        /// Get raw pointer (for advanced usage)
+        ///
+        /// # Safety
+        /// Caller must ensure no aliasing or data races
+        pub unsafe fn as_ptr(&self) -> *mut etimer {
+            self.inner.get()
+        }
+    }
 
     // ========================================================================
     // Async Timer
@@ -3129,9 +3235,29 @@ pub mod async_support {
 // AsyncUdp provides async networking capabilities.
 // See examples for usage patterns.
 
-/// Macro to create a timer for async use
+/// Macro to create a safe timer (recommended)
+///
+/// This creates a static SafeTimer that can be used without unsafe blocks.
+///
+/// # Example
+///
+/// ```rust
+/// safe_timer!(TIMER);
+///
+/// // Use without unsafe!
+/// TIMER.delay_seconds(2).await;
+/// ```
+#[macro_export]
+macro_rules! safe_timer {
+    ($name:ident) => {
+        static $name: $crate::async_support::SafeTimer = $crate::async_support::SafeTimer::new();
+    };
+}
+
+/// Macro to create a timer for async use (legacy)
 ///
 /// This creates a static etimer that can be used with AsyncTimer.
+/// Note: Consider using `safe_timer!` instead for better safety.
 ///
 /// # Example
 ///
