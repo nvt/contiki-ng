@@ -198,22 +198,22 @@ extern "C" {
     pub fn leds_get() -> u8;
 
     // Networking functions (simple-udp)
-    fn simple_udp_init();
-    fn simple_udp_register(
+    pub fn simple_udp_init();
+    pub fn simple_udp_register(
         c: *mut simple_udp_connection,
         local_port: u16,
         remote_addr: *mut uip_ipaddr_t,
         remote_port: u16,
         receive_callback: simple_udp_callback,
     ) -> c_int;
-    fn simple_udp_send(c: *mut simple_udp_connection, data: *const c_void, datalen: u16) -> c_int;
-    fn simple_udp_sendto(
+    pub fn simple_udp_send(c: *mut simple_udp_connection, data: *const c_void, datalen: u16) -> c_int;
+    pub fn simple_udp_sendto(
         c: *mut simple_udp_connection,
         data: *const c_void,
         datalen: u16,
         to: *const uip_ipaddr_t,
     ) -> c_int;
-    fn simple_udp_sendto_port(
+    pub fn simple_udp_sendto_port(
         c: *mut simple_udp_connection,
         data: *const c_void,
         datalen: u16,
@@ -873,8 +873,8 @@ fn panic(info: &PanicInfo) -> ! {
 
 /// Safe wrapper around simple_udp_connection with Result-based error handling
 pub struct SimpleUdpConnection {
-    inner: simple_udp_connection,
-    registered: bool,
+    pub inner: simple_udp_connection,
+    pub registered: bool,
 }
 
 impl SimpleUdpConnection {
