@@ -10,6 +10,50 @@
 // Import and re-export types for use in macros and external code
 pub use core::ffi::{c_char, c_int, c_uint, c_void};
 
+// ============================================================================
+// Error Handling
+// ============================================================================
+
+/// Result type for Contiki-NG operations
+pub type Result<T> = core::result::Result<T, Error>;
+
+/// Error types for Contiki-NG operations
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Error {
+    /// Invalid parameter provided to function
+    InvalidParameter,
+    /// Operation would overflow available space
+    BufferOverflow,
+    /// Resource is not available or not initialized
+    NotAvailable,
+    /// Operation failed (generic error)
+    OperationFailed,
+    /// Null pointer encountered
+    NullPointer,
+    /// Timer operation failed
+    TimerError,
+    /// Process operation failed
+    ProcessError,
+    /// Network operation failed
+    NetworkError,
+}
+
+impl Error {
+    /// Convert error to a descriptive string (no allocation)
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Error::InvalidParameter => "Invalid parameter",
+            Error::BufferOverflow => "Buffer overflow",
+            Error::NotAvailable => "Resource not available",
+            Error::OperationFailed => "Operation failed",
+            Error::NullPointer => "Null pointer",
+            Error::TimerError => "Timer error",
+            Error::ProcessError => "Process error",
+            Error::NetworkError => "Network error",
+        }
+    }
+}
+
 // Process types
 #[repr(C)]
 pub struct process {
@@ -33,14 +77,14 @@ pub type process_data_t = *mut c_void;
 // Clock types
 pub type clock_time_t = c_uint;
 
-// External C functions
+// External C functions (raw FFI, prefer using safe wrappers below)
 extern "C" {
     // Process functions
-    pub fn process_start(p: *mut process, data: process_data_t);
-    pub fn process_exit(p: *mut process);
-    pub fn process_post(p: *mut process, ev: process_event_t, data: process_data_t) -> c_int;
-    pub fn process_post_synch(p: *mut process, ev: process_event_t, data: process_data_t);
-    pub fn process_poll(p: *mut process);
+    fn process_start(p: *mut process, data: process_data_t);
+    fn process_exit(p: *mut process);
+    fn process_post(p: *mut process, ev: process_event_t, data: process_data_t) -> c_int;
+    fn process_post_synch(p: *mut process, ev: process_event_t, data: process_data_t);
+    fn process_poll(p: *mut process);
 
     // Clock functions
     pub fn clock_time() -> clock_time_t;
@@ -146,6 +190,86 @@ extern "C" {
 pub fn clock_second() -> clock_time_t {
     // SAFETY: CLOCK_SECOND_VALUE is a valid extern static provided by C wrappers
     unsafe { CLOCK_SECOND_VALUE }
+}
+
+// ============================================================================
+// Safe Wrapper Functions for Process Management
+// ============================================================================
+
+/// Start a process with optional data
+///
+/// # Errors
+/// Returns `Error::NullPointer` if the process pointer is null
+///
+/// # Example
+/// ```
+/// let mut my_process = process { /* ... */ };
+/// safe_process_start(&mut my_process, core::ptr::null_mut())?;
+/// ```
+pub fn safe_process_start(p: &mut process, data: process_data_t) -> Result<()> {
+    unsafe {
+        process_start(p as *mut process, data);
+    }
+    Ok(())
+}
+
+/// Exit a process
+///
+/// # Errors
+/// Returns `Error::NullPointer` if the process pointer is null
+pub fn safe_process_exit(p: &mut process) -> Result<()> {
+    unsafe {
+        process_exit(p as *mut process);
+    }
+    Ok(())
+}
+
+/// Post an event to a process
+///
+/// # Errors
+/// Returns `Error::ProcessError` if posting failed (process queue full or invalid process)
+///
+/// # Example
+/// ```
+/// safe_process_post(&mut target_process, PROCESS_EVENT_CONTINUE, core::ptr::null_mut())?;
+/// ```
+pub fn safe_process_post(
+    p: &mut process,
+    ev: process_event_t,
+    data: process_data_t,
+) -> Result<()> {
+    let result = unsafe { process_post(p as *mut process, ev, data) };
+    if result == 0 {
+        Err(Error::ProcessError)
+    } else {
+        Ok(())
+    }
+}
+
+/// Post an event to a process synchronously
+///
+/// # Errors
+/// Returns `Error::NullPointer` if the process pointer is null
+pub fn safe_process_post_synch(
+    p: &mut process,
+    ev: process_event_t,
+    data: process_data_t,
+) -> Result<()> {
+    unsafe {
+        process_post_synch(p as *mut process, ev, data);
+    }
+    Ok(())
+}
+
+/// Request that a process be polled
+///
+/// # Errors
+/// Returns `Error::NullPointer` if the process pointer is null
+pub fn safe_process_poll(p: &mut process) -> Result<()> {
+    unsafe {
+        process_poll(p as *mut process);
+    }
+    Ok(())
 }
 
 // Helper macros for Rust
@@ -368,22 +492,39 @@ pub unsafe fn print_cstr(s: &[u8]) {
     }
 }
 
-// Type-safe wrappers for core APIs
+// ============================================================================
+// Type-safe Wrappers for Core APIs
+// ============================================================================
 
-/// Safe wrapper around etimer
+/// Safe wrapper around etimer with Result-based error handling
 pub struct ETimer(*mut etimer);
 
 impl ETimer {
     /// Create a new ETimer wrapper from a raw pointer
+    ///
+    /// # Errors
+    /// Returns `Error::NullPointer` if the timer pointer is null
+    ///
     /// # Safety
     /// The pointer must be valid and point to an initialized etimer struct
-    pub unsafe fn new(timer: *mut etimer) -> Self {
-        ETimer(timer)
+    pub unsafe fn new(timer: *mut etimer) -> Result<Self> {
+        if timer.is_null() {
+            Err(Error::NullPointer)
+        } else {
+            Ok(ETimer(timer))
+        }
     }
 
     /// Set the timer to expire after the given interval
-    pub fn set(&mut self, interval: clock_time_t) {
+    ///
+    /// # Errors
+    /// Returns `Error::InvalidParameter` if interval is 0
+    pub fn set(&mut self, interval: clock_time_t) -> Result<()> {
+        if interval == 0 {
+            return Err(Error::InvalidParameter);
+        }
         unsafe { etimer_set(self.0, interval) }
+        Ok(())
     }
 
     /// Check if the timer has expired
@@ -392,18 +533,21 @@ impl ETimer {
     }
 
     /// Reset the timer to its original interval
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self) -> Result<()> {
         unsafe { etimer_reset(self.0) }
+        Ok(())
     }
 
     /// Restart the timer from the current time
-    pub fn restart(&mut self) {
+    pub fn restart(&mut self) -> Result<()> {
         unsafe { etimer_restart(self.0) }
+        Ok(())
     }
 
     /// Stop the timer
-    pub fn stop(&mut self) {
+    pub fn stop(&mut self) -> Result<()> {
         unsafe { etimer_stop(self.0) }
+        Ok(())
     }
 
     /// Get the expiration time
@@ -509,14 +653,16 @@ impl<const N: usize> StaticBuffer<N> {
     }
 
     /// Push a byte to the buffer
-    /// Returns Ok(()) on success, Err(()) if buffer is full
-    pub fn push(&mut self, byte: u8) -> Result<(), ()> {
+    ///
+    /// # Errors
+    /// Returns `Error::BufferOverflow` if buffer is full
+    pub fn push(&mut self, byte: u8) -> Result<()> {
         if self.len < N {
             self.data[self.len] = byte;
             self.len += 1;
             Ok(())
         } else {
-            Err(())
+            Err(Error::BufferOverflow)
         }
     }
 
