@@ -154,9 +154,10 @@ impl Future for UdpEchoFuture {
                         print_u32(c_str!("%u\n"), packet.sender_port as u32);
 
                         // Echo back the packet
+                        // Use as_ptr() directly instead of as_slice() to avoid bounds checking
                         simple_udp_sendto_port(
                             &mut UDP_CONN as *mut simple_udp_connection,
-                            packet.data.as_slice().as_ptr() as *const core::ffi::c_void,
+                            packet.data.as_ptr() as *const core::ffi::c_void,
                             packet.data.len() as u16,
                             &packet.sender_addr,
                             packet.sender_port,
