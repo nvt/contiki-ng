@@ -78,6 +78,40 @@ pub type process_data_t = *mut c_void;
 pub type clock_time_t = c_uint;
 
 // ============================================================================
+// Sensor Types
+// ============================================================================
+
+/// Sensor configuration constants
+pub const SENSORS_HW_INIT: c_int = 128;
+pub const SENSORS_ACTIVE: c_int = 129;
+pub const SENSORS_READY: c_int = 130;
+
+/// Sensor value types (platform-specific but commonly used)
+pub const BUTTON_HAL_EVENT_PRESS: c_int = 0;
+pub const BUTTON_HAL_EVENT_RELEASE: c_int = 1;
+pub const BUTTON_HAL_EVENT_PERIODIC: c_int = 2;
+
+/// Sensor structure
+#[repr(C)]
+pub struct sensors_sensor {
+    pub type_: *const c_char,
+    pub value: Option<unsafe extern "C" fn(type_: c_int) -> c_int>,
+    pub configure: Option<unsafe extern "C" fn(type_: c_int, value: c_int) -> c_int>,
+    pub status: Option<unsafe extern "C" fn(type_: c_int) -> c_int>,
+}
+
+/// Button HAL button structure
+#[repr(C)]
+pub struct button_hal_button {
+    pub next: *mut button_hal_button,
+    pub unique_id: u8,
+    pub press_duration_event: process_event_t,
+    pub negative_logic: u8,
+    pub pin: u8,
+    pub pull: u8,
+}
+
+// ============================================================================
 // Networking Types
 // ============================================================================
 
@@ -196,6 +230,21 @@ extern "C" {
     pub fn leds_off(leds: u8);
     pub fn leds_toggle(leds: u8);
     pub fn leds_get() -> u8;
+
+    // Sensor functions
+    pub fn sensors_find(type_: *const c_char) -> *const sensors_sensor;
+    pub fn sensors_first() -> *const sensors_sensor;
+    pub fn sensors_next(s: *const sensors_sensor) -> *const sensors_sensor;
+    pub fn sensors_changed(s: *const sensors_sensor);
+    pub static sensors_event: process_event_t;
+
+    // Button HAL functions
+    pub fn button_hal_get_by_index(index: u8) -> *mut button_hal_button;
+    pub fn button_hal_get_by_id(unique_id: u8) -> *mut button_hal_button;
+    pub fn button_hal_init();
+    pub static button_hal_press_event: process_event_t;
+    pub static button_hal_release_event: process_event_t;
+    pub static button_hal_periodic_event: process_event_t;
 
     // Networking functions (simple-udp)
     pub fn simple_udp_init();
@@ -865,6 +914,212 @@ fn panic(info: &PanicInfo) -> ! {
 
     // Should never reach here, but required by never type
     loop {}
+}
+
+// ============================================================================
+// Sensor API Wrappers
+// ============================================================================
+
+/// Safe wrapper around a Contiki sensor
+pub struct Sensor {
+    inner: *const sensors_sensor,
+}
+
+impl Sensor {
+    /// Find a sensor by type name
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if sensor not found
+    ///
+    /// # Example
+    /// ```
+    /// let button = Sensor::find(c_str!("button"))?;
+    /// ```
+    pub fn find(type_name: *const c_char) -> Result<Self> {
+        let sensor = unsafe { sensors_find(type_name) };
+        if sensor.is_null() {
+            Err(Error::NotAvailable)
+        } else {
+            Ok(Self { inner: sensor })
+        }
+    }
+
+    /// Get the first sensor in the system
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if no sensors available
+    pub fn first() -> Result<Self> {
+        let sensor = unsafe { sensors_first() };
+        if sensor.is_null() {
+            Err(Error::NotAvailable)
+        } else {
+            Ok(Self { inner: sensor })
+        }
+    }
+
+    /// Get the next sensor in the list
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if no more sensors
+    pub fn next(&self) -> Result<Self> {
+        let sensor = unsafe { sensors_next(self.inner) };
+        if sensor.is_null() {
+            Err(Error::NotAvailable)
+        } else {
+            Ok(Self { inner: sensor })
+        }
+    }
+
+    /// Activate the sensor
+    ///
+    /// # Errors
+    /// Returns `Error::OperationFailed` if activation failed
+    pub fn activate(&self) -> Result<()> {
+        let result = unsafe {
+            if let Some(configure) = (*self.inner).configure {
+                configure(SENSORS_ACTIVE, 1)
+            } else {
+                return Err(Error::NotAvailable);
+            }
+        };
+        if result == 0 {
+            Err(Error::OperationFailed)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Deactivate the sensor
+    ///
+    /// # Errors
+    /// Returns `Error::OperationFailed` if deactivation failed
+    pub fn deactivate(&self) -> Result<()> {
+        let result = unsafe {
+            if let Some(configure) = (*self.inner).configure {
+                configure(SENSORS_ACTIVE, 0)
+            } else {
+                return Err(Error::NotAvailable);
+            }
+        };
+        if result == 0 {
+            Err(Error::OperationFailed)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Read a value from the sensor
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if sensor has no value function
+    ///
+    /// # Example
+    /// ```
+    /// let temp_value = sensor.value(0)?;
+    /// ```
+    pub fn value(&self, type_: c_int) -> Result<c_int> {
+        unsafe {
+            if let Some(value_fn) = (*self.inner).value {
+                Ok(value_fn(type_))
+            } else {
+                Err(Error::NotAvailable)
+            }
+        }
+    }
+
+    /// Check if sensor is ready
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if sensor has no status function
+    pub fn is_ready(&self) -> Result<bool> {
+        unsafe {
+            if let Some(status_fn) = (*self.inner).status {
+                Ok(status_fn(SENSORS_READY) != 0)
+            } else {
+                Err(Error::NotAvailable)
+            }
+        }
+    }
+
+    /// Get the sensor type name
+    pub fn type_name(&self) -> &str {
+        unsafe {
+            let type_ptr = (*self.inner).type_;
+            if type_ptr.is_null() {
+                return "unknown";
+            }
+            // Find string length
+            let mut len = 0;
+            while *type_ptr.add(len) != 0 {
+                len += 1;
+            }
+            let bytes = core::slice::from_raw_parts(type_ptr as *const u8, len);
+            core::str::from_utf8(bytes).unwrap_or("unknown")
+        }
+    }
+
+    /// Notify the system that sensor value has changed
+    pub fn changed(&self) {
+        unsafe { sensors_changed(self.inner) }
+    }
+}
+
+/// Safe wrapper around button HAL
+pub struct Button {
+    inner: *mut button_hal_button,
+}
+
+impl Button {
+    /// Initialize the button HAL (call once at startup)
+    pub fn init() {
+        unsafe { button_hal_init() }
+    }
+
+    /// Get a button by its index
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if button not found
+    ///
+    /// # Example
+    /// ```
+    /// let button0 = Button::get_by_index(0)?;
+    /// ```
+    pub fn get_by_index(index: u8) -> Result<Self> {
+        let button = unsafe { button_hal_get_by_index(index) };
+        if button.is_null() {
+            Err(Error::NotAvailable)
+        } else {
+            Ok(Self { inner: button })
+        }
+    }
+
+    /// Get a button by its unique ID
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if button not found
+    pub fn get_by_id(unique_id: u8) -> Result<Self> {
+        let button = unsafe { button_hal_get_by_id(unique_id) };
+        if button.is_null() {
+            Err(Error::NotAvailable)
+        } else {
+            Ok(Self { inner: button })
+        }
+    }
+
+    /// Get the button's unique ID
+    pub fn unique_id(&self) -> u8 {
+        unsafe { (*self.inner).unique_id }
+    }
+
+    /// Get the button's GPIO pin
+    pub fn pin(&self) -> u8 {
+        unsafe { (*self.inner).pin }
+    }
+
+    /// Check if button uses negative logic (pressed = low)
+    pub fn is_negative_logic(&self) -> bool {
+        unsafe { (*self.inner).negative_logic != 0 }
+    }
 }
 
 // ============================================================================
