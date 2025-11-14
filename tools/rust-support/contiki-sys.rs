@@ -2688,6 +2688,255 @@ impl SimpleUdpConnection {
     }
 }
 
+// ============================================================================
+// Async Runtime for Contiki-NG Processes
+// ============================================================================
+
+/// Async runtime support for Contiki-NG processes
+///
+/// This module provides async/await support on top of Contiki-NG's event-driven
+/// process model. It allows writing process logic using async/await syntax while
+/// integrating seamlessly with the underlying protothread system.
+///
+/// # Example
+///
+/// ```rust
+/// use contiki_sys::*;
+///
+/// async fn my_async_process() {
+///     loop {
+///         AsyncTimer::delay_seconds(5).await;
+///         print(c_str!("Tick!\n"));
+///     }
+/// }
+/// ```
+pub mod async_support {
+    use super::*;
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+    // ========================================================================
+    // Async Timer
+    // ========================================================================
+
+    /// Future that completes when a timer expires
+    ///
+    /// This integrates with Contiki-NG's etimer system to provide
+    /// async timer support.
+    pub struct AsyncTimer {
+        timer: *mut etimer,
+        interval: clock_time_t,
+        started: bool,
+    }
+
+    impl AsyncTimer {
+        /// Create a new async timer with the given interval
+        ///
+        /// # Parameters
+        /// - `timer`: Pointer to static etimer structure
+        /// - `interval`: Timer interval in clock ticks
+        ///
+        /// # Safety
+        /// The timer pointer must point to a valid, static etimer
+        ///
+        /// # Example
+        /// ```rust
+        /// static mut TIMER: etimer = /* ... */;
+        /// let fut = unsafe { AsyncTimer::new(&mut TIMER, clock_second() * 5) };
+        /// fut.await;
+        /// ```
+        pub unsafe fn new(timer: *mut etimer, interval: clock_time_t) -> Self {
+            Self {
+                timer,
+                interval,
+                started: false,
+            }
+        }
+
+        /// Create a timer that delays for the specified number of seconds
+        ///
+        /// # Parameters
+        /// - `timer`: Pointer to static etimer structure
+        /// - `seconds`: Number of seconds to delay
+        ///
+        /// # Safety
+        /// The timer pointer must point to a valid, static etimer
+        pub unsafe fn delay_seconds(timer: *mut etimer, seconds: u32) -> Self {
+            Self::new(timer, clock_second() * seconds)
+        }
+
+        /// Create a timer that delays for the specified number of milliseconds
+        ///
+        /// # Parameters
+        /// - `timer`: Pointer to static etimer structure
+        /// - `ms`: Number of milliseconds to delay
+        ///
+        /// # Safety
+        /// The timer pointer must point to a valid, static etimer
+        pub unsafe fn delay_ms(timer: *mut etimer, ms: u32) -> Self {
+            let ticks = (clock_second() * ms) / 1000;
+            Self::new(timer, ticks)
+        }
+    }
+
+    impl Future for AsyncTimer {
+        type Output = ();
+
+        fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            unsafe {
+                if !self.started {
+                    // Start the timer on first poll
+                    etimer_set(self.timer, self.interval);
+                    self.started = true;
+                    Poll::Pending
+                } else {
+                    // Check if timer has expired
+                    if etimer_expired(self.timer) {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                }
+            }
+        }
+    }
+
+    // ========================================================================
+    // Async Event
+    // ========================================================================
+
+    /// Future that completes when a specific event occurs
+    pub struct AsyncEvent {
+        expected_event: process_event_t,
+        received_event: Option<process_event_t>,
+    }
+
+    impl AsyncEvent {
+        /// Create a future that waits for a specific event
+        ///
+        /// # Parameters
+        /// - `event`: The event to wait for
+        ///
+        /// # Example
+        /// ```rust
+        /// AsyncEvent::new(button_hal_press_event).await;
+        /// print(c_str!("Button pressed!\n"));
+        /// ```
+        pub fn new(event: process_event_t) -> Self {
+            Self {
+                expected_event: event,
+                received_event: None,
+            }
+        }
+
+        /// Update this future with a received event
+        ///
+        /// Call this from your process event handler to notify
+        /// the future about incoming events.
+        pub fn notify(&mut self, event: process_event_t) {
+            self.received_event = Some(event);
+        }
+    }
+
+    impl Future for AsyncEvent {
+        type Output = ();
+
+        fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            if let Some(event) = self.received_event {
+                if event == self.expected_event {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            } else {
+                Poll::Pending
+            }
+        }
+    }
+
+    // ========================================================================
+    // Async Process Executor
+    // ========================================================================
+
+    /// Simple executor for async processes
+    ///
+    /// This provides a minimal async runtime that integrates with
+    /// Contiki-NG's event system.
+    pub struct AsyncExecutor;
+
+    impl AsyncExecutor {
+        /// Create a dummy waker (Contiki-NG handles scheduling via events)
+        pub fn dummy_waker() -> Waker {
+            unsafe fn clone(_: *const ()) -> RawWaker {
+                dummy_raw_waker()
+            }
+            unsafe fn wake(_: *const ()) {}
+            unsafe fn wake_by_ref(_: *const ()) {}
+            unsafe fn drop(_: *const ()) {}
+
+            fn dummy_raw_waker() -> RawWaker {
+                RawWaker::new(
+                    core::ptr::null(),
+                    &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
+                )
+            }
+
+            unsafe { Waker::from_raw(dummy_raw_waker()) }
+        }
+
+        /// Poll a future once
+        ///
+        /// Returns true if the future is ready, false if still pending
+        pub fn poll_once<F>(future: Pin<&mut F>) -> bool
+        where
+            F: Future<Output = ()>,
+        {
+            let waker = Self::dummy_waker();
+            let mut context = Context::from_waker(&waker);
+
+            match future.poll(&mut context) {
+                Poll::Ready(()) => true,
+                Poll::Pending => false,
+            }
+        }
+    }
+
+}
+
+// NOTE: Full async/await support is complex in no_std without heap allocation.
+// For now, we provide the core async primitives (AsyncTimer, AsyncEvent)
+// but users need to manage future storage themselves or use a simpler pattern.
+//
+// See the examples for practical patterns that work today.
+
+/// Macro to create a timer for async use
+///
+/// This creates a static etimer that can be used with AsyncTimer.
+///
+/// # Example
+///
+/// ```rust
+/// async_timer!(MY_TIMER);
+///
+/// async fn my_task() {
+///     unsafe { AsyncTimer::delay_seconds(&mut MY_TIMER, 5).await; }
+/// }
+/// ```
+#[macro_export]
+macro_rules! async_timer {
+    ($name:ident) => {
+        static mut $name: $crate::etimer = $crate::etimer {
+            timer: $crate::timer {
+                start: 0,
+                interval: 0,
+            },
+            next: core::ptr::null_mut(),
+            p: core::ptr::null_mut(),
+        };
+    };
+}
+
 // Unit tests (only compiled for native target)
 #[cfg(test)]
 mod tests {

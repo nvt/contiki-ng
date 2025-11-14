@@ -21,7 +21,7 @@ else # release (default)
 endif
 
 # Common Rust flags for embedded development
-RUSTFLAGS_COMMON = $(RUSTFLAGS_OPT) -C panic=abort $(RUSTFLAGS_LTO)
+RUSTFLAGS_COMMON = $(RUSTFLAGS_OPT) -C panic=abort $(RUSTFLAGS_LTO) --edition 2021
 RUSTFLAGS_EMBEDDED = --emit=obj -C relocation-model=static
 
 # Additional optimization flags (can be overridden)
