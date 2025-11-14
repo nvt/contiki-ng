@@ -130,6 +130,17 @@ pub enum energest_type_t {
 pub type energest_time_t = u64;
 
 // ============================================================================
+// Logging Types and Constants
+// ============================================================================
+
+/// Log level constants
+pub const LOG_LEVEL_NONE: c_int = 0;  // No log
+pub const LOG_LEVEL_ERR: c_int = 1;   // Errors
+pub const LOG_LEVEL_WARN: c_int = 2;  // Warnings
+pub const LOG_LEVEL_INFO: c_int = 3;  // Basic info
+pub const LOG_LEVEL_DBG: c_int = 4;   // Detailed debug
+
+// ============================================================================
 // RPL Routing Types
 // ============================================================================
 
@@ -315,6 +326,18 @@ extern "C" {
     pub fn energest_switch(type_off: energest_type_t, type_on: energest_type_t);
     pub fn energest_get_total_time() -> u64;
     pub static mut energest_total_time: [u64; 5];  // ENERGEST_TYPE_MAX = 5
+
+    // Logging functions
+    pub fn log_lladdr(lladdr: *const linkaddr_t);
+    pub fn log_lladdr_compact(lladdr: *const linkaddr_t);
+    pub fn log_6addr(ipaddr: *const uip_ipaddr_t);
+    pub fn log_6addr_compact(ipaddr: *const uip_ipaddr_t);
+    pub fn log_6addr_compact_snprint(buf: *mut c_char, size: usize, ipaddr: *const uip_ipaddr_t) -> c_int;
+    pub fn log_bytes(data: *const c_void, length: usize);
+    pub fn log_string(text: *const c_char, length: usize);
+    pub fn log_set_level(module: *const c_char, level: c_int);
+    pub fn log_get_level(module: *const c_char) -> c_int;
+    pub fn log_level_to_str(level: c_int) -> *const c_char;
 
     // RPL routing functions
     pub fn rpl_dag_root_set_prefix(prefix: *mut uip_ipaddr_t, iid: *mut uip_ipaddr_t);
@@ -1159,6 +1182,170 @@ impl Energest {
     pub fn snapshot() -> [u64; 5] {
         Self::flush();
         unsafe { energest_total_time }
+    }
+}
+
+// ============================================================================
+// Logging API Wrappers
+// ============================================================================
+
+/// Safe wrapper for logging functions
+pub struct Log;
+
+impl Log {
+    /// Log a link-layer address (MAC address)
+    ///
+    /// # Parameters
+    /// - `lladdr`: The link-layer address to log
+    ///
+    /// # Example
+    /// ```
+    /// let addr = linkaddr_t::from_bytes([0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    /// Log::lladdr(&addr);  // Logs full address
+    /// ```
+    pub fn lladdr(lladdr: &linkaddr_t) {
+        unsafe { log_lladdr(lladdr as *const linkaddr_t) }
+    }
+
+    /// Log a link-layer address in compact format
+    ///
+    /// # Parameters
+    /// - `lladdr`: The link-layer address to log
+    pub fn lladdr_compact(lladdr: &linkaddr_t) {
+        unsafe { log_lladdr_compact(lladdr as *const linkaddr_t) }
+    }
+
+    /// Log an IPv6 address
+    ///
+    /// # Parameters
+    /// - `ipaddr`: The IPv6 address to log
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// let addr = get_ipv6_address();
+    /// Log::ip6addr(&addr);
+    /// ```
+    pub fn ip6addr(ipaddr: &uip_ipaddr_t) {
+        unsafe { log_6addr(ipaddr as *const uip_ipaddr_t) }
+    }
+
+    /// Log an IPv6 address in compact format
+    ///
+    /// # Parameters
+    /// - `ipaddr`: The IPv6 address to log
+    pub fn ip6addr_compact(ipaddr: &uip_ipaddr_t) {
+        unsafe { log_6addr_compact(ipaddr as *const uip_ipaddr_t) }
+    }
+
+    /// Format an IPv6 address to a buffer in compact format
+    ///
+    /// # Parameters
+    /// - `buf`: Output buffer (must have space for at least `size` bytes)
+    /// - `ipaddr`: The IPv6 address to format
+    ///
+    /// # Returns
+    /// Number of characters written (excluding null terminator)
+    ///
+    /// # Safety
+    /// The buffer must have at least `size` bytes of valid memory
+    pub unsafe fn ip6addr_to_buffer(buf: &mut [u8], ipaddr: &uip_ipaddr_t) -> Result<usize> {
+        if buf.is_empty() {
+            return Err(Error::InvalidParameter);
+        }
+
+        let written = log_6addr_compact_snprint(
+            buf.as_mut_ptr() as *mut c_char,
+            buf.len(),
+            ipaddr as *const uip_ipaddr_t,
+        );
+
+        if written < 0 {
+            Err(Error::OperationFailed)
+        } else {
+            Ok(written as usize)
+        }
+    }
+
+    /// Log a byte array as hex values
+    ///
+    /// # Parameters
+    /// - `data`: The byte array to log
+    ///
+    /// # Example
+    /// ```
+    /// let packet = [0xCA, 0xFE, 0xBA, 0xBE];
+    /// Log::bytes(&packet);  // Logs as hex: CA FE BA BE
+    /// ```
+    pub fn bytes(data: &[u8]) {
+        if !data.is_empty() {
+            unsafe {
+                log_bytes(
+                    data.as_ptr() as *const c_void,
+                    data.len(),
+                )
+            }
+        }
+    }
+
+    /// Log a string (may not be null-terminated)
+    ///
+    /// # Parameters
+    /// - `text`: The string to log
+    ///
+    /// # Example
+    /// ```
+    /// Log::string(b"Hello, World!");
+    /// ```
+    pub fn string(text: &[u8]) {
+        if !text.is_empty() {
+            unsafe {
+                log_string(
+                    text.as_ptr() as *const c_char,
+                    text.len(),
+                )
+            }
+        }
+    }
+
+    /// Set the log level for a module at runtime
+    ///
+    /// # Parameters
+    /// - `module`: Module name (null-terminated C string)
+    /// - `level`: New log level (use LOG_LEVEL_* constants)
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// Log::set_level(c_str!("rpl"), LOG_LEVEL_DBG);
+    /// ```
+    pub fn set_level(module: *const c_char, level: c_int) {
+        unsafe { log_set_level(module, level) }
+    }
+
+    /// Get the current log level for a module
+    ///
+    /// # Parameters
+    /// - `module`: Module name (null-terminated C string)
+    ///
+    /// # Returns
+    /// Current log level (LOG_LEVEL_* constant)
+    pub fn get_level(module: *const c_char) -> c_int {
+        unsafe { log_get_level(module) }
+    }
+
+    /// Convert a log level to a string description
+    ///
+    /// # Parameters
+    /// - `level`: Log level (LOG_LEVEL_* constant)
+    ///
+    /// # Returns
+    /// Pointer to static string describing the level
+    ///
+    /// # Safety
+    /// The returned pointer points to static memory and is always valid
+    pub fn level_to_str(level: c_int) -> *const c_char {
+        unsafe { log_level_to_str(level) }
     }
 }
 
