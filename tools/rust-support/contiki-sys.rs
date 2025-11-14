@@ -176,6 +176,25 @@ pub const PACKETBUF_ADDR_SENDER: u8 = 12;
 pub const PACKETBUF_ADDR_RECEIVER: u8 = 13;
 
 // ============================================================================
+// TSCH (Time-Slotted Channel Hopping) Types
+// ============================================================================
+
+/// TSCH link types
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum link_type {
+    LINK_TYPE_NORMAL = 0,
+    LINK_TYPE_ADVERTISING = 1,
+    LINK_TYPE_ADVERTISING_ONLY = 2,
+}
+
+/// TSCH link options (bit flags)
+pub const LINK_OPTION_TX: u8 = 1 << 0;
+pub const LINK_OPTION_RX: u8 = 1 << 1;
+pub const LINK_OPTION_SHARED: u8 = 1 << 2;
+pub const LINK_OPTION_TIMEKEEPING: u8 = 1 << 3;
+
+// ============================================================================
 // RPL Routing Types
 // ============================================================================
 
@@ -395,6 +414,21 @@ extern "C" {
     pub fn packetbuf_attr_clear();
     pub fn packetbuf_attr_copyto(attrs: *mut packetbuf_attr, addrs: *mut packetbuf_addr);
     pub fn packetbuf_attr_copyfrom(attrs: *const packetbuf_attr, addrs: *const packetbuf_addr);
+
+    // TSCH functions
+    pub fn tsch_set_join_priority(jp: u8);
+    pub fn tsch_set_eb_period(period: u32);
+    pub fn tsch_set_ka_timeout(timeout: u32);
+    pub fn tsch_set_coordinator(enable: c_int);
+    pub fn tsch_set_pan_secured(enable: c_int);
+    pub fn tsch_schedule_keepalive(immediate: c_int);
+    pub fn tsch_get_network_uptime_ticks() -> u64;
+    pub fn tsch_disassociate();
+
+    // TSCH state variables
+    pub static tsch_is_coordinator: c_int;
+    pub static tsch_is_associated: c_int;
+    pub static tsch_is_pan_secured: c_int;
 
     // RPL routing functions
     pub fn rpl_dag_root_set_prefix(prefix: *mut uip_ipaddr_t, iid: *mut uip_ipaddr_t);
@@ -1671,6 +1705,138 @@ impl Packetbuf {
     /// Clear all packet attributes
     pub fn clear_attrs() {
         unsafe { packetbuf_attr_clear() }
+    }
+}
+
+// ============================================================================
+// TSCH (Time-Slotted Channel Hopping) API Wrappers
+// ============================================================================
+
+/// Safe wrapper for TSCH operations
+pub struct Tsch;
+
+impl Tsch {
+    /// Set the TSCH join priority
+    ///
+    /// Lower values indicate higher priority. Default is typically 0xFF.
+    ///
+    /// # Parameters
+    /// - `priority`: Join priority value (0-255)
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// Tsch::set_join_priority(0x10);  // Set medium priority
+    /// ```
+    pub fn set_join_priority(priority: u8) {
+        unsafe { tsch_set_join_priority(priority) }
+    }
+
+    /// Set the period for sending Enhanced Beacons (EBs)
+    ///
+    /// # Parameters
+    /// - `period`: Period in clock ticks (set to 0 to stop sending EBs)
+    ///
+    /// Note: If RPL is used, this will be automatically reset by RPL
+    /// when the DIO period changes.
+    pub fn set_eb_period(period: u32) {
+        unsafe { tsch_set_eb_period(period) }
+    }
+
+    /// Set the keep-alive timeout
+    ///
+    /// After this timeout, a node sends a unicast keep-alive to its time source
+    ///
+    /// # Parameters
+    /// - `timeout`: Timeout in clock ticks (set to 0 to stop sending keep-alives)
+    pub fn set_ka_timeout(timeout: u32) {
+        unsafe { tsch_set_ka_timeout(timeout) }
+    }
+
+    /// Set the node as PAN coordinator
+    ///
+    /// # Parameters
+    /// - `enable`: true to be coordinator, false to be a regular node
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// Tsch::set_coordinator(true);  // Become coordinator
+    /// ```
+    pub fn set_coordinator(enable: bool) {
+        unsafe { tsch_set_coordinator(if enable { 1 } else { 0 }) }
+    }
+
+    /// Enable or disable link-layer security for the PAN
+    ///
+    /// # Parameters
+    /// - `enable`: true to enable security, false to disable
+    ///
+    /// Note: Requires compilation with LLSEC802154_ENABLED set
+    pub fn set_pan_secured(enable: bool) {
+        unsafe { tsch_set_pan_secured(if enable { 1 } else { 0 }) }
+    }
+
+    /// Schedule a keep-alive transmission
+    ///
+    /// # Parameters
+    /// - `immediate`: true to send immediately, false to schedule using current timeout
+    pub fn schedule_keepalive(immediate: bool) {
+        unsafe { tsch_schedule_keepalive(if immediate { 1 } else { 0 }) }
+    }
+
+    /// Get the network uptime in clock ticks
+    ///
+    /// # Returns
+    /// Network uptime in ticks, or u64::MAX if not part of a TSCH network
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// let uptime = Tsch::get_network_uptime_ticks();
+    /// if uptime != u64::MAX {
+    ///     print(c_str!("Network uptime: "));
+    ///     print_u32(c_str!("%llu"), uptime as u32);
+    ///     print(c_str!(" ticks\n"));
+    /// }
+    /// ```
+    pub fn get_network_uptime_ticks() -> u64 {
+        unsafe {
+            let uptime = tsch_get_network_uptime_ticks();
+            // The C function returns -1 (cast to u64) if not in a network
+            uptime
+        }
+    }
+
+    /// Leave the TSCH network
+    ///
+    /// Disassociates from the current TSCH network
+    pub fn disassociate() {
+        unsafe { tsch_disassociate() }
+    }
+
+    /// Check if this node is the coordinator
+    ///
+    /// # Returns
+    /// true if this node is the PAN coordinator
+    pub fn is_coordinator() -> bool {
+        unsafe { tsch_is_coordinator != 0 }
+    }
+
+    /// Check if this node is associated with a TSCH network
+    ///
+    /// # Returns
+    /// true if associated with a network
+    pub fn is_associated() -> bool {
+        unsafe { tsch_is_associated != 0 }
+    }
+
+    /// Check if the PAN is running with link-layer security
+    ///
+    /// # Returns
+    /// true if security is enabled
+    pub fn is_pan_secured() -> bool {
+        unsafe { tsch_is_pan_secured != 0 }
     }
 }
 
