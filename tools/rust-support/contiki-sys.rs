@@ -141,6 +141,41 @@ pub const LOG_LEVEL_INFO: c_int = 3;  // Basic info
 pub const LOG_LEVEL_DBG: c_int = 4;   // Detailed debug
 
 // ============================================================================
+// Packetbuf Types and Constants
+// ============================================================================
+
+/// Packetbuf attribute type
+pub type packetbuf_attr_t = u16;
+
+/// Packetbuf attribute structure
+#[repr(C)]
+pub struct packetbuf_attr {
+    pub val: packetbuf_attr_t,
+}
+
+/// Packetbuf address structure
+#[repr(C)]
+pub struct packetbuf_addr {
+    pub addr: linkaddr_t,
+}
+
+/// Packetbuf attribute/address types
+pub const PACKETBUF_ATTR_NONE: u8 = 0;
+pub const PACKETBUF_ATTR_CHANNEL: u8 = 1;
+pub const PACKETBUF_ATTR_NETWORK_ID: u8 = 2;
+pub const PACKETBUF_ATTR_LINK_QUALITY: u8 = 3;
+pub const PACKETBUF_ATTR_RSSI: u8 = 4;
+pub const PACKETBUF_ATTR_MAX_MAC_TRANSMISSIONS: u8 = 5;
+pub const PACKETBUF_ATTR_MAC_SEQNO: u8 = 6;
+pub const PACKETBUF_ATTR_MAC_ACK: u8 = 7;
+pub const PACKETBUF_ATTR_MAC_METADATA: u8 = 8;
+pub const PACKETBUF_ATTR_MAC_NO_SRC_ADDR: u8 = 9;
+pub const PACKETBUF_ATTR_MAC_NO_DEST_ADDR: u8 = 10;
+pub const PACKETBUF_ATTR_FRAME_TYPE: u8 = 11;
+pub const PACKETBUF_ADDR_SENDER: u8 = 12;
+pub const PACKETBUF_ADDR_RECEIVER: u8 = 13;
+
+// ============================================================================
 // RPL Routing Types
 // ============================================================================
 
@@ -338,6 +373,28 @@ extern "C" {
     pub fn log_set_level(module: *const c_char, level: c_int);
     pub fn log_get_level(module: *const c_char) -> c_int;
     pub fn log_level_to_str(level: c_int) -> *const c_char;
+
+    // Packetbuf functions
+    pub fn packetbuf_clear();
+    pub fn packetbuf_dataptr() -> *mut c_void;
+    pub fn packetbuf_hdrptr() -> *mut c_void;
+    pub fn packetbuf_hdrlen() -> u8;
+    pub fn packetbuf_datalen() -> u16;
+    pub fn packetbuf_totlen() -> u16;
+    pub fn packetbuf_remaininglen() -> u16;
+    pub fn packetbuf_set_datalen(len: u16);
+    pub fn packetbuf_copyfrom(from: *const c_void, len: u16) -> c_int;
+    pub fn packetbuf_copyto(to: *mut c_void) -> c_int;
+    pub fn packetbuf_hdralloc(size: c_int) -> c_int;
+    pub fn packetbuf_hdrreduce(size: c_int) -> c_int;
+    pub fn packetbuf_set_attr(type_: u8, val: packetbuf_attr_t);
+    pub fn packetbuf_attr(type_: u8) -> packetbuf_attr_t;
+    pub fn packetbuf_set_addr(type_: u8, addr: *const linkaddr_t);
+    pub fn packetbuf_addr(type_: u8) -> *const linkaddr_t;
+    pub fn packetbuf_holds_broadcast() -> bool;
+    pub fn packetbuf_attr_clear();
+    pub fn packetbuf_attr_copyto(attrs: *mut packetbuf_attr, addrs: *mut packetbuf_addr);
+    pub fn packetbuf_attr_copyfrom(attrs: *const packetbuf_attr, addrs: *const packetbuf_addr);
 
     // RPL routing functions
     pub fn rpl_dag_root_set_prefix(prefix: *mut uip_ipaddr_t, iid: *mut uip_ipaddr_t);
@@ -1346,6 +1403,274 @@ impl Log {
     /// The returned pointer points to static memory and is always valid
     pub fn level_to_str(level: c_int) -> *const c_char {
         unsafe { log_level_to_str(level) }
+    }
+}
+
+// ============================================================================
+// Packetbuf API Wrappers
+// ============================================================================
+
+/// Safe wrapper for packet buffer operations
+pub struct Packetbuf;
+
+impl Packetbuf {
+    /// Clear and reset the packet buffer
+    ///
+    /// This should be called before preparing a new packet
+    ///
+    /// # Example
+    /// ```
+    /// Packetbuf::clear();
+    /// Packetbuf::copy_from(b"Hello");
+    /// ```
+    pub fn clear() {
+        unsafe { packetbuf_clear() }
+    }
+
+    /// Get a mutable slice to the data portion of the packet buffer
+    ///
+    /// # Returns
+    /// Mutable slice to the packet data, or empty slice if no data
+    ///
+    /// # Safety
+    /// The returned slice is valid until the next packetbuf operation
+    pub fn data_mut() -> &'static mut [u8] {
+        unsafe {
+            let ptr = packetbuf_dataptr() as *mut u8;
+            let len = packetbuf_datalen() as usize;
+            if ptr.is_null() || len == 0 {
+                &mut []
+            } else {
+                core::slice::from_raw_parts_mut(ptr, len)
+            }
+        }
+    }
+
+    /// Get an immutable slice to the data portion of the packet buffer
+    ///
+    /// # Returns
+    /// Immutable slice to the packet data
+    pub fn data() -> &'static [u8] {
+        unsafe {
+            let ptr = packetbuf_dataptr() as *const u8;
+            let len = packetbuf_datalen() as usize;
+            if ptr.is_null() || len == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(ptr, len)
+            }
+        }
+    }
+
+    /// Get a slice to the header portion of the packet buffer
+    ///
+    /// # Returns
+    /// Immutable slice to the packet header
+    pub fn header() -> &'static [u8] {
+        unsafe {
+            let ptr = packetbuf_hdrptr() as *const u8;
+            let len = packetbuf_hdrlen() as usize;
+            if ptr.is_null() || len == 0 {
+                &[]
+            } else {
+                core::slice::from_raw_parts(ptr, len)
+            }
+        }
+    }
+
+    /// Get the length of the data in the packet buffer
+    pub fn data_len() -> usize {
+        unsafe { packetbuf_datalen() as usize }
+    }
+
+    /// Get the length of the header in the packet buffer
+    pub fn header_len() -> usize {
+        unsafe { packetbuf_hdrlen() as usize }
+    }
+
+    /// Get the total length (header + data) in the packet buffer
+    pub fn total_len() -> usize {
+        unsafe { packetbuf_totlen() as usize }
+    }
+
+    /// Get the remaining space in the packet buffer
+    pub fn remaining_len() -> usize {
+        unsafe { packetbuf_remaininglen() as usize }
+    }
+
+    /// Set the length of the data in the packet buffer
+    ///
+    /// # Parameters
+    /// - `len`: New data length
+    ///
+    /// # Safety
+    /// The caller must ensure that `len` doesn't exceed the available buffer space
+    pub fn set_data_len(len: usize) {
+        unsafe { packetbuf_set_datalen(len as u16) }
+    }
+
+    /// Copy data from a slice into the packet buffer
+    ///
+    /// # Parameters
+    /// - `data`: The data to copy
+    ///
+    /// # Returns
+    /// Number of bytes copied (may be less than requested if buffer is full)
+    ///
+    /// # Example
+    /// ```
+    /// Packetbuf::clear();
+    /// let copied = Packetbuf::copy_from(b"Hello, World!");
+    /// ```
+    pub fn copy_from(data: &[u8]) -> Result<usize> {
+        unsafe {
+            let result = packetbuf_copyfrom(
+                data.as_ptr() as *const c_void,
+                data.len() as u16,
+            );
+            if result < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(result as usize)
+            }
+        }
+    }
+
+    /// Copy the entire packet buffer to an external buffer
+    ///
+    /// # Parameters
+    /// - `buf`: Destination buffer (must be at least PACKETBUF_SIZE bytes)
+    ///
+    /// # Returns
+    /// Number of bytes copied
+    pub fn copy_to(buf: &mut [u8]) -> Result<usize> {
+        unsafe {
+            let result = packetbuf_copyto(buf.as_mut_ptr() as *mut c_void);
+            if result < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(result as usize)
+            }
+        }
+    }
+
+    /// Extend the header for outbound packets
+    ///
+    /// # Parameters
+    /// - `size`: Number of bytes to allocate in header
+    ///
+    /// # Returns
+    /// Ok(()) if successful, Err if insufficient space
+    ///
+    /// # Example
+    /// ```
+    /// Packetbuf::clear();
+    /// Packetbuf::copy_from(b"payload");
+    /// Packetbuf::hdr_alloc(10)?;  // Allocate 10 bytes for header
+    /// ```
+    pub fn hdr_alloc(size: usize) -> Result<()> {
+        unsafe {
+            let result = packetbuf_hdralloc(size as c_int);
+            if result != 0 {
+                Ok(())
+            } else {
+                Err(Error::BufferOverflow)
+            }
+        }
+    }
+
+    /// Reduce the header for incoming packets
+    ///
+    /// Removes bytes from the beginning of the header, typically
+    /// used when processing received packets
+    ///
+    /// # Parameters
+    /// - `size`: Number of bytes to remove from header
+    ///
+    /// # Returns
+    /// Ok(()) if successful, Err if insufficient header space
+    pub fn hdr_reduce(size: usize) -> Result<()> {
+        unsafe {
+            let result = packetbuf_hdrreduce(size as c_int);
+            if result != 0 {
+                Ok(())
+            } else {
+                Err(Error::InvalidParameter)
+            }
+        }
+    }
+
+    /// Set a packet attribute
+    ///
+    /// # Parameters
+    /// - `attr_type`: Attribute type (use PACKETBUF_ATTR_* constants)
+    /// - `value`: Attribute value
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// Packetbuf::set_attr(PACKETBUF_ATTR_CHANNEL, 26);
+    /// ```
+    pub fn set_attr(attr_type: u8, value: u16) {
+        unsafe { packetbuf_set_attr(attr_type, value) }
+    }
+
+    /// Get a packet attribute
+    ///
+    /// # Parameters
+    /// - `attr_type`: Attribute type (use PACKETBUF_ATTR_* constants)
+    ///
+    /// # Returns
+    /// Attribute value
+    pub fn attr(attr_type: u8) -> u16 {
+        unsafe { packetbuf_attr(attr_type) }
+    }
+
+    /// Set a packet address (sender or receiver)
+    ///
+    /// # Parameters
+    /// - `addr_type`: Address type (PACKETBUF_ADDR_SENDER or PACKETBUF_ADDR_RECEIVER)
+    /// - `addr`: The link-layer address
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// let sender = linkaddr_t::from_bytes([0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
+    /// Packetbuf::set_addr(PACKETBUF_ADDR_SENDER, &sender);
+    /// ```
+    pub fn set_addr(addr_type: u8, addr: &linkaddr_t) {
+        unsafe { packetbuf_set_addr(addr_type, addr as *const linkaddr_t) }
+    }
+
+    /// Get a packet address (sender or receiver)
+    ///
+    /// # Parameters
+    /// - `addr_type`: Address type (PACKETBUF_ADDR_SENDER or PACKETBUF_ADDR_RECEIVER)
+    ///
+    /// # Returns
+    /// Reference to the address, or None if not set
+    pub fn addr(addr_type: u8) -> Option<&'static linkaddr_t> {
+        unsafe {
+            let ptr = packetbuf_addr(addr_type);
+            if ptr.is_null() {
+                None
+            } else {
+                Some(&*ptr)
+            }
+        }
+    }
+
+    /// Check if the current packet is a broadcast
+    ///
+    /// # Returns
+    /// true if the packet is addressed to the broadcast address
+    pub fn is_broadcast() -> bool {
+        unsafe { packetbuf_holds_broadcast() }
+    }
+
+    /// Clear all packet attributes
+    pub fn clear_attrs() {
+        unsafe { packetbuf_attr_clear() }
     }
 }
 
