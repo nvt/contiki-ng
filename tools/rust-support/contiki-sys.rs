@@ -195,6 +195,36 @@ pub const LINK_OPTION_SHARED: u8 = 1 << 2;
 pub const LINK_OPTION_TIMEKEEPING: u8 = 1 << 3;
 
 // ============================================================================
+// CFS (Coffee File System) Types and Constants
+// ============================================================================
+
+/// File offset type
+pub type cfs_offset_t = c_int;
+
+/// Directory handle
+#[repr(C)]
+pub struct cfs_dir {
+    pub state: [u8; 32],
+}
+
+/// Directory entry
+#[repr(C)]
+pub struct cfs_dirent {
+    pub name: [u8; 32],
+    pub size: cfs_offset_t,
+}
+
+/// File open flags
+pub const CFS_READ: c_int = 1;
+pub const CFS_WRITE: c_int = 2;
+pub const CFS_APPEND: c_int = 4;
+
+/// Seek modes
+pub const CFS_SEEK_SET: c_int = 0;
+pub const CFS_SEEK_CUR: c_int = 1;
+pub const CFS_SEEK_END: c_int = 2;
+
+// ============================================================================
 // RPL Routing Types
 // ============================================================================
 
@@ -429,6 +459,17 @@ extern "C" {
     pub static tsch_is_coordinator: c_int;
     pub static tsch_is_associated: c_int;
     pub static tsch_is_pan_secured: c_int;
+
+    // CFS (Coffee File System) functions
+    pub fn cfs_open(name: *const c_char, flags: c_int) -> c_int;
+    pub fn cfs_close(fd: c_int);
+    pub fn cfs_read(fd: c_int, buf: *mut c_void, len: c_uint) -> c_int;
+    pub fn cfs_write(fd: c_int, buf: *const c_void, len: c_uint) -> c_int;
+    pub fn cfs_seek(fd: c_int, offset: cfs_offset_t, whence: c_int) -> cfs_offset_t;
+    pub fn cfs_remove(name: *const c_char) -> c_int;
+    pub fn cfs_opendir(dirp: *mut cfs_dir, name: *const c_char) -> c_int;
+    pub fn cfs_readdir(dirp: *mut cfs_dir, dirent: *mut cfs_dirent) -> c_int;
+    pub fn cfs_closedir(dirp: *mut cfs_dir);
 
     // RPL routing functions
     pub fn rpl_dag_root_set_prefix(prefix: *mut uip_ipaddr_t, iid: *mut uip_ipaddr_t);
@@ -1837,6 +1878,235 @@ impl Tsch {
     /// true if security is enabled
     pub fn is_pan_secured() -> bool {
         unsafe { tsch_is_pan_secured != 0 }
+    }
+}
+
+// ============================================================================
+// CFS (Coffee File System) API Wrappers
+// ============================================================================
+
+/// Safe wrapper for CFS file operations
+pub struct CfsFile {
+    fd: c_int,
+}
+
+impl CfsFile {
+    /// Open a file
+    ///
+    /// # Parameters
+    /// - `name`: File name (null-terminated C string)
+    /// - `flags`: Open flags (CFS_READ, CFS_WRITE, CFS_APPEND)
+    ///
+    /// # Returns
+    /// File handle on success, or error
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// let file = CfsFile::open(c_str!("data.txt"), CFS_WRITE)?;
+    /// file.write(b"Hello, World!")?;
+    /// file.close();
+    /// ```
+    pub fn open(name: *const c_char, flags: c_int) -> Result<Self> {
+        unsafe {
+            let fd = cfs_open(name, flags);
+            if fd < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(CfsFile { fd })
+            }
+        }
+    }
+
+    /// Read data from the file
+    ///
+    /// # Parameters
+    /// - `buf`: Buffer to read into
+    ///
+    /// # Returns
+    /// Number of bytes read, or error
+    pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
+        unsafe {
+            let result = cfs_read(
+                self.fd,
+                buf.as_mut_ptr() as *mut c_void,
+                buf.len() as c_uint,
+            );
+            if result < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(result as usize)
+            }
+        }
+    }
+
+    /// Write data to the file
+    ///
+    /// # Parameters
+    /// - `data`: Data to write
+    ///
+    /// # Returns
+    /// Number of bytes written, or error
+    pub fn write(&self, data: &[u8]) -> Result<usize> {
+        unsafe {
+            let result = cfs_write(
+                self.fd,
+                data.as_ptr() as *const c_void,
+                data.len() as c_uint,
+            );
+            if result < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(result as usize)
+            }
+        }
+    }
+
+    /// Seek to a position in the file
+    ///
+    /// # Parameters
+    /// - `offset`: Offset value
+    /// - `whence`: Seek mode (CFS_SEEK_SET, CFS_SEEK_CUR, CFS_SEEK_END)
+    ///
+    /// # Returns
+    /// New file position, or error
+    pub fn seek(&self, offset: isize, whence: c_int) -> Result<isize> {
+        unsafe {
+            let result = cfs_seek(self.fd, offset as cfs_offset_t, whence);
+            if result < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(result as isize)
+            }
+        }
+    }
+
+    /// Close the file
+    ///
+    /// This consumes the file handle to prevent use-after-close
+    pub fn close(self) {
+        unsafe { cfs_close(self.fd) }
+        // fd is dropped automatically
+    }
+
+    /// Get the raw file descriptor
+    ///
+    /// For advanced use cases that need direct access to the FD
+    pub fn as_raw_fd(&self) -> c_int {
+        self.fd
+    }
+}
+
+// Implement Drop to auto-close files
+impl Drop for CfsFile {
+    fn drop(&mut self) {
+        unsafe { cfs_close(self.fd) }
+    }
+}
+
+/// CFS utility functions
+pub struct Cfs;
+
+impl Cfs {
+    /// Remove a file
+    ///
+    /// # Parameters
+    /// - `name`: File name (null-terminated C string)
+    ///
+    /// # Returns
+    /// Ok(()) on success, error if file couldn't be removed
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// Cfs::remove(c_str!("old_data.txt"))?;
+    /// ```
+    pub fn remove(name: *const c_char) -> Result<()> {
+        unsafe {
+            let result = cfs_remove(name);
+            if result < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Open a directory for reading
+    ///
+    /// # Parameters
+    /// - `name`: Directory name (null-terminated C string)
+    ///
+    /// # Returns
+    /// Directory handle on success, or error
+    ///
+    /// # Example
+    /// ```
+    /// use contiki_sys::*;
+    /// let mut dir = Cfs::opendir(c_str!("/"))?;
+    /// while let Some(entry) = Cfs::readdir(&mut dir) {
+    ///     // Process directory entry
+    /// }
+    /// Cfs::closedir(dir);
+    /// ```
+    pub fn opendir(name: *const c_char) -> Result<cfs_dir> {
+        unsafe {
+            let mut dir = core::mem::zeroed::<cfs_dir>();
+            let result = cfs_opendir(&mut dir as *mut cfs_dir, name);
+            if result < 0 {
+                Err(Error::OperationFailed)
+            } else {
+                Ok(dir)
+            }
+        }
+    }
+
+    /// Read a directory entry
+    ///
+    /// # Parameters
+    /// - `dir`: Directory handle from opendir()
+    ///
+    /// # Returns
+    /// Some(dirent) if entry was read, None if no more entries
+    pub fn readdir(dir: &mut cfs_dir) -> Option<cfs_dirent> {
+        unsafe {
+            let mut dirent = core::mem::zeroed::<cfs_dirent>();
+            let result = cfs_readdir(dir as *mut cfs_dir, &mut dirent as *mut cfs_dirent);
+            if result < 0 {
+                None
+            } else {
+                Some(dirent)
+            }
+        }
+    }
+
+    /// Close a directory
+    ///
+    /// # Parameters
+    /// - `dir`: Directory handle to close
+    pub fn closedir(mut dir: cfs_dir) {
+        unsafe { cfs_closedir(&mut dir as *mut cfs_dir) }
+    }
+}
+
+impl cfs_dirent {
+    /// Get the file/directory name as a Rust string slice
+    ///
+    /// Returns the name up to the first null byte or the end of the buffer
+    pub fn name_str(&self) -> &str {
+        // Find the null terminator
+        let len = self.name.iter()
+            .position(|&c| c == 0)
+            .unwrap_or(self.name.len());
+
+        // Convert to string, replacing invalid UTF-8 with replacement char
+        core::str::from_utf8(&self.name[..len])
+            .unwrap_or("<invalid>")
+    }
+
+    /// Get the file size
+    pub fn size(&self) -> isize {
+        self.size as isize
     }
 }
 
