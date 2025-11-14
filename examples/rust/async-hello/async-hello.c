@@ -29,7 +29,7 @@
 
 /**
  * \file
- *         Minimal C wrapper for async Rust process
+ *         C wrapper for safe async hello world
  * \author
  *         Nicolas Tsiftes <nicolas.tsiftes@ri.se>
  */
@@ -37,19 +37,15 @@
 #include "contiki.h"
 
 /*---------------------------------------------------------------------------*/
-/* External Rust function - the actual async process implementation */
 extern int rust_async_hello_handler(process_event_t ev, process_data_t data);
 
 /*---------------------------------------------------------------------------*/
-/* Process registration */
-PROCESS(async_hello_process, "Async Rust Hello World");
+PROCESS(async_hello_process, "Safe Async Hello");
 AUTOSTART_PROCESSES(&async_hello_process);
 
 /*---------------------------------------------------------------------------*/
-/* Process thread - delegates all logic to Rust */
 PROCESS_THREAD(async_hello_process, ev, data)
 {
-  /* Simply call the Rust handler and return its result */
   return rust_async_hello_handler(ev, data);
 }
 /*---------------------------------------------------------------------------*/
