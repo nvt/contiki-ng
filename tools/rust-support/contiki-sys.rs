@@ -112,6 +112,47 @@ pub struct button_hal_button {
 }
 
 // ============================================================================
+// RPL Routing Types
+// ============================================================================
+
+/// RPL prefix structure
+#[repr(C)]
+pub struct rpl_prefix_t {
+    pub prefix: uip_ipaddr_t,
+    pub length: u8,
+    pub flags: u8,
+}
+
+/// Link address structure (MAC layer)
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct linkaddr_t {
+    pub u8: [u8; 8],  // Typical size, may vary by platform
+}
+
+impl linkaddr_t {
+    /// Create a new link address from bytes
+    pub const fn from_bytes(bytes: [u8; 8]) -> Self {
+        Self { u8: bytes }
+    }
+
+    /// Create a null (all zeros) link address
+    pub const fn null() -> Self {
+        Self { u8: [0; 8] }
+    }
+
+    /// Get address as bytes
+    pub fn as_bytes(&self) -> &[u8; 8] {
+        unsafe { &self.u8 }
+    }
+
+    /// Check if address is null (all zeros)
+    pub fn is_null(&self) -> bool {
+        unsafe { self.u8.iter().all(|&b| b == 0) }
+    }
+}
+
+// ============================================================================
 // Networking Types
 // ============================================================================
 
@@ -245,6 +286,21 @@ extern "C" {
     pub static button_hal_press_event: process_event_t;
     pub static button_hal_release_event: process_event_t;
     pub static button_hal_periodic_event: process_event_t;
+
+    // RPL routing functions
+    pub fn rpl_dag_root_set_prefix(prefix: *mut uip_ipaddr_t, iid: *mut uip_ipaddr_t);
+    pub fn rpl_dag_root_start() -> c_int;
+    pub fn rpl_dag_root_is_root() -> c_int;
+    pub fn rpl_dag_root_print_links(str: *const c_char);
+    pub fn rpl_set_prefix(prefix: *mut rpl_prefix_t) -> c_int;
+    pub fn rpl_set_prefix_from_addr(addr: *mut uip_ipaddr_t, len: c_uint, flags: u8) -> c_int;
+    pub fn rpl_reset_prefix(last_prefix: *mut rpl_prefix_t);
+    pub fn rpl_get_global_address() -> *const uip_ipaddr_t;
+    pub fn rpl_is_reachable() -> c_int;
+    pub fn rpl_refresh_routes(str: *const c_char);
+    pub fn rpl_set_leaf_only(value: u8);
+    pub fn rpl_get_leaf_only() -> u8;
+    pub fn rpl_link_callback(addr: *const linkaddr_t, status: c_int, numtx: c_int);
 
     // Networking functions (simple-udp)
     pub fn simple_udp_init();
@@ -1119,6 +1175,190 @@ impl Button {
     /// Check if button uses negative logic (pressed = low)
     pub fn is_negative_logic(&self) -> bool {
         unsafe { (*self.inner).negative_logic != 0 }
+    }
+}
+
+// ============================================================================
+// RPL Routing API Wrappers
+// ============================================================================
+
+/// Safe wrapper for RPL DAG root operations
+pub struct RplDagRoot;
+
+impl RplDagRoot {
+    /// Set the prefix for the DAG root
+    ///
+    /// # Parameters
+    /// - `prefix`: The IPv6 prefix (None for default)
+    /// - `iid`: The interface identifier (None to auto-generate)
+    ///
+    /// # Example
+    /// ```
+    /// let prefix = uip_ip6addr_t::from_bytes([/* prefix bytes */]);
+    /// RplDagRoot::set_prefix(Some(&prefix), None);
+    /// ```
+    pub fn set_prefix(prefix: Option<&uip_ipaddr_t>, iid: Option<&uip_ipaddr_t>) {
+        let prefix_ptr = prefix.map_or(core::ptr::null_mut(), |p| p as *const _ as *mut _);
+        let iid_ptr = iid.map_or(core::ptr::null_mut(), |i| i as *const _ as *mut _);
+        unsafe {
+            rpl_dag_root_set_prefix(prefix_ptr, iid_ptr);
+        }
+    }
+
+    /// Start the DAG as root
+    ///
+    /// # Errors
+    /// Returns `Error::OperationFailed` if DAG root start failed
+    ///
+    /// # Example
+    /// ```
+    /// RplDagRoot::set_prefix(None, None);
+    /// RplDagRoot::start()?;
+    /// ```
+    pub fn start() -> Result<()> {
+        let result = unsafe { rpl_dag_root_start() };
+        if result < 0 {
+            Err(Error::OperationFailed)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check if this node is the DAG root
+    pub fn is_root() -> bool {
+        unsafe { rpl_dag_root_is_root() != 0 }
+    }
+
+    /// Print all routing links for debugging
+    ///
+    /// # Example
+    /// ```
+    /// RplDagRoot::print_links(c_str!("Current links"));
+    /// ```
+    pub fn print_links(description: *const c_char) {
+        unsafe {
+            rpl_dag_root_print_links(description);
+        }
+    }
+}
+
+/// Safe wrapper for RPL operations
+pub struct Rpl;
+
+impl Rpl {
+    /// Set RPL prefix from a prefix structure
+    ///
+    /// # Errors
+    /// Returns `Error::OperationFailed` if prefix setting failed
+    pub fn set_prefix(prefix: &mut rpl_prefix_t) -> Result<()> {
+        let result = unsafe { rpl_set_prefix(prefix as *mut rpl_prefix_t) };
+        if result == 0 {
+            Err(Error::OperationFailed)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Set RPL prefix from an IPv6 address
+    ///
+    /// # Parameters
+    /// - `addr`: The prefix address
+    /// - `len`: Prefix length in bits
+    /// - `flags`: DIO prefix flags
+    ///
+    /// # Errors
+    /// Returns `Error::OperationFailed` if prefix setting failed
+    ///
+    /// # Example
+    /// ```
+    /// let mut prefix = uip_ip6addr_t::from_bytes([/* bytes */]);
+    /// Rpl::set_prefix_from_addr(&mut prefix, 64, 0)?;
+    /// ```
+    pub fn set_prefix_from_addr(addr: &mut uip_ipaddr_t, len: u32, flags: u8) -> Result<()> {
+        let result = unsafe {
+            rpl_set_prefix_from_addr(addr as *mut uip_ipaddr_t, len as c_uint, flags)
+        };
+        if result == 0 {
+            Err(Error::OperationFailed)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Reset/remove the current prefix
+    pub fn reset_prefix(last_prefix: &mut rpl_prefix_t) {
+        unsafe {
+            rpl_reset_prefix(last_prefix as *mut rpl_prefix_t);
+        }
+    }
+
+    /// Get the node's global IPv6 address
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if no global address is available
+    ///
+    /// # Example
+    /// ```
+    /// let global_addr = Rpl::get_global_address()?;
+    /// ```
+    pub fn get_global_address() -> Result<&'static uip_ipaddr_t> {
+        let addr = unsafe { rpl_get_global_address() };
+        if addr.is_null() {
+            Err(Error::NotAvailable)
+        } else {
+            Ok(unsafe { &*addr })
+        }
+    }
+
+    /// Check if the node is reachable (has downward route)
+    pub fn is_reachable() -> bool {
+        unsafe { rpl_is_reachable() != 0 }
+    }
+
+    /// Trigger a route refresh via DTSN increment
+    ///
+    /// # Example
+    /// ```
+    /// Rpl::refresh_routes(c_str!("topology change"));
+    /// ```
+    pub fn refresh_routes(reason: *const c_char) {
+        unsafe {
+            rpl_refresh_routes(reason);
+        }
+    }
+
+    /// Set whether this node acts only as a leaf (doesn't forward)
+    ///
+    /// # Parameters
+    /// - `leaf_only`: true to enable leaf-only mode, false to disable
+    ///
+    /// # Example
+    /// ```
+    /// Rpl::set_leaf_only(true);  // Act as leaf only
+    /// ```
+    pub fn set_leaf_only(leaf_only: bool) {
+        unsafe {
+            rpl_set_leaf_only(if leaf_only { 1 } else { 0 });
+        }
+    }
+
+    /// Check if leaf-only mode is enabled
+    pub fn is_leaf_only() -> bool {
+        unsafe { rpl_get_leaf_only() != 0 }
+    }
+
+    /// Notify RPL of a link-layer transmission result
+    ///
+    /// This should be called by MAC layers after transmission attempts
+    ///
+    /// # Parameters
+    /// - `addr`: Link-layer address of destination
+    /// - `status`: Transmission status
+    /// - `numtx`: Number of transmission attempts
+    pub fn link_callback(addr: &linkaddr_t, status: i32, numtx: i32) {
+        unsafe {
+            rpl_link_callback(addr as *const linkaddr_t, status as c_int, numtx as c_int);
+        }
     }
 }
 
