@@ -77,6 +77,73 @@ pub type process_data_t = *mut c_void;
 // Clock types
 pub type clock_time_t = c_uint;
 
+// ============================================================================
+// Networking Types
+// ============================================================================
+
+/// IPv6 address (128 bits)
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union uip_ip6addr_t {
+    pub u8: [u8; 16],
+    pub u16: [u16; 8],
+}
+
+pub type uip_ipaddr_t = uip_ip6addr_t;
+
+impl uip_ip6addr_t {
+    /// Create a new IPv6 address from bytes
+    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self { u8: bytes }
+    }
+
+    /// Create an all-zeros IPv6 address
+    pub const fn zero() -> Self {
+        Self { u8: [0; 16] }
+    }
+
+    /// Get the address as bytes
+    pub fn as_bytes(&self) -> &[u8; 16] {
+        unsafe { &self.u8 }
+    }
+
+    /// Check if address is all zeros
+    pub fn is_zero(&self) -> bool {
+        unsafe { self.u8.iter().all(|&b| b == 0) }
+    }
+}
+
+// Forward declaration for UDP connection struct
+#[repr(C)]
+pub struct uip_udp_conn {
+    _private: [u8; 0],
+}
+
+/// Simple UDP callback function type
+pub type simple_udp_callback = Option<
+    unsafe extern "C" fn(
+        c: *mut simple_udp_connection,
+        source_addr: *const uip_ipaddr_t,
+        source_port: u16,
+        dest_addr: *const uip_ipaddr_t,
+        dest_port: u16,
+        data: *const u8,
+        datalen: u16,
+    ),
+>;
+
+/// Simple UDP connection structure
+#[repr(C)]
+pub struct simple_udp_connection {
+    pub next: *mut simple_udp_connection,
+    pub remote_addr: uip_ipaddr_t,
+    pub remote_port: u16,
+    pub local_port: u16,
+    pub receive_callback: simple_udp_callback,
+    pub udp_conn: *mut uip_udp_conn,
+    pub client_process: *mut process,
+}
+
 // External C functions (raw FFI, prefer using safe wrappers below)
 extern "C" {
     // Process functions
@@ -129,6 +196,30 @@ extern "C" {
     pub fn leds_off(leds: u8);
     pub fn leds_toggle(leds: u8);
     pub fn leds_get() -> u8;
+
+    // Networking functions (simple-udp)
+    fn simple_udp_init();
+    fn simple_udp_register(
+        c: *mut simple_udp_connection,
+        local_port: u16,
+        remote_addr: *mut uip_ipaddr_t,
+        remote_port: u16,
+        receive_callback: simple_udp_callback,
+    ) -> c_int;
+    fn simple_udp_send(c: *mut simple_udp_connection, data: *const c_void, datalen: u16) -> c_int;
+    fn simple_udp_sendto(
+        c: *mut simple_udp_connection,
+        data: *const c_void,
+        datalen: u16,
+        to: *const uip_ipaddr_t,
+    ) -> c_int;
+    fn simple_udp_sendto_port(
+        c: *mut simple_udp_connection,
+        data: *const c_void,
+        datalen: u16,
+        to: *const uip_ipaddr_t,
+        to_port: u16,
+    ) -> c_int;
 }
 
 // Timer structures
@@ -774,6 +865,200 @@ fn panic(info: &PanicInfo) -> ! {
 
     // Should never reach here, but required by never type
     loop {}
+}
+
+// ============================================================================
+// Networking API Wrappers (Simple UDP)
+// ============================================================================
+
+/// Safe wrapper around simple_udp_connection with Result-based error handling
+pub struct SimpleUdpConnection {
+    inner: simple_udp_connection,
+    registered: bool,
+}
+
+impl SimpleUdpConnection {
+    /// Create a new unregistered UDP connection
+    pub const fn new() -> Self {
+        Self {
+            inner: simple_udp_connection {
+                next: core::ptr::null_mut(),
+                remote_addr: uip_ip6addr_t { u8: [0; 16] },
+                remote_port: 0,
+                local_port: 0,
+                receive_callback: None,
+                udp_conn: core::ptr::null_mut(),
+                client_process: core::ptr::null_mut(),
+            },
+            registered: false,
+        }
+    }
+
+    /// Initialize the simple-udp module (call once at startup)
+    pub fn init() {
+        unsafe { simple_udp_init() }
+    }
+
+    /// Register the UDP connection with local and remote ports
+    ///
+    /// # Parameters
+    /// - `local_port`: Local UDP port (0 for ephemeral port)
+    /// - `remote_addr`: Remote IP address (None to accept from any address)
+    /// - `remote_port`: Remote UDP port (0 if using None for remote_addr)
+    /// - `receive_callback`: Function to call when packets arrive
+    ///
+    /// # Errors
+    /// Returns `Error::NetworkError` if registration failed (no UDP connection available)
+    ///
+    /// # Example
+    /// ```
+    /// let mut conn = SimpleUdpConnection::new();
+    /// conn.register(1234, None, 0, Some(my_callback))?;
+    /// ```
+    pub fn register(
+        &mut self,
+        local_port: u16,
+        remote_addr: Option<&uip_ipaddr_t>,
+        remote_port: u16,
+        receive_callback: simple_udp_callback,
+    ) -> Result<()> {
+        let remote_addr_ptr = match remote_addr {
+            Some(addr) => addr as *const _ as *mut uip_ipaddr_t,
+            None => core::ptr::null_mut(),
+        };
+
+        let result = unsafe {
+            simple_udp_register(
+                &mut self.inner as *mut simple_udp_connection,
+                local_port,
+                remote_addr_ptr,
+                remote_port,
+                receive_callback,
+            )
+        };
+
+        if result == 0 {
+            Err(Error::NetworkError)
+        } else {
+            self.registered = true;
+            Ok(())
+        }
+    }
+
+    /// Send data to the registered remote address
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if not registered
+    /// Returns `Error::NetworkError` if send failed
+    ///
+    /// # Example
+    /// ```
+    /// conn.send(b"Hello, world!")?;
+    /// ```
+    pub fn send(&mut self, data: &[u8]) -> Result<()> {
+        if !self.registered {
+            return Err(Error::NotAvailable);
+        }
+
+        let result = unsafe {
+            simple_udp_send(
+                &mut self.inner as *mut simple_udp_connection,
+                data.as_ptr() as *const c_void,
+                data.len() as u16,
+            )
+        };
+
+        if result == 0 {
+            Err(Error::NetworkError)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Send data to a specific IP address
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if not registered
+    /// Returns `Error::NetworkError` if send failed
+    ///
+    /// # Example
+    /// ```
+    /// let dest_addr = uip_ip6addr_t::from_bytes([/* IPv6 bytes */]);
+    /// conn.send_to(b"Hello!", &dest_addr)?;
+    /// ```
+    pub fn send_to(&mut self, data: &[u8], to: &uip_ipaddr_t) -> Result<()> {
+        if !self.registered {
+            return Err(Error::NotAvailable);
+        }
+
+        let result = unsafe {
+            simple_udp_sendto(
+                &mut self.inner as *mut simple_udp_connection,
+                data.as_ptr() as *const c_void,
+                data.len() as u16,
+                to as *const uip_ipaddr_t,
+            )
+        };
+
+        if result == 0 {
+            Err(Error::NetworkError)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Send data to a specific IP address and port
+    ///
+    /// # Errors
+    /// Returns `Error::NotAvailable` if not registered
+    /// Returns `Error::NetworkError` if send failed
+    ///
+    /// # Example
+    /// ```
+    /// let dest_addr = uip_ip6addr_t::from_bytes([/* IPv6 bytes */]);
+    /// conn.send_to_port(b"Hello!", &dest_addr, 5678)?;
+    /// ```
+    pub fn send_to_port(&mut self, data: &[u8], to: &uip_ipaddr_t, to_port: u16) -> Result<()> {
+        if !self.registered {
+            return Err(Error::NotAvailable);
+        }
+
+        let result = unsafe {
+            simple_udp_sendto_port(
+                &mut self.inner as *mut simple_udp_connection,
+                data.as_ptr() as *const c_void,
+                data.len() as u16,
+                to as *const uip_ipaddr_t,
+                to_port,
+            )
+        };
+
+        if result == 0 {
+            Err(Error::NetworkError)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Check if the connection is registered
+    pub fn is_registered(&self) -> bool {
+        self.registered
+    }
+
+    /// Get the local port
+    pub fn local_port(&self) -> u16 {
+        self.inner.local_port
+    }
+
+    /// Get the remote port
+    pub fn remote_port(&self) -> u16 {
+        self.inner.remote_port
+    }
+
+    /// Get a reference to the remote address
+    pub fn remote_addr(&self) -> &uip_ipaddr_t {
+        &self.inner.remote_addr
+    }
 }
 
 // Unit tests (only compiled for native target)
