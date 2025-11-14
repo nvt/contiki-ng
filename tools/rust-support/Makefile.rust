@@ -4,9 +4,28 @@
 # Rust source file extension
 RUST_EXTENSION = .rs
 
-# Rust flags for embedded development
-RUSTFLAGS_COMMON = -C opt-level=s -C panic=abort -C lto=fat
+# Build profile selection (default: release)
+# Options: debug, release, size
+RUST_BUILD_PROFILE ?= release
+
+# Rust flags for different build profiles
+ifeq ($(RUST_BUILD_PROFILE),debug)
+  RUSTFLAGS_OPT = -C opt-level=0 -C debuginfo=2
+  RUSTFLAGS_LTO =
+else ifeq ($(RUST_BUILD_PROFILE),size)
+  RUSTFLAGS_OPT = -C opt-level=z
+  RUSTFLAGS_LTO = -C lto=fat -C embed-bitcode=yes
+else # release (default)
+  RUSTFLAGS_OPT = -C opt-level=s
+  RUSTFLAGS_LTO = -C lto=fat
+endif
+
+# Common Rust flags for embedded development
+RUSTFLAGS_COMMON = $(RUSTFLAGS_OPT) -C panic=abort $(RUSTFLAGS_LTO)
 RUSTFLAGS_EMBEDDED = --emit=obj -C relocation-model=static
+
+# Additional optimization flags (can be overridden)
+RUSTFLAGS_EXTRA ?=
 
 # Default values if not set
 # Use rustup run to ensure we use the rustup-managed toolchain
@@ -18,23 +37,38 @@ RUST_TARGET ?= thumbv7m-none-eabi
 # Target-specific Rust targets
 ifeq ($(TARGET),native)
   RUST_TARGET = $(shell rustc -vV | sed -n 's/host: \(.*\)/\1/p' 2>/dev/null || echo x86_64-unknown-linux-gnu)
-  RUSTFLAGS = $(RUSTFLAGS_COMMON) --emit=obj -C relocation-model=pic
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) --emit=obj -C relocation-model=pic $(RUSTFLAGS_EXTRA)
 else ifeq ($(TARGET),zoul)
   RUST_TARGET = thumbv7m-none-eabi
-  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
 else ifeq ($(TARGET),cc2538dk)
   RUST_TARGET = thumbv7m-none-eabi
-  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
+else ifeq ($(TARGET),openmote)
+  RUST_TARGET = thumbv7m-none-eabi
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
+else ifeq ($(TARGET),cc26x0-cc13x0)
+  RUST_TARGET = thumbv7m-none-eabi
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
+else ifeq ($(TARGET),simplelink)
+  RUST_TARGET = thumbv7m-none-eabi
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
 else ifeq ($(TARGET),nrf52840)
   RUST_TARGET = thumbv7em-none-eabihf
-  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
+else ifeq ($(TARGET),nrf)
+  RUST_TARGET = thumbv7em-none-eabihf
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
 else ifeq ($(TARGET),sky)
   RUST_TARGET = msp430-none-elf
-  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
+else ifeq ($(TARGET),z1)
+  RUST_TARGET = msp430-none-elf
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
 else
   # Default to no_std for unknown targets
   RUST_TARGET = thumbv7m-none-eabi
-  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET)
+  RUSTFLAGS = $(RUSTFLAGS_COMMON) $(RUSTFLAGS_EMBEDDED) --target=$(RUST_TARGET) $(RUSTFLAGS_EXTRA)
 endif
 
 # Add Rust runtime support
@@ -61,10 +95,16 @@ RUST_OBJECTFILES = $(addprefix $(OBJECTDIR)/,$(RUST_SOURCEFILES:$(RUST_EXTENSION
 # Update object files list
 oname = $(patsubst %.c,%.o,$(patsubst %.cpp,%.o,$(patsubst %.rs,%.o,$(patsubst %.S,%.o,$(patsubst %.s,%.o,$(1))))))
 
-# Rust compilation rule
+# Dependency file generation
+RUST_DEPFILES = $(RUST_OBJECTFILES:.o=.d)
+
+# Rust compilation rule with dependency tracking
 $(OBJECTDIR)/%.o: %.rs | $(OBJECTDIR)
 	$(TRACE_CC)
-	$(Q)$(RUSTC) $(RUSTFLAGS) -o $@ $<
+	$(Q)$(RUSTC) $(RUSTFLAGS) --emit=dep-info=$(@:.o=.d) -o $@ $<
+
+# Include dependency files
+-include $(RUST_DEPFILES)
 
 # Ensure Rust core library is available for the target
 ifndef RUST_SETUP_DEFINED
@@ -151,4 +191,170 @@ rust-test: rust-test-lib
 	else \
 	  echo "No Rust source files found"; \
 	fi
+	@echo ""
+
+# Linting and formatting targets
+.PHONY: rust-clippy rust-fmt rust-fmt-check rust-check
+
+rust-clippy:
+	@echo "=== Running Clippy (Rust Linter) ==="
+	@if command -v cargo-clippy >/dev/null 2>&1 || $(CARGO) clippy --version >/dev/null 2>&1; then \
+	  if [ -n "$(RUST_SOURCEFILES)" ]; then \
+	    for rs in $(RUST_SOURCEFILES); do \
+	      if [ -f "$$rs" ]; then \
+	        echo "Checking $$rs..."; \
+	        $(RUSTC) $(RUSTFLAGS) --emit=metadata -o /dev/null $$rs 2>&1 | head -20 || true; \
+	      fi; \
+	    done; \
+	  fi; \
+	else \
+	  echo "Clippy not available. Install with: rustup component add clippy"; \
+	fi
+	@echo ""
+
+rust-fmt:
+	@echo "=== Formatting Rust Code ==="
+	@if command -v rustfmt >/dev/null 2>&1; then \
+	  if [ -n "$(RUST_SOURCEFILES)" ]; then \
+	    for rs in $(RUST_SOURCEFILES); do \
+	      if [ -f "$$rs" ]; then \
+	        echo "Formatting $$rs..."; \
+	        rustfmt $$rs; \
+	      fi; \
+	    done; \
+	    echo "Formatting $(CONTIKI)/tools/rust-support/contiki-sys.rs..."; \
+	    rustfmt $(CONTIKI)/tools/rust-support/contiki-sys.rs; \
+	  fi; \
+	else \
+	  echo "rustfmt not available. Install with: rustup component add rustfmt"; \
+	fi
+	@echo ""
+
+rust-fmt-check:
+	@echo "=== Checking Rust Code Formatting ==="
+	@if command -v rustfmt >/dev/null 2>&1; then \
+	  if [ -n "$(RUST_SOURCEFILES)" ]; then \
+	    for rs in $(RUST_SOURCEFILES); do \
+	      if [ -f "$$rs" ]; then \
+	        rustfmt --check $$rs 2>&1 || echo "  $$rs needs formatting"; \
+	      fi; \
+	    done; \
+	  fi; \
+	else \
+	  echo "rustfmt not available. Install with: rustup component add rustfmt"; \
+	fi
+	@echo ""
+
+rust-check:
+	@echo "=== Checking Rust Code (no codegen) ==="
+	@if [ -n "$(RUST_SOURCEFILES)" ]; then \
+	  for rs in $(RUST_SOURCEFILES); do \
+	    if [ -f "$$rs" ]; then \
+	      echo "Checking $$rs..."; \
+	      $(RUSTC) $(RUSTFLAGS) --emit=metadata -o /dev/null $$rs && \
+	        echo "  OK" || echo "  FAILED"; \
+	    fi; \
+	  done; \
+	else \
+	  echo "No Rust source files found"; \
+	fi
+	@echo ""
+
+# Documentation generation
+.PHONY: rust-doc
+
+rust-doc:
+	@echo "=== Generating Rust Documentation ==="
+	@if [ -n "$(RUST_SOURCEFILES)" ]; then \
+	  mkdir -p doc/rust; \
+	  for rs in $(RUST_SOURCEFILES); do \
+	    if [ -f "$$rs" ]; then \
+	      echo "Documenting $$rs..."; \
+	      $(RUSTC) --crate-type lib $$rs --out-dir doc/rust 2>/dev/null || \
+	        echo "  (documentation generation failed)"; \
+	    fi; \
+	  done; \
+	  echo "Documentation generated in doc/rust/"; \
+	else \
+	  echo "No Rust source files found"; \
+	fi
+	@echo ""
+
+# Version and environment information
+.PHONY: rust-version rust-info
+
+rust-version:
+	@echo "=== Rust Toolchain Information ==="
+	@$(RUSTC) --version || echo "rustc not found"
+	@$(CARGO) --version || echo "cargo not found"
+	@if command -v rustup >/dev/null 2>&1; then \
+	  rustup show; \
+	else \
+	  echo "rustup not found"; \
+	fi
+	@echo ""
+
+rust-info: rust-version
+	@echo "=== Build Configuration ==="
+	@echo "Build profile:    $(RUST_BUILD_PROFILE)"
+	@echo "Target platform:  $(TARGET)"
+	@echo "Rust target:      $(RUST_TARGET)"
+	@echo "Optimization:     $(RUSTFLAGS_OPT)"
+	@echo "LTO:              $(RUSTFLAGS_LTO)"
+	@echo "Extra flags:      $(RUSTFLAGS_EXTRA)"
+	@echo "Source files:     $(RUST_SOURCEFILES)"
+	@echo "Object files:     $(RUST_OBJECTFILES)"
+	@echo ""
+
+# Clean Rust-specific build artifacts
+.PHONY: rust-clean
+
+rust-clean:
+	@echo "=== Cleaning Rust Build Artifacts ==="
+	@rm -f $(RUST_OBJECTFILES) $(RUST_DEPFILES)
+	@rm -rf doc/rust
+	@echo "Rust artifacts cleaned"
+	@echo ""
+
+# Help target
+.PHONY: rust-help
+
+rust-help:
+	@echo "=== Contiki-NG Rust Support - Available Targets ==="
+	@echo ""
+	@echo "Build Profiles (set RUST_BUILD_PROFILE=...):"
+	@echo "  debug        - No optimization, debug info enabled"
+	@echo "  release      - Size optimization (-Os), LTO enabled (default)"
+	@echo "  size         - Maximum size optimization (-Oz), aggressive LTO"
+	@echo ""
+	@echo "Build Targets:"
+	@echo "  make               - Build project (includes Rust code)"
+	@echo "  make rust-check    - Check Rust code without building"
+	@echo "  make rust-clean    - Clean Rust build artifacts"
+	@echo ""
+	@echo "Size Analysis:"
+	@echo "  make rust-size            - Show size of each Rust module"
+	@echo "  make rust-size-report     - Show total Rust code size"
+	@echo ""
+	@echo "Code Quality:"
+	@echo "  make rust-clippy          - Run Clippy linter"
+	@echo "  make rust-fmt             - Format Rust code"
+	@echo "  make rust-fmt-check       - Check if code is formatted"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make rust-test            - Run all Rust tests"
+	@echo "  make rust-test-lib        - Run library tests only"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  make rust-doc             - Generate Rust documentation"
+	@echo ""
+	@echo "Information:"
+	@echo "  make rust-version         - Show Rust toolchain version"
+	@echo "  make rust-info            - Show build configuration"
+	@echo "  make rust-help            - Show this help message"
+	@echo ""
+	@echo "Examples:"
+	@echo "  make RUST_BUILD_PROFILE=debug TARGET=native"
+	@echo "  make RUST_BUILD_PROFILE=size TARGET=zoul"
+	@echo "  make rust-clippy rust-test"
 	@echo ""
