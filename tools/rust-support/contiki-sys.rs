@@ -112,6 +112,24 @@ pub struct button_hal_button {
 }
 
 // ============================================================================
+// Energest (Energy Estimation) Types
+// ============================================================================
+
+/// Energy estimation types for tracking power consumption
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum energest_type_t {
+    CPU = 0,
+    LPM = 1,
+    DEEP_LPM = 2,
+    TRANSMIT = 3,
+    LISTEN = 4,
+    MAX = 5,
+}
+
+pub type energest_time_t = u64;
+
+// ============================================================================
 // RPL Routing Types
 // ============================================================================
 
@@ -143,12 +161,12 @@ impl linkaddr_t {
 
     /// Get address as bytes
     pub fn as_bytes(&self) -> &[u8; 8] {
-        unsafe { &self.u8 }
+        &self.u8
     }
 
     /// Check if address is null (all zeros)
     pub fn is_null(&self) -> bool {
-        unsafe { self.u8.iter().all(|&b| b == 0) }
+        self.u8.iter().all(|&b| b == 0)
     }
 }
 
@@ -286,6 +304,17 @@ extern "C" {
     pub static button_hal_press_event: process_event_t;
     pub static button_hal_release_event: process_event_t;
     pub static button_hal_periodic_event: process_event_t;
+
+    // Energest (energy estimation) functions
+    pub fn energest_init();
+    pub fn energest_flush();
+    pub fn energest_type_time(type_: energest_type_t) -> u64;
+    pub fn energest_type_set(type_: energest_type_t, value: u64);
+    pub fn energest_on(type_: energest_type_t);
+    pub fn energest_off(type_: energest_type_t);
+    pub fn energest_switch(type_off: energest_type_t, type_on: energest_type_t);
+    pub fn energest_get_total_time() -> u64;
+    pub static mut energest_total_time: [u64; 5];  // ENERGEST_TYPE_MAX = 5
 
     // RPL routing functions
     pub fn rpl_dag_root_set_prefix(prefix: *mut uip_ipaddr_t, iid: *mut uip_ipaddr_t);
@@ -970,6 +999,167 @@ fn panic(info: &PanicInfo) -> ! {
 
     // Should never reach here, but required by never type
     loop {}
+}
+
+// ============================================================================
+// Energest (Energy Estimation) API Wrappers
+// ============================================================================
+
+/// Safe wrapper for energy estimation tracking
+pub struct Energest;
+
+impl Energest {
+    /// Initialize the energy estimation module
+    ///
+    /// Should be called once at system startup
+    ///
+    /// # Example
+    /// ```
+    /// Energest::init();
+    /// ```
+    pub fn init() {
+        unsafe { energest_init() }
+    }
+
+    /// Flush current energy measurements
+    ///
+    /// This updates all active energy counters to include
+    /// time up to the current moment
+    pub fn flush() {
+        unsafe { energest_flush() }
+    }
+
+    /// Get total time spent in a particular energy state
+    ///
+    /// # Parameters
+    /// - `type_`: The energy state to query
+    ///
+    /// # Returns
+    /// Time in platform-specific ticks (usually rtimer ticks)
+    ///
+    /// # Example
+    /// ```
+    /// use energest_type_t::*;
+    /// let cpu_time = Energest::type_time(CPU);
+    /// let tx_time = Energest::type_time(TRANSMIT);
+    /// ```
+    pub fn type_time(type_: energest_type_t) -> u64 {
+        unsafe { energest_type_time(type_) }
+    }
+
+    /// Set the total time for an energy state
+    ///
+    /// Typically used for resetting counters
+    ///
+    /// # Parameters
+    /// - `type_`: The energy state to set
+    /// - `value`: The value to set (in ticks)
+    pub fn type_set(type_: energest_type_t, value: u64) {
+        unsafe { energest_type_set(type_, value) }
+    }
+
+    /// Turn on energy tracking for a state
+    ///
+    /// # Parameters
+    /// - `type_`: The energy state to start tracking
+    ///
+    /// # Example
+    /// ```
+    /// use energest_type_t::*;
+    /// Energest::on(TRANSMIT);  // Start tracking TX time
+    /// // ... perform transmission ...
+    /// Energest::off(TRANSMIT);  // Stop tracking
+    /// ```
+    pub fn on(type_: energest_type_t) {
+        unsafe { energest_on(type_) }
+    }
+
+    /// Turn off energy tracking for a state
+    ///
+    /// # Parameters
+    /// - `type_`: The energy state to stop tracking
+    pub fn off(type_: energest_type_t) {
+        unsafe { energest_off(type_) }
+    }
+
+    /// Atomically switch from one energy state to another
+    ///
+    /// More efficient than calling off() then on() separately
+    ///
+    /// # Parameters
+    /// - `type_off`: The energy state to turn off
+    /// - `type_on`: The energy state to turn on
+    ///
+    /// # Example
+    /// ```
+    /// use energest_type_t::*;
+    /// // Switch from listen to transmit
+    /// Energest::switch(LISTEN, TRANSMIT);
+    /// ```
+    pub fn switch(type_off: energest_type_t, type_on: energest_type_t) {
+        unsafe { energest_switch(type_off, type_on) }
+    }
+
+    /// Get the total system uptime
+    ///
+    /// # Returns
+    /// Total time in platform ticks since energest_init()
+    pub fn get_total_time() -> u64 {
+        unsafe { energest_get_total_time() }
+    }
+
+    /// Calculate energy usage percentage for a state
+    ///
+    /// # Parameters
+    /// - `type_`: The energy state to calculate percentage for
+    ///
+    /// # Returns
+    /// Percentage (0.0 to 100.0) of time spent in this state
+    ///
+    /// # Example
+    /// ```
+    /// use energest_type_t::*;
+    /// let cpu_percent = Energest::percentage(CPU);
+    /// let tx_percent = Energest::percentage(TRANSMIT);
+    /// ```
+    pub fn percentage(type_: energest_type_t) -> f32 {
+        let total = Self::get_total_time();
+        if total == 0 {
+            return 0.0;
+        }
+        let type_time = Self::type_time(type_);
+        (type_time as f32 / total as f32) * 100.0
+    }
+
+    /// Reset all energy counters to zero
+    ///
+    /// # Example
+    /// ```
+    /// Energest::reset_all();  // Start fresh measurement period
+    /// ```
+    pub fn reset_all() {
+        use energest_type_t::*;
+        Self::type_set(CPU, 0);
+        Self::type_set(LPM, 0);
+        Self::type_set(DEEP_LPM, 0);
+        Self::type_set(TRANSMIT, 0);
+        Self::type_set(LISTEN, 0);
+    }
+
+    /// Get a snapshot of all energy measurements
+    ///
+    /// # Returns
+    /// Array of measurements for all energy types
+    ///
+    /// # Example
+    /// ```
+    /// let snapshot = Energest::snapshot();
+    /// println!("CPU: {}, TX: {}", snapshot[0], snapshot[3]);
+    /// ```
+    pub fn snapshot() -> [u64; 5] {
+        Self::flush();
+        unsafe { energest_total_time }
+    }
 }
 
 // ============================================================================
