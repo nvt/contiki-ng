@@ -98,6 +98,9 @@ pub extern "C" fn rust_udp_echo_handler(
     ev: process_event_t,
     _data: process_data_t,
 ) -> c_int {
+    // Check initialization state
+    let initialized = unsafe { INITIALIZED };
+
     match ev {
         PROCESS_EVENT_INIT => {
             print(c_str!("UDP Echo Server Starting...\n"));
@@ -133,9 +136,19 @@ pub extern "C" fn rust_udp_echo_handler(
             print_u32(c_str!("%u"), UDP_PORT as u32);
             print(c_str!(" and they will be echoed back\n"));
 
-            PT_YIELDED
+            // Return PT_WAITING to indicate we're waiting for events
+            // This keeps the process alive to handle UDP callbacks
+            PT_WAITING
         }
 
-        _ => PT_YIELDED,
+        _ => {
+            // Keep the process alive by always returning PT_WAITING
+            // The UDP callbacks will handle incoming packets
+            if initialized {
+                PT_WAITING
+            } else {
+                PT_ENDED
+            }
+        }
     }
 }

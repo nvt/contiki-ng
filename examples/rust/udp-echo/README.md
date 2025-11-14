@@ -60,6 +60,7 @@ Rust implementation showing:
 - Handling received packets via callbacks
 - Sending echo responses with error handling
 - Proper Result<T, Error> usage throughout
+- Keeping the process alive with PT_WAITING return values
 
 ## Error Handling Examples
 
