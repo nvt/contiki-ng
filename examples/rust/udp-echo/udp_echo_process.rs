@@ -73,7 +73,8 @@ pub unsafe extern "C" fn udp_rx_callback(
     };
 
     // Send echo response using raw FFI (simpler in callback context)
-    let result = simple_udp_sendto_port(
+    // Note: simple_udp_sendto_port always returns 0 (it's a void-like function)
+    simple_udp_sendto_port(
         &mut UDP_CONN as *mut simple_udp_connection,
         data_slice.as_ptr() as *const core::ffi::c_void,
         datalen,
@@ -81,11 +82,7 @@ pub unsafe extern "C" fn udp_rx_callback(
         sender_port,
     );
 
-    if result == 0 {
-        print(c_str!("Error sending echo\n"));
-    } else {
-        print(c_str!("Echoed data back\n"));
-    }
+    print(c_str!("Echoed data back\n"));
 }
 
 // ============================================================================

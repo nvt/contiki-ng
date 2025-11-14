@@ -2593,7 +2593,9 @@ impl SimpleUdpConnection {
             return Err(Error::NotAvailable);
         }
 
-        let result = unsafe {
+        // Note: simple_udp_send always returns 0 (void-like function)
+        // It doesn't actually indicate success/failure
+        unsafe {
             simple_udp_send(
                 &mut self.inner as *mut simple_udp_connection,
                 data.as_ptr() as *const c_void,
@@ -2601,11 +2603,7 @@ impl SimpleUdpConnection {
             )
         };
 
-        if result == 0 {
-            Err(Error::NetworkError)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     /// Send data to a specific IP address
@@ -2624,7 +2622,9 @@ impl SimpleUdpConnection {
             return Err(Error::NotAvailable);
         }
 
-        let result = unsafe {
+        // Note: simple_udp_sendto always returns 0 (void-like function)
+        // It doesn't actually indicate success/failure
+        unsafe {
             simple_udp_sendto(
                 &mut self.inner as *mut simple_udp_connection,
                 data.as_ptr() as *const c_void,
@@ -2633,11 +2633,7 @@ impl SimpleUdpConnection {
             )
         };
 
-        if result == 0 {
-            Err(Error::NetworkError)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     /// Send data to a specific IP address and port
@@ -2656,7 +2652,9 @@ impl SimpleUdpConnection {
             return Err(Error::NotAvailable);
         }
 
-        let result = unsafe {
+        // Note: simple_udp_sendto_port always returns 0 (void-like function)
+        // It doesn't actually indicate success/failure
+        unsafe {
             simple_udp_sendto_port(
                 &mut self.inner as *mut simple_udp_connection,
                 data.as_ptr() as *const c_void,
@@ -2666,11 +2664,7 @@ impl SimpleUdpConnection {
             )
         };
 
-        if result == 0 {
-            Err(Error::NetworkError)
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     /// Check if the connection is registered
