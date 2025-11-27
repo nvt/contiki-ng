@@ -1,19 +1,15 @@
 //! Async UDP Echo Server Example
 //!
-//! This example demonstrates true async UDP networking in Rust for Contiki-NG.
-//! It uses AsyncUdp with a manually-implemented Future to handle packets asynchronously.
+//! This example demonstrates async-style UDP networking in Rust for Contiki-NG.
+//! It shows how to use AsyncUdp to decouple packet reception (in callback) from
+//! packet processing (in process handler).
 //!
-//! Architecture:
-//! - UDP callback stores packets in AsyncUdp via notify_rx()
-//! - UdpEchoFuture awaits packets using AsyncUdp::recv()
-//! - Future processes packets and echoes them back
-//! - Manual state machine implements the async loop
+//! Key difference from udp-echo:
+//! - udp-echo: processes packets directly in the callback
+//! - async-udp-echo: callback stores packets, handler processes them
 //!
-//! This demonstrates:
-//! - Async packet reception with Future pattern
-//! - Bridging C callbacks with async Rust
-//! - Manual Future implementation for no_std
-//! - Event-driven async execution in Contiki-NG
+//! This pattern is useful when packet processing is complex or needs
+//! access to state that shouldn't be accessed from interrupt context.
 
 #![no_std]
 #![no_main]
@@ -26,35 +22,6 @@ mod contiki_sys;
 
 use contiki_sys::*;
 use contiki_sys::ffi;
-use contiki_sys::async_support::*;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-
-// ============================================================================
-// Noop Waker (for Contiki-NG event-driven model)
-// ============================================================================
-
-unsafe fn noop_clone(_: *const ()) -> RawWaker {
-    noop_raw_waker()
-}
-
-unsafe fn noop_wake(_: *const ()) {}
-
-unsafe fn noop_wake_by_ref(_: *const ()) {}
-
-unsafe fn noop_drop(_: *const ()) {}
-
-const NOOP_WAKER_VTABLE: RawWakerVTable =
-    RawWakerVTable::new(noop_clone, noop_wake, noop_wake_by_ref, noop_drop);
-
-const fn noop_raw_waker() -> RawWaker {
-    RawWaker::new(core::ptr::null(), &NOOP_WAKER_VTABLE)
-}
-
-fn noop_waker() -> Waker {
-    unsafe { Waker::from_raw(noop_raw_waker()) }
-}
 
 // ============================================================================
 // Static State
@@ -62,12 +29,7 @@ fn noop_waker() -> Waker {
 
 const UDP_PORT: u16 = 8765;
 
-/// Track initialization state
-static mut INITIALIZED: bool = false;
-
 /// UDP connection structure
-#[no_mangle]
-#[used]
 static mut UDP_CONN: simple_udp_connection = simple_udp_connection {
     next: core::ptr::null_mut(),
     remote_addr: uip_ip6addr_t { u8: [0; 16] },
@@ -78,21 +40,17 @@ static mut UDP_CONN: simple_udp_connection = simple_udp_connection {
     client_process: core::ptr::null_mut(),
 };
 
-/// Async UDP wrapper for async packet reception
-#[no_mangle]
-#[used]
+/// Async UDP wrapper for decoupled packet handling
 static mut ASYNC_UDP: Option<AsyncUdp> = None;
 
-/// Process pointer (needed to wake up the process from callback)
-#[no_mangle]
-#[used]
+/// Process pointer (needed to wake process from callback)
 static mut PROCESS_PTR: *mut process = core::ptr::null_mut();
 
 // ============================================================================
 // UDP Callback
 // ============================================================================
 
-/// Called when UDP data is received
+/// Called when UDP data is received - stores packet for async processing
 #[no_mangle]
 pub unsafe extern "C" fn udp_rx_callback(
     _c: *mut simple_udp_connection,
@@ -103,97 +61,27 @@ pub unsafe extern "C" fn udp_rx_callback(
     data: *const u8,
     datalen: u16,
 ) {
-    // Create data slice safely
     let data_slice = if datalen > 0 && !data.is_null() {
         core::slice::from_raw_parts(data, datalen as usize)
     } else {
         &[]
     };
 
-    // Store packet in async UDP for async processing
+    // Store packet for processing in the handler
     if let Some(ref mut async_udp) = ASYNC_UDP {
         async_udp.notify_rx(data_slice, sender_addr, sender_port);
     }
 
-    // Wake the process to handle the packet asynchronously
+    // Wake the process to handle the packet
     if !PROCESS_PTR.is_null() {
         ffi::process_poll(PROCESS_PTR);
     }
 }
 
-
-// ============================================================================
-// Async UDP Echo Future
-// ============================================================================
-
-/// Future that implements async UDP echo
-/// This implements a simple loop: await packet -> echo back -> repeat
-struct UdpEchoFuture;
-
-impl UdpEchoFuture {
-    fn new() -> Self {
-        Self
-    }
-}
-
-impl Future for UdpEchoFuture {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        unsafe {
-            // Check if we have a packet ready
-            if let Some(ref mut async_udp) = ASYNC_UDP {
-                // Create and immediately poll the recv future
-                let mut recv_future = async_udp.recv();
-
-                match Pin::new(&mut recv_future).poll(cx) {
-                    Poll::Ready(packet) => {
-                        // Got a packet! Print and echo it back
-                        print(c_str!("Async received "));
-                        print_u32(c_str!("%u"), packet.data.len() as u32);
-                        print(c_str!(" bytes from port "));
-                        print_u32(c_str!("%u\n"), packet.sender_port as u32);
-
-                        // Echo back the packet
-                        // Use as_ptr() directly instead of as_slice() to avoid bounds checking
-                        ffi::simple_udp_sendto_port(
-                            &mut UDP_CONN as *mut simple_udp_connection,
-                            packet.data.as_ptr() as *const ::core::ffi::c_void,
-                            packet.data.len() as u16,
-                            &packet.sender_addr,
-                            packet.sender_port,
-                        );
-
-                        print(c_str!("Async echoed back\n"));
-
-                        // Keep the future alive - always return Pending
-                        // Wake immediately to check for more packets
-                        cx.waker().wake_by_ref();
-                        Poll::Pending
-                    }
-                    Poll::Pending => {
-                        // No packet available, wait for next event
-                        Poll::Pending
-                    }
-                }
-            } else {
-                // No AsyncUdp available (shouldn't happen)
-                Poll::Pending
-            }
-        }
-    }
-}
-
-/// Static storage for the main future
-#[no_mangle]
-#[used]
-static mut ECHO_FUTURE: Option<UdpEchoFuture> = None;
-
 // ============================================================================
 // Process Handler
 // ============================================================================
 
-// External C function to get process pointer
 extern "C" {
     fn rust_get_process_ptr() -> *mut process;
 }
@@ -209,67 +97,48 @@ pub extern "C" fn rust_async_udp_echo_handler(
             PROCESS_EVENT_INIT => {
                 print(c_str!("Async UDP Echo Server starting...\n"));
 
-                // Get process pointer from C side
                 PROCESS_PTR = rust_get_process_ptr();
 
-                // Register UDP connection DIRECTLY on the static UDP_CONN
-                // This is critical - we must register the static, not a temporary!
                 let result = ffi::simple_udp_register(
-                    &mut UDP_CONN as *mut simple_udp_connection,
+                    &mut UDP_CONN,
                     UDP_PORT,
-                    ::core::ptr::null_mut(),
+                    core::ptr::null_mut(),
                     0,
                     Some(udp_rx_callback),
                 );
 
                 if result != 0 {
-                    print(c_str!("UDP server listening on port "));
-                    print_u32(c_str!("%u"), UDP_PORT as u32);
-                    print(c_str!("\n"));
-
-                    INITIALIZED = true;
-
-                    // Initialize AsyncUdp wrapper
                     ASYNC_UDP = Some(AsyncUdp::new(&mut UDP_CONN));
 
-                    // Create the async echo future
-                    ECHO_FUTURE = Some(UdpEchoFuture::new());
-
-                    print(c_str!("Async echo loop ready\n"));
-                    print(c_str!("Send UDP packets to this node on port "));
-                    print_u32(c_str!("%u"), UDP_PORT as u32);
-                    print(c_str!(" and they will be echoed back asynchronously\n"));
-
+                    print(c_str!("Listening on port "));
+                    print_u32(c_str!("%u\n"), UDP_PORT as u32);
                     PT_WAITING
                 } else {
-                    print(c_str!("Failed to register UDP connection\n"));
+                    print(c_str!("Failed to register UDP\n"));
                     PT_ENDED
                 }
             }
 
             _ => {
-                // Poll the async future on every event
-                if INITIALIZED {
-                    if let Some(ref mut future) = ECHO_FUTURE {
-                        // Create a minimal waker for the async context
-                        let waker = noop_waker();
-                        let mut context = Context::from_waker(&waker);
+                // Process any pending packet
+                if let Some(ref mut async_udp) = ASYNC_UDP {
+                    if let Some(packet) = async_udp.try_recv() {
+                        print(c_str!("Received "));
+                        print_u32(c_str!("%u"), packet.len as u32);
+                        print(c_str!(" bytes from port "));
+                        print_u32(c_str!("%u\n"), packet.sender_port as u32);
 
-                        // Poll the future
-                        match Pin::new(future).poll(&mut context) {
-                            Poll::Ready(()) => {
-                                // Future completed (shouldn't happen - it loops forever)
-                                print(c_str!("Echo future completed unexpectedly\n"));
-                                PT_ENDED
-                            }
-                            Poll::Pending => PT_WAITING,
-                        }
-                    } else {
-                        PT_WAITING
+                        // Echo back
+                        async_udp.send(
+                            &packet.data[..packet.len],
+                            &packet.sender_addr,
+                            packet.sender_port,
+                        );
+
+                        print(c_str!("Echoed back\n"));
                     }
-                } else {
-                    PT_ENDED
                 }
+                PT_WAITING
             }
         }
     }

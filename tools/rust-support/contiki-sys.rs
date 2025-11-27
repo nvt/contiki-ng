@@ -1499,6 +1499,30 @@ pub mod async_support {
     use ::core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
     // -------------------------------------------------------------------------
+    // Noop Waker (for Contiki-NG's event-driven model)
+    // -------------------------------------------------------------------------
+
+    unsafe fn noop_clone(_: *const ()) -> RawWaker {
+        noop_raw_waker()
+    }
+    unsafe fn noop_wake(_: *const ()) {}
+    unsafe fn noop_wake_by_ref(_: *const ()) {}
+    unsafe fn noop_drop(_: *const ()) {}
+
+    const NOOP_WAKER_VTABLE: RawWakerVTable =
+        RawWakerVTable::new(noop_clone, noop_wake, noop_wake_by_ref, noop_drop);
+
+    const fn noop_raw_waker() -> RawWaker {
+        RawWaker::new(::core::ptr::null(), &NOOP_WAKER_VTABLE)
+    }
+
+    /// Create a no-op waker for polling futures in Contiki-NG's event-driven model.
+    /// Since Contiki uses process_poll() for wakeups, the waker itself does nothing.
+    pub fn noop_waker() -> Waker {
+        unsafe { Waker::from_raw(noop_raw_waker()) }
+    }
+
+    // -------------------------------------------------------------------------
     // Safe Timer
     // -------------------------------------------------------------------------
 
@@ -1689,9 +1713,20 @@ pub mod async_support {
             self.pending_packet = Some(packet);
         }
 
-        /// Receive a packet asynchronously
+        /// Receive a packet asynchronously (Future-based)
         pub fn recv(&mut self) -> AsyncUdpRecv<'_> {
             AsyncUdpRecv { udp: self }
+        }
+
+        /// Try to receive a packet without blocking (non-Future API)
+        /// Returns Some(packet) if a packet is available, None otherwise
+        pub fn try_recv(&mut self) -> Option<UdpPacket> {
+            self.pending_packet.take()
+        }
+
+        /// Check if a packet is pending without consuming it
+        pub fn has_pending(&self) -> bool {
+            self.pending_packet.is_some()
         }
 
         /// Send data (not actually async, but fits the pattern)
@@ -1726,7 +1761,7 @@ pub mod async_support {
     }
 }
 
-pub use async_support::{AsyncExecutor, AsyncTimer, AsyncUdp, AsyncUdpRecv, SafeTimer, UdpPacket};
+pub use async_support::{AsyncExecutor, AsyncTimer, AsyncUdp, AsyncUdpRecv, noop_waker, SafeTimer, UdpPacket};
 
 // =============================================================================
 // Macros
