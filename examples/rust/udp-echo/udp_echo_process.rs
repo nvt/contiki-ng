@@ -4,7 +4,7 @@
 //! - Using the SimpleUdpConnection API with Result-based error handling
 //! - IPv6 networking in Rust
 //! - Proper callback handling
-//! - Error reporting
+//! - Minimal unsafe code (only in C callback)
 
 #![no_std]
 #![no_main]
@@ -22,7 +22,10 @@ use contiki_sys::ffi;
 // Static State
 // ============================================================================
 
+const UDP_PORT: u16 = 8765;
+
 /// UDP connection - must be static for C callback access
+/// Note: This requires unsafe access because the C callback needs a raw pointer
 #[no_mangle]
 #[used]
 static mut UDP_CONN: simple_udp_connection = simple_udp_connection {
@@ -35,18 +38,15 @@ static mut UDP_CONN: simple_udp_connection = simple_udp_connection {
     client_process: core::ptr::null_mut(),
 };
 
-/// Track initialization state
-#[no_mangle]
-#[used]
-static mut INITIALIZED: bool = false;
-
-const UDP_PORT: u16 = 8765;
+/// Track initialization state using SafeCell (no unsafe needed)
+static INITIALIZED: SafeCell<bool> = SafeCell::new(false);
 
 // ============================================================================
 // UDP Callback
 // ============================================================================
 
-/// Callback function called when UDP data is received
+/// Callback function called when UDP data is received.
+/// Note: This must be unsafe extern "C" as it's called from C code.
 #[no_mangle]
 pub unsafe extern "C" fn udp_rx_callback(
     _c: *mut simple_udp_connection,
@@ -57,27 +57,22 @@ pub unsafe extern "C" fn udp_rx_callback(
     data: *const u8,
     datalen: u16,
 ) {
-    // Print received data
     print(c_str!("Received "));
     print_u32(c_str!("%u"), datalen as u32);
     print(c_str!(" bytes from port "));
-    print_u32(c_str!("%u"), sender_port as u32);
-    print(c_str!("\n"));
+    print_u32(c_str!("%u\n"), sender_port as u32);
 
-    // Echo the data back using raw FFI (simpler in callback context)
-
-    // Create data slice safely
+    // Create data slice from raw pointer
     let data_slice = if datalen > 0 && !data.is_null() {
         core::slice::from_raw_parts(data, datalen as usize)
     } else {
         &[]
     };
 
-    // Send echo response using raw FFI (simpler in callback context)
-    // Note: simple_udp_sendto_port always returns 0 (it's a void-like function)
+    // Echo the data back
     ffi::simple_udp_sendto_port(
-        &mut UDP_CONN as *mut simple_udp_connection,
-        data_slice.as_ptr() as *const ::core::ffi::c_void,
+        &mut UDP_CONN,
+        data_slice.as_ptr() as *const core::ffi::c_void,
         datalen,
         sender_addr,
         sender_port,
@@ -96,35 +91,23 @@ pub extern "C" fn rust_udp_echo_handler(
     ev: process_event_t,
     _data: process_data_t,
 ) -> c_int {
-    // Check initialization state
-    let initialized = unsafe { INITIALIZED };
-
     match ev {
         PROCESS_EVENT_INIT => {
             print(c_str!("UDP Echo Server Starting...\n"));
 
-            // Create and register UDP connection with error handling
-            // Note: simple-udp doesn't require explicit initialization
+            // Create and register UDP connection
             let mut conn = SimpleUdpConnection::new();
 
-            match conn.register(
-                UDP_PORT,
-                None,  // Accept from any address
-                0,     // No specific remote port
-                Some(udp_rx_callback),
-            ) {
+            match conn.register(UDP_PORT, None, 0, Some(udp_rx_callback)) {
                 Ok(()) => {
                     print(c_str!("UDP server listening on port "));
-                    print_u32(c_str!("%u"), UDP_PORT as u32);
-                    print(c_str!("\n"));
+                    print_u32(c_str!("%u\n"), UDP_PORT as u32);
 
-                    // Save the registered connection
-                    unsafe {
-                        UDP_CONN = conn.inner;
-                        INITIALIZED = true;
-                    }
+                    // Save the registered connection (requires unsafe for static mut)
+                    unsafe { UDP_CONN = conn.inner };
+                    INITIALIZED.set_true();
                 }
-                Err(_e) => {
+                Err(_) => {
                     print(c_str!("Failed to register UDP connection\n"));
                     return PT_ENDED;
                 }
@@ -134,15 +117,11 @@ pub extern "C" fn rust_udp_echo_handler(
             print_u32(c_str!("%u"), UDP_PORT as u32);
             print(c_str!(" and they will be echoed back\n"));
 
-            // Return PT_WAITING to indicate we're waiting for events
-            // This keeps the process alive to handle UDP callbacks
             PT_WAITING
         }
 
         _ => {
-            // Keep the process alive by always returning PT_WAITING
-            // The UDP callbacks will handle incoming packets
-            if initialized {
+            if INITIALIZED.is_true() {
                 PT_WAITING
             } else {
                 PT_ENDED

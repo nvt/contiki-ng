@@ -1523,6 +1523,91 @@ pub mod async_support {
     }
 
     // -------------------------------------------------------------------------
+    // Safe Cell (for static variables)
+    // -------------------------------------------------------------------------
+
+    /// A safe cell for static variables in Contiki-NG's single-threaded environment.
+    ///
+    /// This provides safe access to mutable static state without explicit unsafe blocks
+    /// in user code. Safety is guaranteed by Contiki-NG's cooperative, single-threaded
+    /// execution model.
+    ///
+    /// # Example
+    /// ```ignore
+    /// static COUNTER: SafeCell<u32> = SafeCell::new(0);
+    ///
+    /// fn increment() -> u32 {
+    ///     let val = COUNTER.get() + 1;
+    ///     COUNTER.set(val);
+    ///     val
+    /// }
+    /// ```
+    pub struct SafeCell<T> {
+        inner: UnsafeCell<T>,
+    }
+
+    // SAFETY: Contiki-NG is single-threaded, so no concurrent access is possible
+    unsafe impl<T> Sync for SafeCell<T> {}
+
+    impl<T: Copy> SafeCell<T> {
+        /// Create a new SafeCell with the given initial value
+        pub const fn new(value: T) -> Self {
+            Self {
+                inner: UnsafeCell::new(value),
+            }
+        }
+
+        /// Get the current value
+        pub fn get(&self) -> T {
+            // SAFETY: Single-threaded execution in Contiki-NG
+            unsafe { *self.inner.get() }
+        }
+
+        /// Set a new value
+        pub fn set(&self, value: T) {
+            // SAFETY: Single-threaded execution in Contiki-NG
+            unsafe { *self.inner.get() = value }
+        }
+    }
+
+    impl<T: Copy + core::ops::AddAssign> SafeCell<T> {
+        /// Add to the current value
+        pub fn add(&self, value: T) {
+            // SAFETY: Single-threaded execution in Contiki-NG
+            unsafe { *self.inner.get() += value }
+        }
+    }
+
+    impl SafeCell<u32> {
+        /// Increment and return the new value
+        pub fn increment(&self) -> u32 {
+            // SAFETY: Single-threaded execution in Contiki-NG
+            unsafe {
+                let ptr = self.inner.get();
+                *ptr += 1;
+                *ptr
+            }
+        }
+    }
+
+    impl SafeCell<bool> {
+        /// Set to true
+        pub fn set_true(&self) {
+            self.set(true)
+        }
+
+        /// Set to false
+        pub fn set_false(&self) {
+            self.set(false)
+        }
+
+        /// Check if true
+        pub fn is_true(&self) -> bool {
+            self.get()
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Safe Timer
     // -------------------------------------------------------------------------
 
@@ -1761,7 +1846,7 @@ pub mod async_support {
     }
 }
 
-pub use async_support::{AsyncExecutor, AsyncTimer, AsyncUdp, AsyncUdpRecv, noop_waker, SafeTimer, UdpPacket};
+pub use async_support::{AsyncExecutor, AsyncTimer, AsyncUdp, AsyncUdpRecv, noop_waker, SafeCell, SafeTimer, UdpPacket};
 
 // =============================================================================
 // Macros

@@ -22,6 +22,7 @@ mod contiki_sys;
 
 use contiki_sys::*;
 use contiki_sys::ffi;
+use core::cell::UnsafeCell;
 
 // ============================================================================
 // Static State
@@ -29,7 +30,7 @@ use contiki_sys::ffi;
 
 const UDP_PORT: u16 = 8765;
 
-/// UDP connection structure
+/// UDP connection structure (must be static for C callback)
 static mut UDP_CONN: simple_udp_connection = simple_udp_connection {
     next: core::ptr::null_mut(),
     remote_addr: uip_ip6addr_t { u8: [0; 16] },
@@ -40,17 +41,47 @@ static mut UDP_CONN: simple_udp_connection = simple_udp_connection {
     client_process: core::ptr::null_mut(),
 };
 
-/// Async UDP wrapper for decoupled packet handling
-static mut ASYNC_UDP: Option<AsyncUdp> = None;
+/// Safe wrapper for AsyncUdp state
+struct SafeAsyncUdp {
+    inner: UnsafeCell<Option<AsyncUdp>>,
+}
 
-/// Process pointer (needed to wake process from callback)
-static mut PROCESS_PTR: *mut process = core::ptr::null_mut();
+unsafe impl Sync for SafeAsyncUdp {}
+
+impl SafeAsyncUdp {
+    const fn new() -> Self {
+        Self { inner: UnsafeCell::new(None) }
+    }
+
+    fn init(&self, conn: &mut simple_udp_connection) {
+        unsafe { *self.inner.get() = Some(AsyncUdp::new(conn)) }
+    }
+
+    fn with<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut AsyncUdp) -> R,
+    {
+        unsafe {
+            if let Some(ref mut udp) = *self.inner.get() {
+                Some(f(udp))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+static ASYNC_UDP: SafeAsyncUdp = SafeAsyncUdp::new();
+
+/// Process pointer using SafeCell
+static PROCESS_PTR: SafeCell<*mut process> = SafeCell::new(core::ptr::null_mut());
 
 // ============================================================================
 // UDP Callback
 // ============================================================================
 
-/// Called when UDP data is received - stores packet for async processing
+/// Called when UDP data is received - stores packet for async processing.
+/// Note: This must be unsafe extern "C" as it's called from C code.
 #[no_mangle]
 pub unsafe extern "C" fn udp_rx_callback(
     _c: *mut simple_udp_connection,
@@ -68,13 +99,12 @@ pub unsafe extern "C" fn udp_rx_callback(
     };
 
     // Store packet for processing in the handler
-    if let Some(ref mut async_udp) = ASYNC_UDP {
-        async_udp.notify_rx(data_slice, sender_addr, sender_port);
-    }
+    ASYNC_UDP.with(|udp| udp.notify_rx(data_slice, sender_addr, sender_port));
 
     // Wake the process to handle the packet
-    if !PROCESS_PTR.is_null() {
-        ffi::process_poll(PROCESS_PTR);
+    let ptr = PROCESS_PTR.get();
+    if !ptr.is_null() {
+        ffi::process_poll(ptr);
     }
 }
 
@@ -92,54 +122,57 @@ pub extern "C" fn rust_async_udp_echo_handler(
     ev: process_event_t,
     _data: process_data_t,
 ) -> c_int {
-    unsafe {
-        match ev {
-            PROCESS_EVENT_INIT => {
-                print(c_str!("Async UDP Echo Server starting...\n"));
+    match ev {
+        PROCESS_EVENT_INIT => {
+            print(c_str!("Async UDP Echo Server starting...\n"));
 
-                PROCESS_PTR = rust_get_process_ptr();
+            // Store process pointer for callback wakeup
+            PROCESS_PTR.set(unsafe { rust_get_process_ptr() });
 
-                let result = ffi::simple_udp_register(
+            // Register UDP connection
+            let result = unsafe {
+                ffi::simple_udp_register(
                     &mut UDP_CONN,
                     UDP_PORT,
                     core::ptr::null_mut(),
                     0,
                     Some(udp_rx_callback),
-                );
+                )
+            };
 
-                if result != 0 {
-                    ASYNC_UDP = Some(AsyncUdp::new(&mut UDP_CONN));
+            if result != 0 {
+                // Initialize AsyncUdp wrapper
+                unsafe { ASYNC_UDP.init(&mut UDP_CONN) };
 
-                    print(c_str!("Listening on port "));
-                    print_u32(c_str!("%u\n"), UDP_PORT as u32);
-                    PT_WAITING
-                } else {
-                    print(c_str!("Failed to register UDP\n"));
-                    PT_ENDED
-                }
-            }
-
-            _ => {
-                // Process any pending packet
-                if let Some(ref mut async_udp) = ASYNC_UDP {
-                    if let Some(packet) = async_udp.try_recv() {
-                        print(c_str!("Received "));
-                        print_u32(c_str!("%u"), packet.len as u32);
-                        print(c_str!(" bytes from port "));
-                        print_u32(c_str!("%u\n"), packet.sender_port as u32);
-
-                        // Echo back
-                        async_udp.send(
-                            &packet.data[..packet.len],
-                            &packet.sender_addr,
-                            packet.sender_port,
-                        );
-
-                        print(c_str!("Echoed back\n"));
-                    }
-                }
+                print(c_str!("Listening on port "));
+                print_u32(c_str!("%u\n"), UDP_PORT as u32);
                 PT_WAITING
+            } else {
+                print(c_str!("Failed to register UDP\n"));
+                PT_ENDED
             }
+        }
+
+        _ => {
+            // Process any pending packet
+            ASYNC_UDP.with(|async_udp| {
+                if let Some(packet) = async_udp.try_recv() {
+                    print(c_str!("Received "));
+                    print_u32(c_str!("%u"), packet.len as u32);
+                    print(c_str!(" bytes from port "));
+                    print_u32(c_str!("%u\n"), packet.sender_port as u32);
+
+                    // Echo back
+                    async_udp.send(
+                        &packet.data[..packet.len],
+                        &packet.sender_addr,
+                        packet.sender_port,
+                    );
+
+                    print(c_str!("Echoed back\n"));
+                }
+            });
+            PT_WAITING
         }
     }
 }

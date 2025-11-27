@@ -1,35 +1,34 @@
 //! Safe Async Hello World
 //!
 //! This example demonstrates:
-//! - SafeTimer (no unsafe in user code!)
+//! - SafeTimer (no unsafe in user code for timer!)
+//! - SafeCell for state management
 //! - Clean, readable async patterns
-//! - Proper encapsulation
-//! - Idiomatic Rust style
+//! - Minimal unsafe code
 
 #![no_std]
 #![no_main]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
-#![allow(static_mut_refs)]
 
 #[path = "../../../tools/rust-support/contiki-sys.rs"]
 mod contiki_sys;
 
 use contiki_sys::*;
 use contiki_sys::async_support::*;
+use core::cell::UnsafeCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
 // ============================================================================
-// Static State - Safe and Clean!
+// Static State - Safe wrappers
 // ============================================================================
 
-// ✅ No unsafe, no mut, just a safe timer!
 safe_timer!(TIMER);
 
 // ============================================================================
-// Async Counter Future - Much Simpler!
+// Async Counter Future
 // ============================================================================
 
 /// Counts from 1 to max with delays
@@ -54,31 +53,23 @@ impl Future for CounterFuture {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
-            // Check if we're done
             if self.count >= self.max_count {
                 return Poll::Ready(());
             }
 
-            // Create timer future if needed
             if self.timer_future.is_none() {
                 if self.count == 0 {
                     print(c_str!("Hello from Safe Async Rust!\n"));
                     print(c_str!("Starting safe async execution...\n"));
                 }
-
-                // ✅ No unsafe! Clean and safe!
                 self.timer_future = Some(TIMER.delay_seconds(2));
             }
 
-            // Poll the timer
             if let Some(ref mut timer_fut) = self.timer_future {
                 match Pin::new(timer_fut).poll(cx) {
                     Poll::Ready(()) => {
-                        // Timer expired
                         self.count += 1;
                         print_u32(c_str!("Safe async count: %lu\n"), self.count);
-
-                        // Reset for next iteration
                         self.timer_future = None;
                         continue;
                     }
@@ -90,12 +81,37 @@ impl Future for CounterFuture {
 }
 
 // ============================================================================
-// Process State
+// Safe Future Storage
 // ============================================================================
 
-#[no_mangle]
-#[used]
-static mut FUTURE: Option<CounterFuture> = None;
+/// Safe wrapper for the future state
+struct SafeFuture {
+    inner: UnsafeCell<Option<CounterFuture>>,
+}
+
+unsafe impl Sync for SafeFuture {}
+
+impl SafeFuture {
+    const fn new() -> Self {
+        Self { inner: UnsafeCell::new(None) }
+    }
+
+    fn init(&self, future: CounterFuture) {
+        unsafe { *self.inner.get() = Some(future) }
+    }
+
+    fn poll(&self, cx: &mut Context<'_>) -> Poll<()> {
+        unsafe {
+            if let Some(ref mut future) = *self.inner.get() {
+                Pin::new(future).poll(cx)
+            } else {
+                Poll::Ready(())
+            }
+        }
+    }
+}
+
+static FUTURE: SafeFuture = SafeFuture::new();
 
 // ============================================================================
 // Process Handler
@@ -106,44 +122,32 @@ pub extern "C" fn rust_async_hello_handler(
     ev: process_event_t,
     _data: process_data_t,
 ) -> c_int {
-    unsafe {
-        match ev {
-            PROCESS_EVENT_INIT => {
-                print(c_str!("Initializing safe async process...\n"));
+    match ev {
+        PROCESS_EVENT_INIT => {
+            print(c_str!("Initializing safe async process...\n"));
 
-                // Create future - no unsafe needed!
-                FUTURE = Some(CounterFuture::new(10));
+            FUTURE.init(CounterFuture::new(10));
 
-                // Poll once to initialize
-                if let Some(ref mut future) = FUTURE {
-                    let waker = AsyncExecutor::dummy_waker();
-                    let mut context = Context::from_waker(&waker);
+            // Poll once to initialize
+            let waker = noop_waker();
+            let mut context = Context::from_waker(&waker);
 
-                    match Pin::new(future).poll(&mut context) {
-                        Poll::Ready(()) => return PT_ENDED,
-                        Poll::Pending => {}
-                    }
-                }
-
-                PT_WAITING
+            match FUTURE.poll(&mut context) {
+                Poll::Ready(()) => PT_ENDED,
+                Poll::Pending => PT_WAITING,
             }
+        }
 
-            _ => {
-                // Poll the future
-                if let Some(ref mut future) = FUTURE {
-                    let waker = AsyncExecutor::dummy_waker();
-                    let mut context = Context::from_waker(&waker);
+        _ => {
+            let waker = noop_waker();
+            let mut context = Context::from_waker(&waker);
 
-                    match Pin::new(future).poll(&mut context) {
-                        Poll::Ready(()) => {
-                            print(c_str!("Safe async process completed!\n"));
-                            PT_ENDED
-                        }
-                        Poll::Pending => PT_WAITING,
-                    }
-                } else {
+            match FUTURE.poll(&mut context) {
+                Poll::Ready(()) => {
+                    print(c_str!("Safe async process completed!\n"));
                     PT_ENDED
                 }
+                Poll::Pending => PT_WAITING,
             }
         }
     }
