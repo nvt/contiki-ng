@@ -673,39 +673,6 @@ macro_rules! c_str {
     }};
 }
 
-#[macro_export]
-macro_rules! PROCESS_BEGIN {
-    () => {{
-        let mut PT_YIELD_FLAG: u8 = 1;
-        if PT_YIELD_FLAG != 0 {
-            return $crate::PT_YIELDED;
-        }
-    }};
-}
-
-#[macro_export]
-macro_rules! PROCESS_END {
-    () => {
-        return $crate::PT_ENDED;
-    };
-}
-
-#[macro_export]
-macro_rules! PROCESS_WAIT_EVENT {
-    () => {{
-        return $crate::PT_YIELDED;
-    }};
-}
-
-#[macro_export]
-macro_rules! PROCESS_WAIT_EVENT_UNTIL {
-    ($cond:expr) => {{
-        if !($cond) {
-            return $crate::PT_YIELDED;
-        }
-    }};
-}
-
 // Rust-native process support
 // These provide a more ergonomic way to write processes in Rust
 
