@@ -578,30 +578,22 @@ pub fn clock_second() -> clock_time_t {
 
 /// Start a process with optional data
 ///
-/// # Errors
-/// Returns `Error::NullPointer` if the process pointer is null
-///
 /// # Example
 /// ```
 /// let mut my_process = process { /* ... */ };
-/// safe_process_start(&mut my_process, core::ptr::null_mut())?;
+/// safe_process_start(&mut my_process, core::ptr::null_mut());
 /// ```
-pub fn safe_process_start(p: &mut process, data: process_data_t) -> Result<()> {
+pub fn safe_process_start(p: &mut process, data: process_data_t) {
     unsafe {
         process_start(p as *mut process, data);
     }
-    Ok(())
 }
 
 /// Exit a process
-///
-/// # Errors
-/// Returns `Error::NullPointer` if the process pointer is null
-pub fn safe_process_exit(p: &mut process) -> Result<()> {
+pub fn safe_process_exit(p: &mut process) {
     unsafe {
         process_exit(p as *mut process);
     }
-    Ok(())
 }
 
 /// Post an event to a process
@@ -627,29 +619,21 @@ pub fn safe_process_post(
 }
 
 /// Post an event to a process synchronously
-///
-/// # Errors
-/// Returns `Error::NullPointer` if the process pointer is null
 pub fn safe_process_post_synch(
     p: &mut process,
     ev: process_event_t,
     data: process_data_t,
-) -> Result<()> {
+) {
     unsafe {
         process_post_synch(p as *mut process, ev, data);
     }
-    Ok(())
 }
 
 /// Request that a process be polled
-///
-/// # Errors
-/// Returns `Error::NullPointer` if the process pointer is null
-pub fn safe_process_poll(p: &mut process) -> Result<()> {
+pub fn safe_process_poll(p: &mut process) {
     unsafe {
         process_poll(p as *mut process);
     }
-    Ok(())
 }
 
 // Helper macros for Rust
