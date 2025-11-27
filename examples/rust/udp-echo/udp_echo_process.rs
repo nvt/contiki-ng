@@ -16,6 +16,7 @@
 mod contiki_sys;
 
 use contiki_sys::*;
+use contiki_sys::ffi;
 
 // ============================================================================
 // Static State
@@ -74,9 +75,9 @@ pub unsafe extern "C" fn udp_rx_callback(
 
     // Send echo response using raw FFI (simpler in callback context)
     // Note: simple_udp_sendto_port always returns 0 (it's a void-like function)
-    simple_udp_sendto_port(
+    ffi::simple_udp_sendto_port(
         &mut UDP_CONN as *mut simple_udp_connection,
-        data_slice.as_ptr() as *const core::ffi::c_void,
+        data_slice.as_ptr() as *const ::core::ffi::c_void,
         datalen,
         sender_addr,
         sender_port,

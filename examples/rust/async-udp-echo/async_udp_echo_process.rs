@@ -25,6 +25,7 @@
 mod contiki_sys;
 
 use contiki_sys::*;
+use contiki_sys::ffi;
 use contiki_sys::async_support::*;
 use core::future::Future;
 use core::pin::Pin;
@@ -116,7 +117,7 @@ pub unsafe extern "C" fn udp_rx_callback(
 
     // Wake the process to handle the packet asynchronously
     if !PROCESS_PTR.is_null() {
-        process_poll(PROCESS_PTR);
+        ffi::process_poll(PROCESS_PTR);
     }
 }
 
@@ -155,9 +156,9 @@ impl Future for UdpEchoFuture {
 
                         // Echo back the packet
                         // Use as_ptr() directly instead of as_slice() to avoid bounds checking
-                        simple_udp_sendto_port(
+                        ffi::simple_udp_sendto_port(
                             &mut UDP_CONN as *mut simple_udp_connection,
-                            packet.data.as_ptr() as *const core::ffi::c_void,
+                            packet.data.as_ptr() as *const ::core::ffi::c_void,
                             packet.data.len() as u16,
                             &packet.sender_addr,
                             packet.sender_port,
@@ -213,10 +214,10 @@ pub extern "C" fn rust_async_udp_echo_handler(
 
                 // Register UDP connection DIRECTLY on the static UDP_CONN
                 // This is critical - we must register the static, not a temporary!
-                let result = simple_udp_register(
+                let result = ffi::simple_udp_register(
                     &mut UDP_CONN as *mut simple_udp_connection,
                     UDP_PORT,
-                    core::ptr::null_mut(),
+                    ::core::ptr::null_mut(),
                     0,
                     Some(udp_rx_callback),
                 );
