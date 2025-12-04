@@ -51,7 +51,7 @@ bool
 ecdh_generate_ikm(uint8_t curve_id, const uint8_t *gx, const uint8_t *gy,
                   const uint8_t *private_key, uint8_t *ikm)
 {
-  ecc_curve_t curve;
+  edhoc_ecc_curve_impl_t curve;
   bool ret = ecdh_get_ecc_curve(curve_id, &curve);
   if(!ret) {
     return ret;
@@ -67,7 +67,7 @@ ecdh_generate_ikm(uint8_t curve_id, const uint8_t *gx, const uint8_t *gy,
 }
 /*---------------------------------------------------------------------------*/
 bool
-ecdh_get_ecc_curve(uint8_t curve_id, ecc_curve_t *curve)
+ecdh_get_ecc_curve(uint8_t curve_id, edhoc_ecc_curve_impl_t *curve)
 {
 #if EDHOC_ECC == EDHOC_ECC_UECC
   switch(curve_id) {

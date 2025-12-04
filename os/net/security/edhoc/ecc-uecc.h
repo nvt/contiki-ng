@@ -49,9 +49,9 @@
 #include <stdio.h>
 #include "ecc-common.h"
 
-typedef struct ecc_curve {
+typedef struct edhoc_uecc_curve {
   uECC_Curve curve;
-} ecc_curve_t;
+} edhoc_uecc_curve_t;
 
 /**
  * \brief Generate an ECC key pair using the uECC library
@@ -63,7 +63,7 @@ typedef struct ecc_curve {
  * The private key is stored in the `key->private_key`, and the public key is split into x and y coordinates and stored in
  * `key->public.x` and `key->public.y`, respectively.
  */
-uint8_t uecc_generate_key(ecc_key_t *key, ecc_curve_t curve);
+uint8_t uecc_generate_key(ecc_key_t *key, edhoc_uecc_curve_t curve);
 
 /**
  * \brief Generate IKM using ECC shared secret
@@ -80,7 +80,7 @@ uint8_t uecc_generate_key(ecc_key_t *key, ecc_curve_t curve);
  */
 bool uecc_generate_ikm(const uint8_t *gx_in, const uint8_t *gy_in,
                        const uint8_t *private_key, uint8_t *ikm,
-                       ecc_curve_t crv);
+                       edhoc_uecc_curve_t crv);
 
 /**
  * \brief Generate random bytes for cryptographic operations

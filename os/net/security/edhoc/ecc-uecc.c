@@ -75,7 +75,7 @@ RNG(uint8_t *dest, unsigned size)
 #endif /* EDHOC_ECC == EDHOC_ECC_UECC */
 /*----------------------------------------------------------------------------*/
 uint8_t
-uecc_generate_key(ecc_key_t *key, ecc_curve_t curve)
+uecc_generate_key(ecc_key_t *key, edhoc_uecc_curve_t curve)
 {
   int err = 0;
   watchdog_periodic();
@@ -93,7 +93,7 @@ uecc_generate_key(ecc_key_t *key, ecc_curve_t curve)
 /*----------------------------------------------------------------------------*//*TODO: Check further */
 bool
 uecc_generate_ikm(const uint8_t *gx_in, const uint8_t *gy_in,
-                  const uint8_t *private_key, uint8_t *ikm, ecc_curve_t crv)
+                  const uint8_t *private_key, uint8_t *ikm, edhoc_uecc_curve_t crv)
 {
   uint8_t compressed[ECC_KEY_LEN + 1];
   static uint8_t pub[2 * ECC_KEY_LEN];

@@ -130,7 +130,7 @@ PT_THREAD(generate_key_hw(key_gen_t * key)) {
 /*----------------------------------------------------------------------------*/
 bool
 cc2538_generate_ikm(const uint8_t *gx, const uint8_t *gy,
-                    const uint8_t *private_key, uint8_t *ikm, ecc_curve_t curve)
+                    const uint8_t *private_key, uint8_t *ikm, edhoc_cc2538_curve_t curve)
 {
   static ecc_multiply_state_t shared;
   shared.curve_info = curve.curve;

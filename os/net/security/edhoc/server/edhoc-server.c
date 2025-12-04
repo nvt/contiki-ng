@@ -40,6 +40,7 @@
 #include "edhoc-msg-generators.h"
 #include "edhoc-msg-handlers.h"
 #include "edhoc-trace.h"
+#include "edhoc-ecc.h"
 #include "sys/pt.h"
 #include <assert.h>
 
@@ -67,6 +68,7 @@ static coap_message_t *request;
 static coap_message_t *response;
 static int err = 0;
 static edhoc_msg_3_t msg3;
+static edhoc_ecc_state_t ecc_state;
 PROCESS(edhoc_server, "EDHOC Server");
 
 #if EDHOC_TEST == EDHOC_TEST_VECTOR_TRACE_DH
@@ -81,48 +83,6 @@ static const uint8_t eph_pub_y_r[ECC_KEY_LEN] = { 0x5e, 0x4f, 0x0d, 0xd8, 0xa3, 
 static const uint8_t eph_private_r[ECC_KEY_LEN] = { 0xe2, 0xf4, 0x12, 0x67, 0x77, 0x20, 0x5e, 0x85, 0x3b, 0x43, 0x7d, 0x6e, 0xac, 0xa1, 0xe1, 0xf7, 0x53, 0xcd, 0xcc, 0x3e, 0x2c, 0x69, 0xfa,
                                                     0x88, 0x4b, 0x0a, 0x1a, 0x64, 0x09, 0x77, 0xe4, 0x18 };
 #endif
-/*----------------------------------------------------------------------------*/
-static void
-generate_ephemeral_key(uint8_t curve_id, uint8_t *pub_x, uint8_t *pub_y, uint8_t *priv)
-{
-  ecc_curve_t curve;
-  ecdh_get_ecc_curve(curve_id, &curve);
-
-#if EDHOC_ECC == EDHOC_ECC_UECC
-  LOG_DBG("Generate key with uEcc\n");
-  uECC_make_key(pub_x, priv, curve.curve);
-#elif EDHOC_ECC == EDHOC_ECC_CC2538
-  LOG_DBG("Generate key with CC2538 HW modules\n");
-  static key_gen_t key = {
-    .process = &edhoc_server,
-    .curve_info = curve.curve,
-  };
-  PT_SPAWN(&edhoc_server.pt, &key.pt, generate_key_hw(&key));
-  if(key.x != NULL && key.y != NULL && key.private != NULL) {
-    memcpy(pub_x, key.x, ECC_KEY_LEN);
-    memcpy(pub_y, key.y, ECC_KEY_LEN);
-    memcpy(priv, key.private, ECC_KEY_LEN);
-  } else {
-    LOG_ERR("Hardware key generation failed - null key components\n");
-    return;
-  }
-#endif
-
-#if EDHOC_TEST == EDHOC_TEST_VECTOR_TRACE_DH
-  if(edhoc_ctx != NULL) {
-    memcpy(edhoc_ctx->creds.ephemeral_key.pub.x, eph_pub_x_r, ECC_KEY_LEN);
-    memcpy(edhoc_ctx->creds.ephemeral_key.pub.y, eph_pub_y_r, ECC_KEY_LEN);
-    memcpy(edhoc_ctx->creds.ephemeral_key.priv, eph_private_r, ECC_KEY_LEN);
-  } else {
-    LOG_ERR("Test vector key copy failed - invalid context\n");
-  }
-#endif
-
-  edhoc_trace_ephemeral_key("Responder",
-                            edhoc_ctx->creds.ephemeral_key.pub.x,
-                            edhoc_ctx->creds.ephemeral_key.pub.y,
-                            edhoc_ctx->creds.ephemeral_key.priv);
-}
 /*----------------------------------------------------------------------------*/
 int8_t
 edhoc_server_callback(process_event_t ev, void *data)
@@ -218,11 +178,14 @@ handle_msg1_state(void)
   }
   serv->rx_msg1 = true;
 
+  /* Key generation and MSG2 generation moved to PROCESS_THREAD level */
+  return 0;
+}
+/*----------------------------------------------------------------------------*/
+static int
+generate_and_send_msg2(void)
+{
   EDHOC_TRACE_STEP("message_2 generation");
-  generate_ephemeral_key(edhoc_ctx->config.ecdh_curve,
-                         edhoc_ctx->creds.ephemeral_key.pub.x,
-                         edhoc_ctx->creds.ephemeral_key.pub.y,
-                         edhoc_ctx->creds.ephemeral_key.priv);
   edhoc_error_t result = edhoc_generate_message_2(edhoc_ctx, (uint8_t *)new_ecc.ad.ad_2,
                   new_ecc.ad.ad_2_sz);
   if(result != EDHOC_SUCCESS) {
@@ -412,32 +375,94 @@ PROCESS_THREAD(edhoc_server, ev, data)
     PROCESS_EXIT();
   }
 
-  switch(serv->state) {
-  case NON_MSG:
-    coap_timer_set_callback(&timer, server_timeout_callback);
-    coap_timer_set(&timer, SERV_TIMEOUT_VAL);
-    /* fallthrough to handle MSG1 */
-  case RX_MSG1:
+  /* Handle state using if-else instead of switch to allow protothread operations */
+  if(serv->state == NON_MSG || serv->state == RX_MSG1) {
+    if(serv->state == NON_MSG) {
+      coap_timer_set_callback(&timer, server_timeout_callback);
+      coap_timer_set(&timer, SERV_TIMEOUT_VAL);
+    }
+
     if(handle_msg1_state() < 0) {
-      break;
+      goto end;
     }
-    break;
 
-  case RX_MSG3:
+    /* Generate ephemeral key using non-blocking ECC API */
+    LOG_DBG("Acquiring ECC mutex for key generation\n");
+    PROCESS_WAIT_UNTIL(process_mutex_try_lock(ecc_get_mutex()));
+
+    ecc_state.curve = edhoc_ecc_get_curve(edhoc_ctx->config.ecdh_curve);
+    if(ecc_state.curve == NULL) {
+      LOG_ERR("Unsupported ECC curve\n");
+      process_mutex_unlock(ecc_get_mutex());
+      reset_handshake_with_error();
+      goto end;
+    }
+
+    if(ecc_enable(ecc_state.curve)) {
+      LOG_ERR("Failed to enable ECC driver\n");
+      reset_handshake_with_error();
+      goto end;
+    }
+
+    LOG_DBG("Generating ephemeral key pair\n");
+    PROCESS_PT_SPAWN(ecc_get_protothread(),
+                     ecc_generate_key_pair(ecc_state.public_key,
+                                          ecc_state.private_key,
+                                          &ecc_state.result));
+
+    if(ecc_state.result != 0) {
+      LOG_ERR("Key generation failed: %d\n", ecc_state.result);
+      ecc_disable();
+      reset_handshake_with_error();
+      goto end;
+    }
+
+    LOG_DBG("Key generation successful\n");
+    LOG_DBG("Public key X: ");
+    LOG_DBG_BYTES(ecc_state.public_key, ECC_KEY_LEN);
+    LOG_DBG_("\n");
+    LOG_DBG("Public key Y: ");
+    LOG_DBG_BYTES(ecc_state.public_key + ECC_KEY_LEN, ECC_KEY_LEN);
+    LOG_DBG_("\n");
+
+    /* Copy generated keys to EDHOC context */
+    memcpy(edhoc_ctx->creds.ephemeral_key.pub.x, ecc_state.public_key, ECC_KEY_LEN);
+    memcpy(edhoc_ctx->creds.ephemeral_key.pub.y, ecc_state.public_key + ECC_KEY_LEN, ECC_KEY_LEN);
+    memcpy(edhoc_ctx->creds.ephemeral_key.priv, ecc_state.private_key, ECC_KEY_LEN);
+
+    ecc_disable();
+    LOG_DBG("Key generation complete, ECC mutex released\n");
+
+#if EDHOC_TEST == EDHOC_TEST_VECTOR_TRACE_DH
+    /* Override with test vector keys for verification */
+    memcpy(edhoc_ctx->creds.ephemeral_key.pub.x, eph_pub_x_r, ECC_KEY_LEN);
+    memcpy(edhoc_ctx->creds.ephemeral_key.pub.y, eph_pub_y_r, ECC_KEY_LEN);
+    memcpy(edhoc_ctx->creds.ephemeral_key.priv, eph_private_r, ECC_KEY_LEN);
+#endif
+
+    edhoc_trace_ephemeral_key("Responder",
+                              edhoc_ctx->creds.ephemeral_key.pub.x,
+                              edhoc_ctx->creds.ephemeral_key.pub.y,
+                              edhoc_ctx->creds.ephemeral_key.priv);
+
+    /* Now generate and send MSG2 */
+    if(generate_and_send_msg2() < 0) {
+      goto end;
+    }
+  } else if(serv->state == RX_MSG3) {
     if(handle_msg3_state() < 0) {
-      break;
+      goto end;
     }
-    /* fallthrough to check if ready */
-  case EXP_READY:
+    /* After MSG3, check if ready */
     handle_exp_ready_state();
-    break;
-
-  default:
+  } else if(serv->state == EXP_READY) {
+    handle_exp_ready_state();
+  } else {
     LOG_ERR("Unknown server state: %d\n", serv->state);
     serv->state = NON_MSG;
-    break;
   }
 
+end:
   setup_coap_response();
   PROCESS_END();
 }

@@ -61,8 +61,15 @@
 #error Please specify EDHOC_ECC
 #endif
 
+/* Forward declarations for platform-specific curve types */
+#if EDHOC_ECC == EDHOC_ECC_UECC
+typedef struct edhoc_uecc_curve edhoc_ecc_curve_impl_t;
+#elif EDHOC_ECC == EDHOC_ECC_CC2538
+typedef struct edhoc_cc2538_curve edhoc_ecc_curve_impl_t;
+#endif
+
 bool ecdh_generate_ikm(uint8_t curve_id, const uint8_t *gx, const uint8_t *gy, const uint8_t *private_key, uint8_t *ikm);
 
-bool ecdh_get_ecc_curve(uint8_t curve_id, ecc_curve_t *curve);
+bool ecdh_get_ecc_curve(uint8_t curve_id, edhoc_ecc_curve_impl_t *curve);
 
 #endif /* _ECDH_H_ */

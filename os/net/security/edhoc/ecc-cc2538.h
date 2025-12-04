@@ -63,9 +63,9 @@ typedef struct  {
 
 PT_THREAD(generate_key_hw(key_gen_t * key));
 
-typedef struct ecc_curve {
+typedef struct edhoc_cc2538_curve {
   ecc_curve_info_t *curve;
-} ecc_curve_t;
+} edhoc_cc2538_curve_t;
 
 /**
  * \brief Generate IKM using ECC point multiplication
@@ -80,7 +80,7 @@ typedef struct ecc_curve {
  * and the private key. The result is used to generate the IKM, which is stored in the output buffer.
  * The function uses the CC2538 hardware for ECC operations and relies on the NIST P-256 curve for the calculations.
  */
-bool cc2538_generate_ikm(const uint8_t *gx, const uint8_t *gy, const uint8_t *private_key, uint8_t *ikm, ecc_curve_t curve);
+bool cc2538_generate_ikm(const uint8_t *gx, const uint8_t *gy, const uint8_t *private_key, uint8_t *ikm, edhoc_cc2538_curve_t curve);
 
 void eccBytes_to_native(uint32_t *native, const uint8_t *bytes, int num_bytes);
 void eccNative_to_bytes(uint8_t *bytes, int num_bytes, const uint32_t *native);

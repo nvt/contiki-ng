@@ -42,6 +42,7 @@
 #include "edhoc-msg-generators.h"
 #include "edhoc-msg-handlers.h"
 #include "edhoc-trace.h"
+#include "edhoc-ecc.h"
 #include "lib/memb.h"
 #include <assert.h>
 
@@ -80,6 +81,7 @@ static process_event_t edhoc_event = PROCESS_EVENT_NONE;
 static uint8_t attempt = 0;
 static int err = 0;
 static edhoc_msg_2_t msg2;
+static edhoc_ecc_state_t ecc_state;
 /*---------------------------------------------------------------------------*/
 PROCESS(edhoc_client, "EDHOC Client");
 PROCESS(edhoc_client_protocol, "EDHOC Client Protocol");
@@ -580,41 +582,6 @@ edhoc_client_start(uint8_t *ad, uint8_t ad_sz)
   return edhoc_send_msg1(ad, ad_sz, false);
 }
 /*----------------------------------------------------------------------------*/
-static void
-generate_ephemeral_key(uint8_t curve_id, uint8_t *pub_x,
-                       uint8_t *pub_y, uint8_t *priv)
-{
-  ecc_curve_t curve;
-  ecdh_get_ecc_curve(curve_id, &curve);
-
-#if EDHOC_ECC == EDHOC_ECC_UECC
-  LOG_DBG("generate key with uEcc\n");
-  uECC_make_key(pub_x, priv, curve.curve);
-#elif EDHOC_ECC == EDHOC_ECC_CC2538
-  LOG_DBG("generate key with CC2538\n");
-  static key_gen_t key = {
-    .process = &edhoc_client,
-    .curve_info = curve.curve,
-  };
-  PT_SPAWN(&edhoc_client.pt, &key.pt, generate_key_hw(&key));
-
-  memcpy(pub_x, key.x, ECC_KEY_LEN);
-  memcpy(pub_y, key.y, ECC_KEY_LEN);
-  memcpy(priv, key.private, ECC_KEY_LEN);
-#endif
-
-#if EDHOC_TEST == EDHOC_TEST_VECTOR_TRACE_DH
-  memcpy(edhoc_ctx->creds.ephemeral_key.pub.x, eph_pub_x_i, ECC_KEY_LEN);
-  memcpy(edhoc_ctx->creds.ephemeral_key.pub.y, eph_pub_y_i, ECC_KEY_LEN);
-  memcpy(edhoc_ctx->creds.ephemeral_key.priv, eph_private_i, ECC_KEY_LEN);
-#endif
-
-  edhoc_trace_ephemeral_key("Initiator",
-                            edhoc_ctx->creds.ephemeral_key.pub.x,
-                            edhoc_ctx->creds.ephemeral_key.pub.y,
-                            edhoc_ctx->creds.ephemeral_key.priv);
-}
-/*----------------------------------------------------------------------------*/
 /* Unified retry handler */
 static void
 handle_retry(struct etimer *wait_timer, uint8_t *attempt)
@@ -693,11 +660,61 @@ PROCESS_THREAD(edhoc_client, ev, data)
     PROCESS_EXIT();
   }
 
-  /* Generate ephemeral key */
-  generate_ephemeral_key(edhoc_ctx->config.ecdh_curve,
-                         edhoc_ctx->creds.ephemeral_key.pub.x,
-                         edhoc_ctx->creds.ephemeral_key.pub.y,
-                         edhoc_ctx->creds.ephemeral_key.priv);
+  /* Generate ephemeral key using non-blocking ECC API */
+  LOG_DBG("Acquiring ECC mutex for key generation\n");
+  PROCESS_WAIT_UNTIL(process_mutex_try_lock(ecc_get_mutex()));
+
+  ecc_state.curve = edhoc_ecc_get_curve(edhoc_ctx->config.ecdh_curve);
+  if(ecc_state.curve == NULL) {
+    LOG_ERR("Unsupported ECC curve\n");
+    process_mutex_unlock(ecc_get_mutex());
+    PROCESS_EXIT();
+  }
+
+  if(ecc_enable(ecc_state.curve)) {
+    LOG_ERR("Failed to enable ECC driver\n");
+    PROCESS_EXIT();
+  }
+
+  LOG_DBG("Generating ephemeral key pair\n");
+  PROCESS_PT_SPAWN(ecc_get_protothread(),
+                   ecc_generate_key_pair(ecc_state.public_key,
+                                        ecc_state.private_key,
+                                        &ecc_state.result));
+
+  if(ecc_state.result != 0) {
+    LOG_ERR("Key generation failed: %d\n", ecc_state.result);
+    ecc_disable();
+    PROCESS_EXIT();
+  }
+
+  LOG_DBG("Key generation successful\n");
+  LOG_DBG("Public key X: ");
+  LOG_DBG_BYTES(ecc_state.public_key, ECC_KEY_LEN);
+  LOG_DBG_("\n");
+  LOG_DBG("Public key Y: ");
+  LOG_DBG_BYTES(ecc_state.public_key + ECC_KEY_LEN, ECC_KEY_LEN);
+  LOG_DBG_("\n");
+
+  /* Copy generated keys to EDHOC context */
+  memcpy(edhoc_ctx->creds.ephemeral_key.pub.x, ecc_state.public_key, ECC_KEY_LEN);
+  memcpy(edhoc_ctx->creds.ephemeral_key.pub.y, ecc_state.public_key + ECC_KEY_LEN, ECC_KEY_LEN);
+  memcpy(edhoc_ctx->creds.ephemeral_key.priv, ecc_state.private_key, ECC_KEY_LEN);
+
+  ecc_disable();
+  LOG_DBG("Key generation complete, ECC mutex released\n");
+
+#if EDHOC_TEST == EDHOC_TEST_VECTOR_TRACE_DH
+  /* Override with test vector keys for verification */
+  memcpy(edhoc_ctx->creds.ephemeral_key.pub.x, eph_pub_x_i, ECC_KEY_LEN);
+  memcpy(edhoc_ctx->creds.ephemeral_key.pub.y, eph_pub_y_i, ECC_KEY_LEN);
+  memcpy(edhoc_ctx->creds.ephemeral_key.priv, eph_private_i, ECC_KEY_LEN);
+#endif
+
+  edhoc_trace_ephemeral_key("Initiator",
+                            edhoc_ctx->creds.ephemeral_key.pub.x,
+                            edhoc_ctx->creds.ephemeral_key.pub.y,
+                            edhoc_ctx->creds.ephemeral_key.priv);
 
   edhoc_client_start((uint8_t *)edhoc_state.ad.ad_1, edhoc_state.ad.ad_1_sz);
 
