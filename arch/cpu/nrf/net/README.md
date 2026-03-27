@@ -27,9 +27,10 @@ The application core runs a full Contiki-NG stack (IPv6, RPL, MAC) with
 written to shared memory, and signalled to the network core via the
 hardware IPC peripheral.
 
-The network core runs a minimal Contiki-NG image
-(NULLNET/NULLMAC/NULLROUTING) whose sole purpose is to service these
-commands by calling the real `nrf_ieee_driver` and returning results.
+The network core runs a minimal Contiki-NG image with the IPC MAC
+driver (`ipc_mac_driver`) which forwards received 802.15.4 frames
+to the application core via shared memory. IPC commands from the
+application core are handled by the `ipc-radio-service` process.
 
 **Note:** TSCH is not supported over the IPC radio driver. The
 synchronous command/response design and the latency of crossing the
@@ -74,26 +75,29 @@ Supported commands (`enum nrf_ipc_cmd_type`):
 
 ### Frame Reception
 
-Received frames flow asynchronously from the network core:
+Received frames flow asynchronously from the network core via the
+interrupt-driven IPC MAC:
 
-1. The net core's `check_and_forward_rx()` reads a frame from the radio
-   driver and writes it into `shm->rx` with RSSI and LQI metadata.
-2. It sets `shm->rx.pending = 1` and sends an IPC signal.
-3. On the app core, `ipc_radio_pending_packet()` checks `shm->rx.pending`
-   and copies the frame into a local buffer. This polling approach is
-   critical for CSMA's tight ACK detection loop, which calls
-   `pending_packet()` + `read()` in a busy-wait where the process
-   thread cannot run.
-4. The `ipc_radio_process` also delivers frames to the MAC layer via
-   `NETSTACK_MAC.input()` when woken by IPC interrupt or timer.
+1. The radio ISR fires on CRCOK and polls the radio driver process.
+2. The radio driver process reads the frame into packetbuf and calls
+   `NETSTACK_MAC.input()`, which is the IPC MAC's `packet_input()`.
+3. The IPC MAC sends a software ACK if needed, writes the frame into
+   `shm->rx` with RSSI and LQI metadata, sets `shm->rx.pending = 1`,
+   and sends an IPC signal.
+4. On the app core, `ipc_radio_pending_packet()` checks `shm->rx.pending`
+   and copies the frame into a local buffer. The `ipc_radio_process`
+   also delivers frames to the MAC layer via `NETSTACK_MAC.input()`.
+
+Between events, the network core sleeps (WFI in `platform_idle()`),
+minimizing energy consumption and preventing bus stalls.
 
 ### 802.15.4 ACK Handling
 
-The network core sends software ACKs for received frames that have the
-ACK Request bit set. ACKs are transmitted without CCA (as required by
-802.15.4) and must be sent within ~400 us. After transmitting a frame,
-the net core also busy-waits briefly to catch incoming ACKs before
-returning the send result.
+The IPC MAC sends software ACKs for received frames that have the
+ACK Request bit set. ACKs are transmitted without CCA (as required
+by 802.15.4). The ACK is sent from within the radio driver's process
+context, which runs immediately after the radio ISR — well within
+the ~400 us ACK timing window.
 
 ## Log Forwarding
 
@@ -128,6 +132,7 @@ The `IPC_IRQHandler` polls the registered Contiki-NG process on
 | `arch/cpu/nrf/net/nrf-ipc.h` | Protocol definitions and shared memory layout |
 | `arch/cpu/nrf/net/nrf-ipc.c` | IPC transport layer (channel setup, signalling, IRQ) |
 | `arch/cpu/nrf/net/nrf-ipc-radio.c` | App core radio driver (`ipc_radio_driver`) |
+| `arch/cpu/nrf/net/nrf-ipc-mac.c` | Net core IPC MAC driver (interrupt-driven frame forwarding) |
 | `arch/cpu/nrf/os/dbg-arch.c` | Debug output; network core variant writes to IPC log buffer |
 | `examples/platform-specific/nrf/ipc-radio-service/` | Network core radio service |
 

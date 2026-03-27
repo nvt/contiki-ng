@@ -142,6 +142,9 @@ IPC_IRQHandler(void)
     if(ipc_process != NULL) {
       process_poll(ipc_process);
     }
+    /* In TrustZone mode, the secure world's ipc_radio_process will
+     * run when the normal world calls tz_api_poll(). RX frame
+     * delivery is handled via the tz_radio_notify_rx callback. */
   }
 }
 /*---------------------------------------------------------------------------*/

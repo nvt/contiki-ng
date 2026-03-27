@@ -142,11 +142,9 @@ The nRF5340 is a dual-core SoC with two ARM Cortex-M33 processors known as the a
 
 The recommended approach for running Contiki-NG on the nRF5340 is to use the IPC radio driver. This lets the application core run the full Contiki-NG networking stack (6LoWPAN, RPL, CoAP, etc.) while the network core acts as a dedicated radio service. The two cores communicate over a shared memory region using an IPC protocol.
 
-The IPC radio driver (`ipc_radio_driver`) is automatically selected when building for `BOARD=nrf5340/dk/application`. It replaces the `nullradio_driver` that was previously used on the application core.
-
 **Architecture:**
 * The **application core** runs the user application and full network stack. Radio operations are forwarded to the network core via IPC shared memory.
-* The **network core** runs a minimal Contiki-NG image (`ipc-radio-service`) that receives radio commands, drives the 802.15.4 radio, and returns results.
+* The **network core** runs a minimal Contiki-NG image (`ipc-radio-service`) with an interrupt-driven IPC MAC that forwards received frames and handles software ACKs. Between events, the CPU sleeps to minimize energy consumption.
 * Shared memory is located at `0x20070000` (in the application core's RAM1 region, accessible from both cores).
 * Debug output from the network core is forwarded to the application core via a log ring buffer and printed with a `[NET]` prefix.
 
@@ -156,11 +154,12 @@ The IPC radio driver (`ipc_radio_driver`) is automatically selected when buildin
 
         make -C examples/platform-specific/nrf/ipc-radio-service TARGET=nrf BOARD=nrf5340/dk/network ipc-radio-service.upload
 
-2. Build and flash any standard application on the application core (e.g., `rpl-udp`):
+2. Build and flash any standard application on the application core (e.g., `rpl-udp`). Set the radio driver to `ipc_radio_driver`:
 
-        make -C examples/rpl-udp TARGET=nrf BOARD=nrf5340/dk/application udp-client.upload
+        make -C examples/rpl-udp TARGET=nrf BOARD=nrf5340/dk/application \
+             DEFINES=NETSTACK_CONF_RADIO=ipc_radio_driver udp-server.upload
 
-   The IPC radio driver is selected automatically; no application changes are needed.
+   Alternatively, add `#define NETSTACK_CONF_RADIO ipc_radio_driver` to the application's `project-conf.h`.
 
 **Serial output** appears on VCOM2 (`/dev/ttyACM2` on Linux) at 115200 baud.
 
@@ -170,6 +169,43 @@ boundary make it unsuitable for TSCH's tight timing requirements. Use
 CSMA as the MAC layer (the default).
 
 See `arch/cpu/nrf/net/README.md` for the full IPC protocol specification.
+
+#### TrustZone Secure Radio
+
+The IPC radio driver can optionally run in the ARM TrustZone secure
+world, providing a hardware-enforced security boundary for radio
+communication. In this mode, the normal world accesses the radio
+through Non-Secure Callable (NSC) entry points that validate all
+pointers via CMSE. This enables communication policies to be enforced
+in the secure world.
+
+**Building for TrustZone:**
+
+1. Build the secure world and the network core radio service:
+
+        make -C examples/platform-specific/nrf/trustzone/secure-world
+        make -C examples/platform-specific/nrf/ipc-radio-service TARGET=nrf BOARD=nrf5340/dk/network
+
+2. Build the normal-world application:
+
+        make -C examples/rpl-udp TARGET=nrf BOARD=nrf5340/dk/application \
+             TRUSTZONE_SECURE_BUILD=0 \
+             TRUSTZONE_SECURE_WORLD_PATH=../../examples/platform-specific/nrf/trustzone/secure-world \
+             udp-server
+
+   The `tz_radio_driver` is selected automatically in the normal-world build.
+
+3. Merge the secure and normal world hex files:
+
+        srec_cat \
+          examples/platform-specific/nrf/trustzone/secure-world/build/nrf/nrf5340/dk/application/secure-world-example.hex -Intel \
+          examples/rpl-udp/build/nrf/nrf5340/dk/application/udp-server.hex -Intel \
+          -o merged.hex -Intel
+
+4. Flash the network core and merged application core.
+
+See `examples/platform-specific/nrf/ipc-radio-service/README.md` for
+the complete step-by-step instructions.
 
 #### GPIO Forwarding (Legacy)
 

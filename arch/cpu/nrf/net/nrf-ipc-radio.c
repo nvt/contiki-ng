@@ -50,6 +50,9 @@
 #include "nrf-ipc.h"
 #include "nrf.h"
 #include <inttypes.h>
+#ifdef TRUSTZONE_SECURE
+#include "trustzone/tz-radio.h"
+#endif
 /*---------------------------------------------------------------------------*/
 /* Only compile on the nRF5340 application core. */
 #ifdef NRF5340_XXAA_APPLICATION
@@ -151,16 +154,35 @@ release_network_core(void)
   /* Place the network MCU in the secure domain. */
   nrf_spu_extdomain_set(NRF_SPU, 0, true, false);
 
-  /* Release the network MCU from force-off. */
+  /*
+   * Release the network MCU from force-off.
+   * NRF_RESET is a non-secure-only peripheral on nRF5340:
+   * - In TZ secure mode: must use NS alias (SPU is freshly configured)
+   * - In non-TZ mode: must use S alias (SPU may have stale state
+   *   from recovery that blocks the NS alias)
+   */
+#ifdef TRUSTZONE_SECURE
+  nrf_reset_network_force_off(NRF_RESET_NS, false);
+#else
   nrf_reset_network_force_off(NRF_RESET, false);
+#endif
 }
 /*---------------------------------------------------------------------------*/
 static int
 ipc_radio_init(void)
 {
-  clock_time_t start;
-
   LOG_DBG("Initializing IPC radio\n");
+
+  /*
+   * Force-hold the network core before touching shared memory.
+   * FORCEOFF survives soft/pin resets, so the net core may still
+   * be running from a previous session, causing bus stalls.
+   */
+#ifdef TRUSTZONE_SECURE
+  nrf_reset_network_force_off(NRF_RESET_NS, true);
+#else
+  nrf_reset_network_force_off(NRF_RESET, true);
+#endif
 
   /* Clear the shared memory area. */
   memset((void *)shm, 0, sizeof(*shm));
@@ -177,22 +199,48 @@ ipc_radio_init(void)
 
   /* Wait for the network core to initialize and signal readiness. */
   LOG_DBG("Waiting for network core...\n");
-  start = clock_time();
-  while(!shm->net_ready) {
-    if(clock_time() - start >
-       (clock_time_t)(NET_CORE_INIT_TIMEOUT_MS * CLOCK_SECOND / 1000)) {
-      LOG_ERR("Network core init timeout\n");
-      return 0;
+#ifdef TRUSTZONE_SECURE
+  /*
+   * In TrustZone mode, this runs inside an NSC call where
+   * clock_time() may not advance (RTC interrupt preempted).
+   * Use a spin-based timeout instead.
+   */
+  {
+    volatile uint32_t spin = 0;
+    while(!shm->net_ready) {
+      if(++spin > 64000000UL) {
+        LOG_ERR("Network core init timeout\n");
+        return 0;
+      }
     }
   }
+#else
+  {
+    clock_time_t start = clock_time();
+    while(!shm->net_ready) {
+      if(clock_time() - start >
+         (clock_time_t)(NET_CORE_INIT_TIMEOUT_MS * CLOCK_SECOND / 1000)) {
+        LOG_ERR("Network core init timeout\n");
+        return 0;
+      }
+    }
+  }
+#endif
 
-  LOG_INFO("Network core ready\n");
+  LOG_INFO("Network core ready (IPC protocol v%u)\n",
+           (unsigned)shm->version);
 
   /* Send the init command to the net core's radio service. */
   if(send_command(NRF_IPC_CMD_INIT, NULL, 0) < 0) {
     LOG_ERR("Radio init command failed\n");
     return 0;
   }
+
+  LOG_INFO("IPC radio operational"
+#ifdef TRUSTZONE_SECURE
+           " (TrustZone secure)"
+#endif
+           "\n");
 
   return 1;
 }
@@ -460,7 +508,9 @@ PROCESS_THREAD(ipc_radio_process, ev, data)
   static struct etimer heartbeat_timer;
   static uint32_t last_heartbeat;
   static uint32_t last_log_overflow;
+#ifndef TRUSTZONE_SECURE
   int len;
+#endif
 
   PROCESS_BEGIN();
 
@@ -507,6 +557,14 @@ PROCESS_THREAD(ipc_radio_process, ev, data)
       uint8_t lqi = shm->rx.lqi;
 
       if(pull_rx_frame()) {
+#ifdef TRUSTZONE_SECURE
+        /*
+         * In the secure world, we do not deliver directly to the MAC
+         * (which runs in the normal world). Instead, notify the normal
+         * world so it can read the frame via NSC calls.
+         */
+        tz_radio_notify_rx(rssi, lqi);
+#else
         /* Deliver the frame to the MAC layer. */
         packetbuf_clear();
         len = ipc_radio_read(packetbuf_dataptr(), PACKETBUF_SIZE);
@@ -517,6 +575,7 @@ PROCESS_THREAD(ipc_radio_process, ev, data)
           LOG_DBG("RX %d bytes, delivering to MAC\n", len);
           NETSTACK_MAC.input();
         }
+#endif /* TRUSTZONE_SECURE */
       }
     }
   }

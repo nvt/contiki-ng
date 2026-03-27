@@ -135,6 +135,16 @@ handle_command(void)
   case NRF_IPC_CMD_SEND:
     LOG_DBG("CMD: send %u bytes\n", shm->cmd.len);
     result = NETSTACK_RADIO.send((const void *)shm->cmd.data, shm->cmd.len);
+    /*
+     * After TX, the remote node sends an ACK within ~192us.
+     * The ACK triggers the radio ISR which polls the radio driver
+     * process, but that process won't run until the next
+     * process_run(). We must let it run NOW so the IPC MAC can
+     * forward the ACK to shared memory before we return the send
+     * result — otherwise the app core's CSMA times out (~400us)
+     * waiting for the ACK.
+     */
+    process_run();
     send_response(result, NULL, 0);
     break;
 
