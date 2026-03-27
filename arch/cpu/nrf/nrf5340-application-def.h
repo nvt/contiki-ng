@@ -44,7 +44,9 @@
 #ifndef NRF5340_APPLICATION_DEF_H_
 #define NRF5340_APPLICATION_DEF_H_
 /*---------------------------------------------------------------------------*/
+#ifndef NETSTACK_CONF_RADIO
 #define NETSTACK_CONF_RADIO        nullradio_driver
+#endif
 /*---------------------------------------------------------------------------*/
 #define NRF_HAS_USB     1
 #define NRF_HAS_UARTE   1

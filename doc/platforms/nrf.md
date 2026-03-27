@@ -136,21 +136,52 @@ To remove all build results invoke:
 
 ### nRF5340
 
-The nRF5340 is a dual core SoC. It has two ARM Cortex M33 which are known as application and network core.
+The nRF5340 is a dual-core SoC with two ARM Cortex-M33 processors known as the application core and the network core. Only the network core has access to the 802.15.4 radio peripheral.
 
-For the time being we only support one core running the OS but the SoC has shared memory access that can be used for inter-core communication.
+#### IPC Radio Driver (Recommended)
 
-Among the known limitations, the most important one is that only the network core has access to the radio but the network core does not start by default, the application core must start it. The nrf5340 application core will compile with the `nullradio_driver`
+The recommended approach for running Contiki-NG on the nRF5340 is to use the IPC radio driver. This lets the application core run the full Contiki-NG networking stack (6LoWPAN, RPL, CoAP, etc.) while the network core acts as a dedicated radio service. The two cores communicate over a shared memory region using an IPC protocol.
 
-In order to start the network core there is a platform specific example, examples/platform-specific/nrf/start-network-core.
+The IPC radio driver (`ipc_radio_driver`) is automatically selected when building for `BOARD=nrf5340/dk/application`. It replaces the `nullradio_driver` that was previously used on the application core.
+
+**Architecture:**
+* The **application core** runs the user application and full network stack. Radio operations are forwarded to the network core via IPC shared memory.
+* The **network core** runs a minimal Contiki-NG image (`ipc-radio-service`) that receives radio commands, drives the 802.15.4 radio, and returns results.
+* Shared memory is located at `0x20070000` (in the application core's RAM1 region, accessible from both cores).
+* Debug output from the network core is forwarded to the application core via a log ring buffer and printed with a `[NET]` prefix.
+
+**Building and flashing (both cores must be programmed):**
+
+1. Build and flash the network core radio service:
+
+        make -C examples/platform-specific/nrf/ipc-radio-service TARGET=nrf BOARD=nrf5340/dk/network ipc-radio-service.upload
+
+2. Build and flash any standard application on the application core (e.g., `rpl-udp`):
+
+        make -C examples/rpl-udp TARGET=nrf BOARD=nrf5340/dk/application udp-client.upload
+
+   The IPC radio driver is selected automatically; no application changes are needed.
+
+**Serial output** appears on VCOM2 (`/dev/ttyACM2` on Linux) at 115200 baud.
+
+**Limitations:** TSCH is not supported over the IPC radio driver. The
+synchronous command/response design and the latency of crossing the IPC
+boundary make it unsuitable for TSCH's tight timing requirements. Use
+CSMA as the MAC layer (the default).
+
+See `arch/cpu/nrf/net/README.md` for the full IPC protocol specification.
+
+#### GPIO Forwarding (Legacy)
+
+An alternative approach is to run the full OS on the network core and use the application core only to start the network core and forward GPIO pins. This is provided by the `start-network-core` example:
 
     make TARGET=nrf BOARD=nrf5340/dk/application start-network-core.upload
 
-Once the application core contains this example. The hello-world can be uploaded to the network core.
+Once the application core contains this example, a Contiki-NG application can be uploaded to the network core:
 
     make TARGET=nrf BOARD=nrf5340/dk/network hello-world.upload
 
-The start-network-core will forward the UART, Buttons, LEDs. If extra GPIO's are needed in the network core, it must be forwarded in the start-network-core.
+The `start-network-core` example forwards UART, buttons, and LEDs. If extra GPIOs are needed on the network core, they must be forwarded in `start-network-core`.
 
 ## Support
 

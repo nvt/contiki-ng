@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 Yago Fontoura do Rosario <yago.rosario@hotmail.com.br>
+ * Copyright (c) 2026, RISE Research Institutes of Sweden AB.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,30 +28,26 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 /*---------------------------------------------------------------------------*/
-/**
- * \addtogroup nrf
- * @{
- *
- * \addtogroup nrf-5340-network nRF5340 Network Core
- * @{
- *
- * \file
- *      Header with configuration defines to nrf 5340 network core
- * \author
- *      Yago Fontoura do Rosario <yago.rosario@hotmail.com.br>
+#ifndef PROJECT_CONF_H_
+#define PROJECT_CONF_H_
+/*---------------------------------------------------------------------------*/
+/* Minimal logging for the network core. */
+#define LOG_CONF_LEVEL_MAIN LOG_LEVEL_INFO
+/*---------------------------------------------------------------------------*/
+/*
+ * Use the IPC MAC driver which forwards received frames to the
+ * application core via shared memory. This replaces NULLMAC and
+ * enables fully interrupt-driven frame reception.
  */
+extern const struct mac_driver ipc_mac_driver;
+#define NETSTACK_CONF_MAC ipc_mac_driver
 /*---------------------------------------------------------------------------*/
-#ifndef NRF5340_NETWORK_DEF_H_
-#define NRF5340_NETWORK_DEF_H_
-/*---------------------------------------------------------------------------*/
-#define NRF_HAS_USB     0
-#ifndef NRF_HAS_UARTE
-#define NRF_HAS_UARTE   1
-#endif
-/*---------------------------------------------------------------------------*/
-#endif /* NRF5340_NETWORK_DEF_H_ */
-/*---------------------------------------------------------------------------*/
-/** 
- * @}
- * @}
+/*
+ * Disable UARTE on the network core. All debug output is forwarded
+ * to the application core via the IPC log ring buffer, so the net
+ * core must not initialize its UARTE or touch the shared GPIO pins.
  */
+#undef NRF_HAS_UARTE
+#define NRF_HAS_UARTE 0
+/*---------------------------------------------------------------------------*/
+#endif /* PROJECT_CONF_H_ */
