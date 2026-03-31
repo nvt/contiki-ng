@@ -104,19 +104,12 @@ rtimer_queue_remove(struct rtimer *rtimer)
   }
 }
 
-static struct rtimer *
-rtimer_queue_next(void)
-{
-  return (rtimer_queue.count > 0) ? rtimer_queue.timers[0] : NULL;
-}
-
 int
 rtimer_set(struct rtimer *rtimer, rtimer_clock_t time,
 	   rtimer_clock_t duration,
 	   rtimer_callback_t func, void *ptr)
 {
   int_master_status_t status;
-  struct rtimer *next;
 
   LOG_DBG("rtimer_set time %" RTIMER_PRI "\n", time);
 
@@ -139,18 +132,14 @@ rtimer_set(struct rtimer *rtimer, rtimer_clock_t time,
   rtimer_queue_insert(rtimer);
 
   /*
-   * Skip rtimer_arch_schedule when called from within an rtimer callback
-   * (rtimer_running is true). The outer rtimer_run_next() loop will re-arm
-   * the hardware for the next queued timer after the callback returns.
-   * Scheduling here would be premature and can cause lost timers on
-   * platforms where the resulting interrupt is consumed by the re-entrancy
-   * guard (e.g., SIGALRM on native).
+   * Arm the hardware timer only when necessary:
+   * - Not when called from within an rtimer callback (rtimer_running):
+   *   the outer rtimer_run_next() will re-arm after the callback returns.
+   * - Only when the newly inserted timer is the new queue head; otherwise
+   *   the hardware is already armed for an earlier time.
    */
-  if(!rtimer_running) {
-    next = rtimer_queue_next();
-    if(next) {
-      rtimer_arch_schedule(next->time);
-    }
+  if(!rtimer_running && rtimer_queue.timers[0] == rtimer) {
+    rtimer_arch_schedule(rtimer->time);
   }
 
   critical_exit(status);
