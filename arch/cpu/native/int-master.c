@@ -32,36 +32,59 @@
 #include "contiki.h"
 #include "sys/int-master.h"
 
+#include <signal.h>
 #include <stdbool.h>
 /*---------------------------------------------------------------------------*/
-#define DISABLED 0
-#define ENABLED  1
+static volatile bool enabled = true;
 /*---------------------------------------------------------------------------*/
-static int_master_status_t stat = DISABLED;
+static void
+block_signals(void)
+{
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGALRM);
+  sigprocmask(SIG_BLOCK, &set, NULL);
+}
+/*---------------------------------------------------------------------------*/
+static void
+unblock_signals(void)
+{
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGALRM);
+  sigprocmask(SIG_UNBLOCK, &set, NULL);
+}
 /*---------------------------------------------------------------------------*/
 void
 int_master_enable(void)
 {
-  stat = ENABLED;
+  enabled = true;
+  unblock_signals();
 }
 /*---------------------------------------------------------------------------*/
 int_master_status_t
 int_master_read_and_disable(void)
 {
-  int_master_status_t rv = stat;
-  stat = DISABLED;
+  int_master_status_t rv = enabled ? 1 : 0;
+  enabled = false;
+  block_signals();
   return rv;
 }
 /*---------------------------------------------------------------------------*/
 void
 int_master_status_set(int_master_status_t status)
 {
-  stat = status;
+  if(status) {
+    int_master_enable();
+  } else {
+    enabled = false;
+    block_signals();
+  }
 }
 /*---------------------------------------------------------------------------*/
 bool
 int_master_is_enabled(void)
 {
-  return stat == DISABLED ? false : true;
+  return enabled;
 }
 /*---------------------------------------------------------------------------*/
