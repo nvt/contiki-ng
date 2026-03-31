@@ -70,18 +70,26 @@ void
 rtimer_arch_schedule(rtimer_clock_t t)
 {
   struct itimerval val;
-  rtimer_clock_t c;
+  rtimer_clock_t now;
 
-  c = t - rtimer_arch_now();
-
-  val.it_value.tv_sec = c / RTIMER_SECOND;
-  val.it_value.tv_usec = (c % RTIMER_SECOND) * RTIMER_SECOND;
-
-  PRINTF("rtimer_arch_schedule time %" RTIMER_PRI " %" RTIMER_PRI
-         " in %ld.%ld seconds\n",
-         t, c, (long)val.it_value.tv_sec, (long)val.it_value.tv_usec);
+  now = rtimer_arch_now();
 
   val.it_interval.tv_sec = val.it_interval.tv_usec = 0;
+
+  if(!RTIMER_CLOCK_LT(now, t)) {
+    /* Target time is in the past or now — fire as soon as possible. */
+    val.it_value.tv_sec = 0;
+    val.it_value.tv_usec = 1;
+  } else {
+    rtimer_clock_t c = t - now;
+    val.it_value.tv_sec = c / RTIMER_SECOND;
+    val.it_value.tv_usec = (c % RTIMER_SECOND) * (1000000 / RTIMER_SECOND);
+  }
+
+  PRINTF("rtimer_arch_schedule time %" RTIMER_PRI
+         " in %ld.%ld seconds\n",
+         t, (long)val.it_value.tv_sec, (long)val.it_value.tv_usec);
+
   setitimer(ITIMER_REAL, &val, NULL);
 }
 /*---------------------------------------------------------------------------*/
