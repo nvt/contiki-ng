@@ -83,8 +83,8 @@ rtimer_arch_pending(void)
 int
 rtimer_arch_check(void)
 {
-  if (simRtimerCurrentTicks == simRtimerNextExpirationTime) {
-    /* Execute rtimer */
+  if(simRtimerPending &&
+     !RTIMER_CLOCK_LT(simRtimerCurrentTicks, simRtimerNextExpirationTime)) {
     simRtimerPending = 0;
     rtimer_run_next();
     return 1;
