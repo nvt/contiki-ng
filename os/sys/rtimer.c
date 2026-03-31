@@ -138,9 +138,19 @@ rtimer_set(struct rtimer *rtimer, rtimer_clock_t time,
 
   rtimer_queue_insert(rtimer);
 
-  next = rtimer_queue_next();
-  if(next) {
-    rtimer_arch_schedule(next->time);
+  /*
+   * Skip rtimer_arch_schedule when called from within an rtimer callback
+   * (rtimer_running is true). The outer rtimer_run_next() loop will re-arm
+   * the hardware for the next queued timer after the callback returns.
+   * Scheduling here would be premature and can cause lost timers on
+   * platforms where the resulting interrupt is consumed by the re-entrancy
+   * guard (e.g., SIGALRM on native).
+   */
+  if(!rtimer_running) {
+    next = rtimer_queue_next();
+    if(next) {
+      rtimer_arch_schedule(next->time);
+    }
   }
 
   critical_exit(status);
@@ -209,11 +219,11 @@ rtimer_cancel(struct rtimer *rtimer)
   }
   
   rtimer_queue_remove(rtimer);
-  
-  if(rtimer_queue.count > 0) {
+
+  if(!rtimer_running && rtimer_queue.count > 0) {
     rtimer_arch_schedule(rtimer_queue.timers[0]->time);
   }
-  
+
   critical_exit(status);
   return RTIMER_OK;
 }
