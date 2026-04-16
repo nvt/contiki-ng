@@ -38,7 +38,7 @@
  * For LowPower setup, we use RTC instead of TIMER as the basis for all clocks and
  * timers
  *
- * We use two RTC channels. Channel 0 is used by the rtimer sub-system. Channel 1 is used by the system clock and the LPM module.
+ * We use two RTC channels. Channel 0 is used by the system clock and the LPM module. Channel 1 is used by the rtimer sub-system.
  *
  * The RTC runs in all power modes except 'shutdown'
  *
@@ -75,8 +75,8 @@ void soc_rtc_init(void);
  * \param channel The RTC channel to use
  * \param ref_time The time when the event will be fired.
  *
- * Channel RTC_CH0 is reserved for the rtimer. RTC_CH1 is reserved
- * for the system clock.
+ * Channel RTC_CH0 is reserved for the system clock. RTC_CH1 is reserved
+ * for the rtimer.
  *
  * User applications should not use this function. User applications should
  * instead use Contiki's timer-related libraries
