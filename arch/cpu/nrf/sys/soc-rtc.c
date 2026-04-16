@@ -77,8 +77,9 @@
 static const nrfx_rtc_t rtc = NRFX_RTC_INSTANCE(NRF_CLOCK_RTC_INSTANCE);
 /*---------------------------------------------------------------------------*/
 static rtimer_clock_t last_isr_time;
-static clock_time_t rtc_max_clock_ticks;
-static rtimer_clock_t rtc_max_rtimer_ticks;
+/* Number of rtimer ticks per counter wrap, i.e. the counter modulus.
+ * The HW counter is 24-bit, so this is (0xFFFFFF + 1). */
+static rtimer_clock_t rtc_rtimer_modulus;
 static volatile uint32_t overflow;
 /*---------------------------------------------------------------------------*/
 static void
@@ -148,8 +149,7 @@ soc_rtc_init(void)
   lfclk_config();
   rtc_config();
 
-  rtc_max_clock_ticks = nrfx_rtc_max_ticks_get(&rtc) / COMPARE_INCREMENT;
-  rtc_max_rtimer_ticks = nrfx_rtc_max_ticks_get(&rtc);
+  rtc_rtimer_modulus = nrfx_rtc_max_ticks_get(&rtc) + 1;
   /* lets handle the overflow  */
   nrfx_rtc_overflow_enable(&rtc, true);
 
@@ -166,7 +166,7 @@ soc_rtc_init(void)
 void
 soc_rtc_schedule_one_shot(uint32_t channel, rtimer_clock_t ticks)
 {
-  clock_time_t next = (clock_time_t)ticks; // % rtc_max_rtimer_ticks;
+  clock_time_t next = (clock_time_t)ticks;
   if(channel == SOC_RTC_SYSTEM_CH) {
     /* system/etimeer tick will be triggered only every CLOCK_SECOND tick 1/128 */
     nrfx_rtc_cc_set(&rtc, channel, next & MULTIPLE_256_MASK, true);
@@ -180,7 +180,7 @@ rtimer_clock_t
 soc_rtc_get_rtimer_ticks()
 {
   /* RTC is a 24 bit counter, so we need to handle the overflow */
-  return (rtc_max_rtimer_ticks * overflow) +
+  return (rtc_rtimer_modulus * overflow) +
     (rtimer_clock_t)nrfx_rtc_counter_get(&rtc);
 }
 /*---------------------------------------------------------------------------*/
