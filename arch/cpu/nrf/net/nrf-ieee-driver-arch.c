@@ -153,18 +153,18 @@ PROCESS(nrf_ieee_rf_process, "nRF IEEE RF driver");
 #define CRC_IEEE802154_INIT            0
 /*---------------------------------------------------------------------------*/
 #define SYMBOL_DURATION_USEC          16
-#define SYMBOL_DURATION_RTIMER         1
-#define BYTE_DURATION_RTIMER          (SYMBOL_DURATION_RTIMER * 2)
+#define BYTE_DURATION_USEC            32
+#define BYTE_DURATION_RTIMER          US_TO_RTIMERTICKS(BYTE_DURATION_USEC)
 #define TXRU_DURATION_TIMER            3
 /*---------------------------------------------------------------------------*/
 #define NRF_PPI_FRAMESTART_CHANNEL     1
 #define NRF_PPI_END_CHANNEL            2
 /*---------------------------------------------------------------------------*/
 typedef struct timestamps_s {
-  rtimer_clock_t sfd;           /* Derived: 1 byte = 2 rtimer ticks before FRAMESTART */
+  rtimer_clock_t sfd;           /* Derived: 1 byte before FRAMESTART */
   rtimer_clock_t framestart;    /* PPI Channel 1 */
   rtimer_clock_t end;           /* PPI Channel 2 */
-  rtimer_clock_t mpdu_duration; /* Calculated: PHR * 2 rtimer ticks */
+  rtimer_clock_t mpdu_duration; /* Calculated: PHR * 1 byte duration */
   uint8_t phr;                  /* PHR: The MPDU length in bytes */
 } timestamps_t;
 
@@ -759,8 +759,8 @@ read_frame(void *buf, unsigned short bufsize)
 
   /*
    * Timestamp in rtimer ticks of the reception of the SFD. The SFD was
-   * received 1 byte before the PHR, therefore all we need to do is subtract
-   * 2 symbols (2 rtimer ticks) from the PPI FRAMESTART timestamp.
+   * received 1 byte before the PHR, therefore subtract one byte duration
+   * from the PPI FRAMESTART timestamp.
    */
   timestamps.sfd = timestamps.framestart - BYTE_DURATION_RTIMER;
 
