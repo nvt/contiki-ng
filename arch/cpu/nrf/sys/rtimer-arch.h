@@ -50,6 +50,11 @@
 /*---------------------------------------------------------------------------*/
 #include "contiki.h"
 /*---------------------------------------------------------------------------*/
+/*
+ * The rtimer is driven by the RTC (see soc-rtc.c). The NRF TIMER below is
+ * only used by the IEEE 802.15.4 radio driver for PPI-based RX timestamping;
+ * it is no longer an rtimer source, so no IRQ is needed.
+ */
 #ifdef NRF_RTIMER_CONF_TIMER_INSTANCE
 #define TIMER_INSTANCE NRF_RTIMER_CONF_TIMER_INSTANCE
 #else
@@ -58,12 +63,8 @@
 
 #if TIMER_INSTANCE == 0
 #define NRF_RTIMER_TIMER      NRF_TIMER0
-#define NRF_RTIMER_IRQn       TIMER0_IRQn
-#define NRF_RTIMER_IRQHandler TIMER0_IRQHandler
 #elif TIMER_INSTANCE == 1
 #define NRF_RTIMER_TIMER      NRF_TIMER1
-#define NRF_RTIMER_IRQn       TIMER1_IRQn
-#define NRF_RTIMER_IRQHandler TIMER1_IRQHandler
 #else
 #error Unsupported timer for rtimer
 #endif

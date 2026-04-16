@@ -584,12 +584,14 @@ init(void)
   /* Request the HF clock */
   nrfx_clock_hfclk_start();
 
-  /* Enable Timers which will be needed in PPI */
-  nrf_timer_event_clear(NRF_RTIMER_TIMER, NRF_TIMER_EVENT_COMPARE0);
+  /* Configure the timer used for PPI-based RADIO event timestamping.
+   * No interrupts are needed: CC0 is driven by software CAPTURE in
+   * read_frame() to convert PPI-captured timestamps back to rtimer
+   * ticks. CC2/CC3 are driven by PPI from the RADIO END/FRAMESTART
+   * events. */
   nrf_timer_frequency_set(NRF_RTIMER_TIMER, NRF_TIMER_FREQ_62500Hz);
   nrf_timer_bit_width_set(NRF_RTIMER_TIMER, NRF_TIMER_BIT_WIDTH_32);
   nrf_timer_mode_set(NRF_RTIMER_TIMER, NRF_TIMER_MODE_TIMER);
-  nrf_timer_int_enable(NRF_RTIMER_TIMER, NRF_TIMER_INT_COMPARE0_MASK);
   nrf_timer_task_trigger(NRF_RTIMER_TIMER, NRF_TIMER_TASK_START);
 
   /* Start the RF driver process */
