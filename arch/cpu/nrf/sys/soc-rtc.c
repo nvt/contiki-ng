@@ -45,7 +45,9 @@
 #include "etimer.h"
 #include "lpm.h"
 #include "rtimer.h"
+#include "sys/critical.h"
 
+#include "hal/nrf_rtc.h"
 #include "nrfx_clock.h"
 #include "nrfx_rtc.h"
 
@@ -179,9 +181,34 @@ soc_rtc_schedule_one_shot(uint32_t channel, rtimer_clock_t ticks)
 rtimer_clock_t
 soc_rtc_get_rtimer_ticks()
 {
-  /* RTC is a 24 bit counter, so we need to handle the overflow */
-  return (rtc_rtimer_modulus * overflow) +
-    (rtimer_clock_t)nrfx_rtc_counter_get(&rtc);
+  int_master_status_t status;
+  uint32_t o;
+  uint32_t c;
+
+  /* RTC is a 24 bit counter, so we need to handle the overflow.
+   *
+   * The nrfx ISR dispatches RTC events sequentially: a long-running CC
+   * handler (e.g. rtimer_run_next() running a TSCH slot) can run while
+   * the HW EVENTS_OVRFLW bit is already set but the OVERFLOW handler
+   * has not yet executed. In that window the SW overflow counter is
+   * one behind the real tick count, so we must compensate using the
+   * HW event flag.
+   *
+   * Mask interrupts so the captured (overflow, counter, event) triple
+   * is consistent with respect to the RTC ISR.
+   */
+  status = critical_enter();
+  o = overflow;
+  c = nrfx_rtc_counter_get(&rtc);
+  if(nrf_rtc_event_check(rtc.p_reg, NRF_RTC_EVENT_OVERFLOW)) {
+    /* Wrap happened but has not yet been serviced: account for it and
+     * re-read the counter, which may have wrapped after our first read. */
+    o++;
+    c = nrfx_rtc_counter_get(&rtc);
+  }
+  critical_exit(status);
+
+  return (rtc_rtimer_modulus * (rtimer_clock_t)o) + (rtimer_clock_t)c;
 }
 /*---------------------------------------------------------------------------*/
 clock_time_t
