@@ -34,9 +34,12 @@
 
 #include <stdio.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "cfs/cfs.h"
+#include "cfs-posix-internal.h"
 
 struct cfs_posix_dir {
   DIR *dirp;
@@ -48,8 +51,22 @@ cfs_opendir(struct cfs_dir *p, const char *n)
 {
   struct cfs_posix_dir *dir = (struct cfs_posix_dir *)p;
 
-  dir->dirp = opendir(n);
-  return dir->dirp == NULL;
+  if(!cfs_posix_path_is_safe(n) || cfs_posix_get_dirfd() < 0) {
+    dir->dirp = NULL;
+    return 1;
+  }
+  int fd = openat(cfs_posix_get_dirfd(), n,
+                  O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if(fd < 0) {
+    dir->dirp = NULL;
+    return 1;
+  }
+  dir->dirp = fdopendir(fd);
+  if(dir->dirp == NULL) {
+    close(fd);
+    return 1;
+  }
+  return 0;
 }
 /*---------------------------------------------------------------------------*/
 int
