@@ -38,6 +38,21 @@ endif
 
 CONTIKI_SOURCEFILES += $(CONTIKI_TARGET_SOURCEFILES)
 
+# Compiler/linker hardening for the native target. These are off-by-default
+# in upstream CFLAGS but cheap, well-supported by GCC and Clang on the
+# platforms native runs on (Linux, macOS), and catch real bugs (libc
+# fortify diagnostics, stack smashing, format-string misuse). Override by
+# setting NATIVE_HARDENING=0 on the make command line.
+NATIVE_HARDENING ?= 1
+ifeq ($(NATIVE_HARDENING),1)
+  CFLAGS  += -D_FORTIFY_SOURCE=2 -fstack-protector-strong
+  CFLAGS  += -Wformat -Wformat-security
+ifeq ($(HOST_OS),Linux)
+  CFLAGS  += -fPIE
+  LDFLAGS += -pie -Wl,-z,relro,-z,now
+endif
+endif
+
 # Enable nullmac by default
 MAKE_MAC ?= MAKE_MAC_NULLMAC
 
