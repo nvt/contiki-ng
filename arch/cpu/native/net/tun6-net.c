@@ -41,10 +41,11 @@
 #include "net/ipv6/uiplib.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 #include <unistd.h>
 #include <errno.h>
@@ -55,7 +56,6 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <net/if.h>
 #include <err.h>
 
@@ -91,21 +91,83 @@ static const struct select_callback tun_select_callback = {
   handle_fd
 };
 
-static int ssystem(const char *fmt, ...)
-     __attribute__((__format__ (__printf__, 1, 2)));
+/*
+ * Execute argv via fork()+execvp(), waiting for the child to exit. The
+ * parent never passes attacker-influenced strings through /bin/sh, so
+ * shell metacharacters in --prefix or -t cannot inject commands.
+ */
+static int
+run_command(const char *const argv[])
+{
+  if(LOG_LEVEL >= LOG_LEVEL_INFO) {
+    LOG_INFO("exec:");
+    for(const char *const *a = argv; *a != NULL; a++) {
+      LOG_INFO_(" %s", *a);
+    }
+    LOG_INFO_("\n");
+    fflush(stdout);
+  }
+
+  pid_t pid = fork();
+  if(pid < 0) {
+    perror("fork");
+    return -1;
+  }
+  if(pid == 0) {
+    execvp(argv[0], (char *const *)argv);
+    perror("execvp");
+    _exit(127);
+  }
+
+  int status;
+  while(waitpid(pid, &status, 0) < 0) {
+    if(errno == EINTR) {
+      continue;
+    }
+    perror("waitpid");
+    return -1;
+  }
+  if(WIFEXITED(status)) {
+    return WEXITSTATUS(status);
+  }
+  return -1;
+}
+
+/* Self-pipe written from sigcleanup() so the main loop can run the
+ * (non async-signal-safe) cleanup path from libc context. */
+static int shutdown_pipe[2] = { -1, -1 };
 
 static int
-ssystem(const char *fmt, ...)
+shutdown_set_fd(fd_set *rset, fd_set *wset)
 {
-  char cmd[128];
-  va_list ap;
-  va_start(ap, fmt);
-  vsnprintf(cmd, sizeof(cmd), fmt, ap);
-  va_end(ap);
-  LOG_INFO("%s\n", cmd);
-  fflush(stdout);
-  return system(cmd);
+  if(shutdown_pipe[0] < 0) {
+    return 0;
+  }
+  FD_SET(shutdown_pipe[0], rset);
+  return 1;
 }
+
+static void
+shutdown_handle_fd(fd_set *rset, fd_set *wset)
+{
+  /*
+   * The platform main loop dispatches handle_fd to every registered
+   * callback whenever select() returns >0, leaving each callback to
+   * gate on FD_ISSET itself. Without this check, any unrelated fd
+   * becoming readable (TUN packet, stdin EOF) would terminate the
+   * process before a signal had been delivered.
+   */
+  if(shutdown_pipe[0] < 0 || !FD_ISSET(shutdown_pipe[0], rset)) {
+    return;
+  }
+  /* atexit-registered cleanup() will run from inside exit(). */
+  exit(EXIT_SUCCESS);
+}
+
+static const struct select_callback shutdown_select_callback = {
+  shutdown_set_fd,
+  shutdown_handle_fd
+};
 
 /*---------------------------------------------------------------------------*/
 static bool
@@ -212,71 +274,124 @@ CONTIKI_OPTION(TUN_PRIO + 2, { "mtu", required_argument, NULL, 0 },
 static void
 cleanup(void)
 {
-#define TMPBUFSIZE 128
-  /* Called from signal handler, avoid unsafe functions. */
-  char buf[TMPBUFSIZE];
 #ifdef __APPLE__
-  strcpy(buf, "ifconfig ");
-  /* Will not overflow, but null-terminate to avoid spurious warnings. */
-  buf[TMPBUFSIZE - 1] = '\0';
-  strncat(buf, config_tundev, TMPBUFSIZE - strlen(buf) - 1);
-  strncat(buf, " inet6 ", TMPBUFSIZE - strlen(buf) - 1);
-  strncat(buf, config_ipaddr, TMPBUFSIZE - strlen(buf) - 1);
-  strncat(buf, " remove", TMPBUFSIZE - strlen(buf) - 1);
-  system(buf);
+  {
+    const char *const argv[] = {
+      "ifconfig", config_tundev, "inet6", config_ipaddr, "remove", NULL
+    };
+    run_command(argv);
+  }
 #endif /* __APPLE__ */
 
-  strcpy(buf, "ifconfig ");
-  /* Will not overflow, but null-terminate to avoid spurious warnings. */
-  buf[TMPBUFSIZE - 1] = '\0';
-  strncat(buf, config_tundev, TMPBUFSIZE - strlen(buf) - 1);
-  strncat(buf, " down", TMPBUFSIZE - strlen(buf) - 1);
-  system(buf);
+  {
+    const char *const argv[] = {
+      "ifconfig", config_tundev, "down", NULL
+    };
+    run_command(argv);
+  }
 
-#ifndef __APPLE__
-#ifndef linux
-  system("sysctl -w net.ipv6.conf.all.forwarding=1");
-#endif
-
-  strcpy(buf, "netstat -nr"
-         " | awk '{ if ($2 == \"");
-  buf[TMPBUFSIZE - 1] = '\0';
-  strncat(buf, config_tundev, TMPBUFSIZE - strlen(buf) - 1);
-  strncat(buf, "\") print \"route delete -net \"$1; }'"
-          " | sh", TMPBUFSIZE - strlen(buf) - 1);
-  system(buf);
-#endif /* !__APPLE__ */
+  /*
+   * Previously this also ran a "netstat -nr | awk ... | sh" pipeline to
+   * delete leftover routes (and a sysctl on non-Linux non-Apple). The
+   * pipeline relied on /bin/sh, was Linux-broken because Linux
+   * netstat(1) has different column layout, and post privilege drop
+   * would not have permission to flush routes anyway. The TUN device is
+   * destroyed when the fd is closed on Linux, so route entries
+   * referencing it become unreachable on their own.
+   */
 }
 /*---------------------------------------------------------------------------*/
-static void CC_NORETURN
+/*
+ * Async-signal-safe handler: only writes a byte to a pipe registered
+ * with select(). The main loop wakes up, calls shutdown_handle_fd(),
+ * which calls exit() and runs the atexit-registered cleanup() from
+ * normal libc context.
+ */
+static void
 sigcleanup(int signo)
 {
   const char *prefix = "signal ";
   const char *sig =
     signo == SIGHUP ? "HUP\n" : signo == SIGTERM ? "TERM\n" : "INT\n";
-  write(fileno(stderr), prefix, strlen(prefix));
-  write(fileno(stderr), sig, strlen(sig));
-  cleanup();
-  _exit(EXIT_SUCCESS);
+  ssize_t r;
+  r = write(STDERR_FILENO, prefix, strlen(prefix));
+  r = write(STDERR_FILENO, sig, strlen(sig));
+  if(shutdown_pipe[1] >= 0) {
+    unsigned char b = 1;
+    r = write(shutdown_pipe[1], &b, 1);
+  }
+  (void)r;
 }
 /*---------------------------------------------------------------------------*/
 static void
 ifconf_setup(void)
 {
+  char mtu_str[16];
+  snprintf(mtu_str, sizeof(mtu_str), "%d", config_mtu);
+
+#if defined(linux) || (!defined(__APPLE__))
+  char hostname[HOST_NAME_MAX + 1];
+  if(gethostname(hostname, sizeof(hostname)) != 0) {
+    perror("gethostname");
+    hostname[0] = '\0';
+  }
+  hostname[sizeof(hostname) - 1] = '\0';
+#endif
+
 #ifdef linux
-  ssystem("ifconfig %s inet `hostname` mtu %d up", config_tundev, config_mtu);
-  ssystem("ifconfig %s add %s", config_tundev, config_ipaddr);
+  {
+    const char *const argv[] = {
+      "ifconfig", config_tundev, "inet", hostname,
+      "mtu", mtu_str, "up", NULL
+    };
+    run_command(argv);
+  }
+  {
+    const char *const argv[] = {
+      "ifconfig", config_tundev, "add", config_ipaddr, NULL
+    };
+    run_command(argv);
+  }
 #elif defined(__APPLE__)
-  ssystem("ifconfig %s inet6 mtu %d up", config_tundev, config_mtu);
-  ssystem("ifconfig %s inet6 %s add", config_tundev, config_ipaddr );
-  ssystem("sysctl -w net.inet6.ip6.forwarding=1");
+  {
+    const char *const argv[] = {
+      "ifconfig", config_tundev, "inet6", "mtu", mtu_str, "up", NULL
+    };
+    run_command(argv);
+  }
+  {
+    const char *const argv[] = {
+      "ifconfig", config_tundev, "inet6", config_ipaddr, "add", NULL
+    };
+    run_command(argv);
+  }
+  {
+    const char *const argv[] = {
+      "sysctl", "-w", "net.inet6.ip6.forwarding=1", NULL
+    };
+    run_command(argv);
+  }
 #else
-  ssystem("ifconfig %s inet `hostname` %s mtu %d up", config_tundev, config_ipaddr, config_mtu);
-  ssystem("sysctl -w net.inet.ip.forwarding=1");
+  {
+    const char *const argv[] = {
+      "ifconfig", config_tundev, "inet", hostname, config_ipaddr,
+      "mtu", mtu_str, "up", NULL
+    };
+    run_command(argv);
+  }
+  {
+    const char *const argv[] = {
+      "sysctl", "-w", "net.inet.ip.forwarding=1", NULL
+    };
+    run_command(argv);
+  }
 #endif /* !linux */
 
   /* Print the configuration to the console. */
-  ssystem("ifconfig %s\n", config_tundev);
+  {
+    const char *const argv[] = { "ifconfig", config_tundev, NULL };
+    run_command(argv);
+  }
 }
 /*---------------------------------------------------------------------------*/
 #ifdef linux
@@ -475,6 +590,22 @@ tun6_net_init(void (* tun_input)(void))
 
   fprintf(stderr, "opened %s device ``/dev/%s''\n",
           "tun", config_tundev);
+
+  if(pipe(shutdown_pipe) != 0) {
+    perror("pipe");
+    return false;
+  }
+  for(int i = 0; i < 2; i++) {
+    int fl = fcntl(shutdown_pipe[i], F_GETFL, 0);
+    if(fl >= 0) {
+      fcntl(shutdown_pipe[i], F_SETFL, fl | O_NONBLOCK);
+    }
+    int fd_fl = fcntl(shutdown_pipe[i], F_GETFD, 0);
+    if(fd_fl >= 0) {
+      fcntl(shutdown_pipe[i], F_SETFD, fd_fl | FD_CLOEXEC);
+    }
+  }
+  select_set_callback(shutdown_pipe[0], &shutdown_select_callback);
 
   atexit(cleanup);
   signal(SIGHUP, sigcleanup);
