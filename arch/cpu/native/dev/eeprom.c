@@ -33,9 +33,11 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "contiki.h"
 #include "dev/eeprom.h"
@@ -96,7 +98,26 @@ eeprom_init(void)
     LOG_INFO("CONTIKI_EEPROM env is not set; using a temp file instead\n");
   }
 
-  eeprom_file = eeprom_filename ? fopen(eeprom_filename, "w+") : tmpfile();
+  if(eeprom_filename != NULL) {
+    /*
+     * Open with O_NOFOLLOW so a symlink at the given path cannot
+     * redirect the EEPROM-backed file to /etc/passwd or similar; force
+     * mode 0600 so persisted secrets (OSCORE keys, etc.) are not
+     * world-readable when umask is permissive.
+     */
+    int fd = open(eeprom_filename, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC,
+                  0600);
+    if(fd < 0) {
+      LOG_ERR("open(%s): %s\n", eeprom_filename, strerror(errno));
+      goto error;
+    }
+    eeprom_file = fdopen(fd, "w+");
+    if(eeprom_file == NULL) {
+      close(fd);
+    }
+  } else {
+    eeprom_file = tmpfile();
+  }
 
   if(eeprom_file == NULL) {
     LOG_ERR("Unable to open the EEPROM file\n");
