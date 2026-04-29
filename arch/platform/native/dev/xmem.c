@@ -35,30 +35,29 @@
 #include "contiki.h"
 #include "dev/xmem.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 
-#define XMEM_SIZE 1024 * 1024
+#define XMEM_SIZE (1024 * 1024)
 
 static unsigned char xmem[XMEM_SIZE];
+
+static bool
+in_range(unsigned long offset, unsigned long size)
+{
+  return offset <= XMEM_SIZE && size <= XMEM_SIZE - offset;
+}
 /*---------------------------------------------------------------------------*/
 int
 xmem_pwrite(const void *buf, int size, unsigned long offset)
 {
-  /*  int f;
-  char name[400];
-
-  snprintf(name, sizeof(name), "xmem.%d.%d", node_x(), node_y());
-  f = open(name, O_WRONLY | O_APPEND | O_CREAT, 0644);
-  lseek(f, addr, SEEK_SET);
-  write(f, buf, size);
-  close(f);*/
-
-  /*  printf("xmem_write(offset 0x%02x, buf %p, size %l);\n", offset, buf, size);*/
-
+  if(size < 0 || !in_range(offset, (unsigned long)size)) {
+    return -1;
+  }
   memcpy(&xmem[offset], buf, size);
   return size;
 }
@@ -66,7 +65,9 @@ xmem_pwrite(const void *buf, int size, unsigned long offset)
 int
 xmem_pread(void *buf, int size, unsigned long offset)
 {
-  /*  printf("xmem_read(addr 0x%02x, buf %p, size %d);\n", addr, buf, size);*/
+  if(size < 0 || !in_range(offset, (unsigned long)size)) {
+    return -1;
+  }
   memcpy(buf, &xmem[offset], size);
   return size;
 }
@@ -74,7 +75,9 @@ xmem_pread(void *buf, int size, unsigned long offset)
 int
 xmem_erase(long nbytes, unsigned long offset)
 {
-  /*  printf("xmem_read(addr 0x%02x, buf %p, size %d);\n", addr, buf, size);*/
+  if(nbytes < 0 || !in_range(offset, (unsigned long)nbytes)) {
+    return -1;
+  }
   memset(&xmem[offset], 0, nbytes);
   return nbytes;
 }
