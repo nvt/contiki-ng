@@ -49,10 +49,13 @@
 #include <unistd.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
+#include <pwd.h>
 #include <signal.h>
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <net/if.h>
 #include <err.h>
 
@@ -388,6 +391,69 @@ tun_alloc(void)
 }
 #endif
 /*---------------------------------------------------------------------------*/
+/*
+ * Drop root privileges after the TUN fd is open and the interface has
+ * been configured. The TUN fd survives setuid(), so subsequent reads,
+ * writes, and selects on it work as the unprivileged user. The atexit
+ * cleanup that runs ifconfig/route may fail post-drop; on Linux the TUN
+ * device disappears once the fd is closed, so explicit teardown there
+ * is best-effort.
+ */
+static void
+drop_privileges(void)
+{
+  if(geteuid() != 0) {
+    return;
+  }
+
+  const char *sudo_uid_str = getenv("SUDO_UID");
+  const char *sudo_gid_str = getenv("SUDO_GID");
+  if(sudo_uid_str == NULL || sudo_gid_str == NULL) {
+    LOG_WARN("Running as root without sudo; not dropping privileges. "
+             "Re-run via 'sudo' so the app stack runs unprivileged.\n");
+    return;
+  }
+
+  char *end;
+  long uid = strtol(sudo_uid_str, &end, 10);
+  if(*sudo_uid_str == '\0' || *end != '\0' || uid <= 0) {
+    LOG_ERR("Invalid SUDO_UID; refusing to start.\n");
+    exit(EXIT_FAILURE);
+  }
+  long gid = strtol(sudo_gid_str, &end, 10);
+  if(*sudo_gid_str == '\0' || *end != '\0' || gid <= 0) {
+    LOG_ERR("Invalid SUDO_GID; refusing to start.\n");
+    exit(EXIT_FAILURE);
+  }
+  uid_t target_uid = (uid_t)uid;
+  gid_t target_gid = (gid_t)gid;
+
+  struct passwd *pw = getpwuid(target_uid);
+  if(pw != NULL) {
+    if(initgroups(pw->pw_name, target_gid) != 0) {
+      perror("initgroups");
+      exit(EXIT_FAILURE);
+    }
+  } else if(setgroups(0, NULL) != 0) {
+    perror("setgroups");
+    exit(EXIT_FAILURE);
+  }
+  if(setgid(target_gid) != 0) {
+    perror("setgid");
+    exit(EXIT_FAILURE);
+  }
+  if(setuid(target_uid) != 0) {
+    perror("setuid");
+    exit(EXIT_FAILURE);
+  }
+  if(setuid(0) == 0) {
+    LOG_ERR("Privilege drop failed: still able to setuid(0)\n");
+    exit(EXIT_FAILURE);
+  }
+  LOG_INFO("Dropped privileges to uid=%ld gid=%ld\n",
+           (long)target_uid, (long)target_gid);
+}
+/*---------------------------------------------------------------------------*/
 bool
 tun6_net_init(void (* tun_input)(void))
 {
@@ -415,6 +481,7 @@ tun6_net_init(void (* tun_input)(void))
   signal(SIGTERM, sigcleanup);
   signal(SIGINT, sigcleanup);
   ifconf_setup();
+  drop_privileges();
   return true;
 }
 /*---------------------------------------------------------------------------*/
