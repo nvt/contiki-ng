@@ -274,6 +274,17 @@ CONTIKI_OPTION(TUN_PRIO + 2, { "mtu", required_argument, NULL, 0 },
 static void
 cleanup(void)
 {
+  /*
+   * If we no longer hold root, ifconfig(8) will return EPERM on every
+   * call we'd make here. The kernel destroys the TUN device when the
+   * last reference to its fd is dropped (Linux tun, macOS utun control
+   * socket), so explicit teardown is unnecessary in that case. Skip it
+   * rather than spamming "permission denied" on every shutdown.
+   */
+  if(geteuid() != 0) {
+    return;
+  }
+
 #ifdef __APPLE__
   {
     const char *const argv[] = {
