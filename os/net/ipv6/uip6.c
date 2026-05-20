@@ -2304,8 +2304,11 @@ uip_process(uint8_t flag)
        window so that the remote host will stop sending data. */
     UIP_TCP_BUF->wnd[0] = UIP_TCP_BUF->wnd[1] = 0;
   } else {
-    UIP_TCP_BUF->wnd[0] = ((UIP_RECEIVE_WINDOW) >> 8);
-    UIP_TCP_BUF->wnd[1] = ((UIP_RECEIVE_WINDOW) & 0xff);
+    uint16_t wnd = uip_connr->appstate.tcp_recv_window != NULL
+                   ? uip_connr->appstate.tcp_recv_window(uip_connr)
+                   : UIP_RECEIVE_WINDOW;
+    UIP_TCP_BUF->wnd[0] = (wnd >> 8);
+    UIP_TCP_BUF->wnd[1] = (wnd & 0xff);
   }
 
   tcp_send_noconn:

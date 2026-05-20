@@ -74,6 +74,10 @@ struct uip_conn;
 struct tcpip_uipstate {
   struct process *p;
   void *state;
+  /* Per-connection callback that returns the advertised TCP receive
+     window when uIP builds an outgoing segment. A NULL pointer means
+     the connection uses the default UIP_RECEIVE_WINDOW. */
+  uint16_t (*tcp_recv_window)(struct uip_conn *conn);
 };
 
 #define UIP_APPCALL tcpip_uipcall

@@ -41,7 +41,19 @@ typedef enum {
   TCP_SOCKET_CLOSED,
   TCP_SOCKET_TIMEDOUT,
   TCP_SOCKET_ABORTED,
-  TCP_SOCKET_DATA_SENT
+  TCP_SOCKET_DATA_SENT,
+  /**
+   * \brief Input buffer overflow.
+   *
+   * Sent when the input buffer is full of bytes the data callback has
+   * chosen to retain, and the application could not free any room
+   * when given a chance to drain. The receive window has been closed
+   * to prevent further data from being silently lost; bytes from
+   * subsequent segments stay in the sender's TCP buffer and will be
+   * retransmitted. The application should close the socket on this
+   * event; the connection cannot make progress until it is reopened.
+   */
+  TCP_SOCKET_INPUT_OVERFLOW
 } tcp_socket_event_t;
 
 /**
@@ -59,6 +71,16 @@ typedef enum {
  *             function must return the amount of data to leave in the
  *             buffer. I.e., if the callback function consumes all
  *             incoming data, it should return 0.
+ *
+ *             When the input buffer fills up with retained bytes and
+ *             additional data is incoming, this callback is invoked
+ *             with the retained bytes only (no new data) to give the
+ *             application a chance to drain. If the callback then
+ *             returns a value less than \p input_data_len, the
+ *             freed-up space is used to copy in more incoming bytes.
+ *             If it returns the same value or larger, the
+ *             TCP_SOCKET_INPUT_OVERFLOW event is delivered to the
+ *             event callback and the receive window is closed.
  */
 typedef int (* tcp_socket_data_callback_t)(struct tcp_socket *s,
                                            void *ptr,
@@ -141,10 +163,15 @@ enum {
  *             hold the largest application layer message the
  *             application will send.
  *
- *             TCP throttles incoming data so that if the input buffer
- *             is filled, the connection will halt until the
- *             application has read out the data from the input
- *             buffer.
+ *             The receive window advertised on the wire is derived
+ *             from the actual headroom of the input buffer
+ *             (input_databuf_len minus retained bytes). The remote
+ *             host therefore throttles itself when the application
+ *             retains bytes via the data callback, and resumes
+ *             sending as the buffer is drained. If the input buffer
+ *             becomes completely full of retained bytes, the
+ *             TCP_SOCKET_INPUT_OVERFLOW event is delivered and the
+ *             connection should be closed.
  *
  */
 int tcp_socket_register(struct tcp_socket *s, void *ptr,

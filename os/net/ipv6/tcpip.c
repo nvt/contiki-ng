@@ -100,6 +100,7 @@ init_appstate(uip_tcp_appstate_t *as, void *state)
 {
   as->p = PROCESS_CURRENT();
   as->state = state;
+  as->tcp_recv_window = NULL;
 }
 #endif /* UIP_TCP || UIP_UDP */
 /*---------------------------------------------------------------------------*/

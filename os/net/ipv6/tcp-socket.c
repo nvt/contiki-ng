@@ -45,6 +45,7 @@
 #include <string.h>
 
 static void relisten(struct tcp_socket *s);
+static uint16_t recv_window(struct uip_conn *conn);
 
 LIST(socketlist);
 /*---------------------------------------------------------------------------*/
@@ -117,6 +118,46 @@ newdata(struct tcp_socket *s)
      data are copied down into the input buffer. */
   do {
     copylen = MIN(len, s->input_data_maxlen - bytesleft);
+
+    if(copylen == 0) {
+      uint16_t before = bytesleft;
+      if(before == 0) {
+        /* No incoming data and no retained data; nothing to do.
+           This guards against the appcall path firing newdata() with
+           an empty segment (for example shortly after connect when
+           UIP_NEWDATA is set but uip_len is 0). */
+        break;
+      }
+      /* The input buffer is full of retained data. Give the application
+         one chance to drain by invoking the callback with the retained
+         bytes only. If it drains at least one byte we can continue.
+         Otherwise notify the application via the event callback,
+         close the receive window with uip_stop() so the sender holds
+         the rest of its data on its side instead of having tcp-socket
+         silently drop ACK'd bytes, and abort processing of this
+         segment. */
+      if(s->input_callback != NULL) {
+        bytesleft = s->input_callback(s, s->ptr,
+                                      s->input_data_ptr, before);
+        if(bytesleft > before) {
+          PRINTF("tcp: newdata, callback retains more (%d) than in buffer (%d)\n",
+                 bytesleft, before);
+          bytesleft = before;
+        }
+        if(bytesleft > 0 && bytesleft < before) {
+          memmove(s->input_data_ptr,
+                  s->input_data_ptr + before - bytesleft, bytesleft);
+        }
+      }
+      if(bytesleft >= before) {
+        s->input_data_len = bytesleft;
+        uip_stop();
+        call_event(s, TCP_SOCKET_INPUT_OVERFLOW);
+        return;
+      }
+      continue;
+    }
+
     inputlen = copylen + bytesleft;
     memcpy(s->input_data_ptr + bytesleft, dataptr, copylen);
     if(s->input_callback) {
@@ -175,6 +216,7 @@ appcall(void *state)
 	  s->flags &= ~TCP_SOCKET_FLAGS_LISTENING;
           s->output_data_max_seg = uip_mss();
 	  tcp_markconn(uip_conn, s);
+	  uip_conn->appstate.tcp_recv_window = recv_window;
 	  call_event(s, TCP_SOCKET_CONNECTED);
 	  break;
 	}
@@ -313,9 +355,9 @@ tcp_socket_connect(struct tcp_socket *s,
   PROCESS_CONTEXT_END();
   if(s->c == NULL) {
     return -1;
-  } else {
-    return 1;
   }
+  s->c->appstate.tcp_recv_window = recv_window;
+  return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
@@ -416,6 +458,17 @@ int
 tcp_socket_queuelen(struct tcp_socket *s)
 {
   return s->output_data_len;
+}
+/*---------------------------------------------------------------------------*/
+static uint16_t
+recv_window(struct uip_conn *conn)
+{
+  struct tcp_socket *s = conn->appstate.state;
+
+  if(s != NULL && s->input_data_ptr != NULL) {
+    return s->input_data_maxlen - s->input_data_len;
+  }
+  return UIP_RECEIVE_WINDOW;
 }
 /*---------------------------------------------------------------------------*/
 #endif /* UIP_TCP */
