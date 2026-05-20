@@ -29,9 +29,6 @@
  *
  */
 
-#define DEBUG DEBUG_NONE
-#include "net/ipv6/uip-debug.h"
-
 #include "contiki.h"
 #include "sys/cc.h"
 #include "contiki-net.h"
@@ -39,6 +36,10 @@
 #include "lib/list.h"
 
 #include "tcp-socket.h"
+
+#include "sys/log.h"
+#define LOG_MODULE "tcp-sock"
+#define LOG_LEVEL LOG_LEVEL_TCPIP
 
 #if UIP_TCP
 
@@ -84,9 +85,8 @@ acked(struct tcp_socket *s)
               s->output_data_maxlen - s->output_data_send_nxt);
     }
     if(s->output_data_len < s->output_data_send_nxt) {
-      PRINTF("tcp: acked assertion failed s->output_data_len (%d) < s->output_data_send_nxt (%d)\n",
-             s->output_data_len,
-             s->output_data_send_nxt);
+      LOG_ERR("acked: assertion failed output_data_len (%u) < output_data_send_nxt (%u)\n",
+              s->output_data_len, s->output_data_send_nxt);
       tcp_markconn(uip_conn, NULL);
       uip_abort();
       call_event(s, TCP_SOCKET_ABORTED);
@@ -109,6 +109,9 @@ newdata(struct tcp_socket *s)
   len = uip_datalen();
   dataptr = uip_appdata;
   bytesleft = s->input_data_len;
+
+  LOG_DBG("newdata: %u bytes in segment, %u already retained, %u buffer free\n",
+          len, bytesleft, s->input_data_maxlen - bytesleft);
 
   /* We have a segment with data coming in. We copy as much data as
      possible into the input buffer and call the input callback
@@ -136,12 +139,14 @@ newdata(struct tcp_socket *s)
          the rest of its data on its side instead of having tcp-socket
          silently drop ACK'd bytes, and abort processing of this
          segment. */
+      LOG_DBG("newdata: buffer full, attempting drain-only callback (%u retained)\n",
+              before);
       if(s->input_callback != NULL) {
         bytesleft = s->input_callback(s, s->ptr,
                                       s->input_data_ptr, before);
         if(bytesleft > before) {
-          PRINTF("tcp: newdata, callback retains more (%d) than in buffer (%d)\n",
-                 bytesleft, before);
+          LOG_WARN("newdata: callback retained more (%u) than buffer (%u), clamping\n",
+                   bytesleft, before);
           bytesleft = before;
         }
         if(bytesleft > 0 && bytesleft < before) {
@@ -150,11 +155,14 @@ newdata(struct tcp_socket *s)
         }
       }
       if(bytesleft >= before) {
+        LOG_WARN("newdata: overflow, %u bytes still retained, calling uip_stop()\n",
+                 bytesleft);
         s->input_data_len = bytesleft;
         uip_stop();
         call_event(s, TCP_SOCKET_INPUT_OVERFLOW);
         return;
       }
+      LOG_DBG("newdata: drain freed %u bytes, resuming copy\n", before - bytesleft);
       continue;
     }
 
@@ -168,12 +176,14 @@ newdata(struct tcp_socket *s)
     }
     if(bytesleft > 0) {
       if(bytesleft > inputlen) {
-        PRINTF("tcp: newdata, tcp_socket_data_callback retains more data (%d)"
-              " than in buffer (%d)\n", bytesleft, inputlen);
+        LOG_WARN("newdata: callback retained more (%u) than in buffer (%u), clamping\n",
+                 bytesleft, inputlen);
         bytesleft = inputlen;
       }
       memmove(s->input_data_ptr, s->input_data_ptr + inputlen - bytesleft, bytesleft);
     }
+    LOG_DBG("newdata: callback consumed %u, retained %u (buffer %u/%u)\n",
+            inputlen - bytesleft, bytesleft, bytesleft, s->input_data_maxlen);
     dataptr += copylen;
     len -= copylen;
 
@@ -464,11 +474,16 @@ static uint16_t
 recv_window(struct uip_conn *conn)
 {
   struct tcp_socket *s = conn->appstate.state;
+  uint16_t wnd;
 
   if(s != NULL && s->input_data_ptr != NULL) {
-    return s->input_data_maxlen - s->input_data_len;
+    wnd = s->input_data_maxlen - s->input_data_len;
+    LOG_DBG("recv_window: %u (max %u, retained %u)\n",
+            wnd, s->input_data_maxlen, s->input_data_len);
+    return wnd;
   }
+  LOG_DBG("recv_window: socket not bound, returning default %u\n",
+          (unsigned)UIP_RECEIVE_WINDOW);
   return UIP_RECEIVE_WINDOW;
 }
-/*---------------------------------------------------------------------------*/
 #endif /* UIP_TCP */
