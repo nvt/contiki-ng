@@ -79,7 +79,8 @@ tunslip_open_tun(char *dev)
   }
 
   /* get resulting tunnel name */
-  strcpy(dev, ifr.ifr_name);
+  strncpy(dev, ifr.ifr_name, sizeof(ifr.ifr_name));
+  dev[sizeof(ifr.ifr_name) - 1] = '\0';
   return fd;
 }
 /*---------------------------------------------------------------------------*/
@@ -155,7 +156,7 @@ tunslip_ifconf(const char *tundev, const char *ipaddr)
         a[8 - i - n_elided] = 0;
       }
     }
-    sprintf(lladdr, "fe80::%x:%x:%x:%x", a[1] & 0xfefd, a[2], a[3], a[7]);
+    snprintf(lladdr, sizeof(lladdr), "fe80::%x:%x:%x:%x", a[1] & 0xfefd, a[2], a[3], a[7]);
     if(timestamp) {
       stamptime();
     }

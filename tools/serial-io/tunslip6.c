@@ -703,11 +703,10 @@ parse_args(int argc, char **argv, struct options *opt)
 
     case 't':
       if(strncmp("/dev/", optarg, 5) == 0) {
-        strncpy(tundev, optarg + 5, sizeof(tundev) - 1);
+        snprintf(tundev, sizeof(tundev), "%s", optarg + 5);
       } else {
-        strncpy(tundev, optarg, sizeof(tundev) - 1);
+        snprintf(tundev, sizeof(tundev), "%s", optarg);
       }
-      tundev[sizeof(tundev) - 1] = '\0';
       break;
 
     case 'a':
@@ -763,7 +762,7 @@ parse_args(int argc, char **argv, struct options *opt)
 #ifdef __APPLE__
   if(*tundev == '\0') {
     /* utun0-3 are in use on Big Sur, so use utun10 as default */
-    strcpy(tundev, "utun10");
+    snprintf(tundev, sizeof(tundev), "utun10");
   }
 #endif
 }
