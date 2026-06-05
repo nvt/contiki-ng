@@ -63,31 +63,31 @@
 #ifndef BAUDRATE
 #define BAUDRATE B115200
 #endif
-speed_t b_rate = BAUDRATE;
+static speed_t b_rate = BAUDRATE;
 
-int verbose = 2;
-const char *ipaddr;
-int slipfd = 0;
-uint16_t basedelay = 0, delaymsec = 0;
-uint32_t startsec, startmsec, delaystartsec, delaystartmsec;
-int timestamp = 0, flowcontrol = 0, showprogress = 0, flowcontrol_xonxoff = 0;
+static int verbose = 2;
+static const char *ipaddr;
+static int slipfd = 0;
+static uint16_t basedelay = 0, delaymsec = 0;
+static uint32_t delaystartsec, delaystartmsec;
+static int timestamp = 0, flowcontrol = 0, showprogress = 0, flowcontrol_xonxoff = 0;
 
-int ssystem(const char *fmt, ...)
+static int ssystem(const char *fmt, ...)
 __attribute__((__format__(__printf__, 1, 2)));
-void write_to_serial(void *inbuf, int len);
+static void write_to_serial(void *inbuf, int len);
 
-void slip_send(unsigned char c);
-void slip_send_char(unsigned char c);
+static void slip_send(unsigned char c);
+static void slip_send_char(unsigned char c);
 
 #define PROGRESS(s) if(showprogress) fprintf(stderr, s)
 
-char tundev[1024] = { "" };
+static char tundev[1024] = { "" };
 
 /* IPv6 required minimum MTU */
 #define MIN_DEVMTU 1500
-int devmtu = MIN_DEVMTU;
+static int devmtu = MIN_DEVMTU;
 /*---------------------------------------------------------------------------*/
-int
+static int
 ssystem(const char *fmt, ...)
 {
   char cmd[128];
@@ -111,7 +111,7 @@ ssystem(const char *fmt, ...)
 #define XOFF          19
 /*---------------------------------------------------------------------------*/
 /* get sockaddr, IPv4 or IPv6: */
-void *
+static void *
 get_in_addr(struct sockaddr *sa)
 {
   if(sa->sa_family == AF_INET) {
@@ -120,7 +120,7 @@ get_in_addr(struct sockaddr *sa)
   return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 stamptime(void)
 {
   static long startsecs = 0, startmsecs = 0;
@@ -151,7 +151,7 @@ stamptime(void)
   }
 }
 /*---------------------------------------------------------------------------*/
-int
+static int
 is_sensible_string(const unsigned char *s, int len)
 {
   int i;
@@ -200,7 +200,7 @@ print_packet_hex(const unsigned char *buf, int len)
  * Read from serial, when we have a packet write it to tun. No output
  * buffering, input buffered by stdio.
  */
-void
+static void
 serial_to_tun(FILE *inslip, int outfd)
 {
   static union {
@@ -421,10 +421,10 @@ after_fread:
  * packet: in the worst case every byte is escaped into two bytes, plus a
  * trailing SLIP_END delimiter.
  */
-unsigned char slip_buf[2 * TUN_BUFSIZE + 1];
-unsigned int slip_end, slip_begin;
+static unsigned char slip_buf[2 * TUN_BUFSIZE + 1];
+static unsigned int slip_end, slip_begin;
 /*---------------------------------------------------------------------------*/
-void
+static void
 slip_send_char(unsigned char c)
 {
   switch(c) {
@@ -458,7 +458,7 @@ slip_send_char(unsigned char c)
   }
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 slip_send(unsigned char c)
 {
   if(slip_end >= sizeof(slip_buf)) {
@@ -468,13 +468,13 @@ slip_send(unsigned char c)
   slip_end++;
 }
 /*---------------------------------------------------------------------------*/
-int
+static int
 slip_empty()
 {
   return slip_end == 0;
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 slip_flushbuf(int fd)
 {
   int n;
@@ -497,7 +497,7 @@ slip_flushbuf(int fd)
   }
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 write_to_serial(void *inbuf, int len)
 {
   u_int8_t *p = inbuf;
@@ -527,7 +527,7 @@ write_to_serial(void *inbuf, int len)
 /*
  * Read from tun, write to slip.
  */
-int
+static int
 tun_to_serial(int infd)
 {
   struct {
@@ -555,7 +555,7 @@ tun_to_serial(int infd)
   return size;
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 stty_telos(int fd)
 {
   struct termios tty;
@@ -619,7 +619,7 @@ stty_telos(int fd)
   }
 }
 /*---------------------------------------------------------------------------*/
-int
+static int
 devopen(const char *dev, int flags)
 {
   char t[1024];
@@ -631,7 +631,7 @@ devopen(const char *dev, int flags)
 #include <linux/if.h>
 #include <linux/if_tun.h>
 
-int
+static int
 tun_alloc(char *dev, int tap)
 {
   struct ifreq ifr;
@@ -675,7 +675,7 @@ tun_alloc(char *dev, int tap)
  * Reference for utun on macOS:
  * http://newosxbook.com/src.jl?tree=listings&file=17-15-utun.c
  */
-int
+static int
 tun_alloc(char *dev, int tap)
 {
   struct sockaddr_ctl sc;
@@ -733,14 +733,14 @@ tun_alloc(char *dev, int tap)
   return fd;
 }
 #else
-int
+static int
 tun_alloc(char *dev, int tap)
 {
   return devopen(dev, O_RDWR);
 }
 #endif
 /*---------------------------------------------------------------------------*/
-void
+static void
 cleanup(void)
 {
 #ifndef __APPLE__
@@ -774,7 +774,7 @@ cleanup(void)
 /*---------------------------------------------------------------------------*/
 static volatile sig_atomic_t should_exit;
 /*---------------------------------------------------------------------------*/
-void
+static void
 sigcleanup(int signo)
 {
   /*
@@ -787,14 +787,14 @@ sigcleanup(int signo)
 /*---------------------------------------------------------------------------*/
 static volatile sig_atomic_t got_sigalarm;
 /*---------------------------------------------------------------------------*/
-void
+static void
 sigalarm(int signo)
 {
   (void)signo;
   got_sigalarm = 1;
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 sigalarm_reset()
 {
 #ifdef linux
@@ -806,7 +806,7 @@ sigalarm_reset()
   got_sigalarm = 0;
 }
 /*---------------------------------------------------------------------------*/
-void
+static void
 ifconf(const char *tundev, const char *ipaddr)
 {
 #ifdef linux
