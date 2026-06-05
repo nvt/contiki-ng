@@ -166,8 +166,7 @@ stamptime(void)
 static bool
 is_sensible_string(const unsigned char *s, int len)
 {
-  int i;
-  for(i = 1; i < len; i++) {
+  for(int i = 1; i < len; i++) {
     if(s[i] == 0 || s[i] == '\r' || s[i] == '\n' || s[i] == '\t') {
       continue;
     } else if(s[i] < ' ' || '~' < s[i]) {
@@ -187,15 +186,14 @@ is_sensible_string(const unsigned char *s, int len)
 static void
 print_packet_hex(const unsigned char *buf, int len)
 {
-  int i;
 #if WIRESHARK_IMPORT_FORMAT
   printf("0000");
-  for(i = 0; i < len; i++) {
+  for(int i = 0; i < len; i++) {
     printf(" %02x", buf[i]);
   }
 #else
   printf("         ");
-  for(i = 0; i < len; i++) {
+  for(int i = 0; i < len; i++) {
     printf("%02x", buf[i]);
     if((i & 3) == 3) {
       printf(" ");
@@ -299,7 +297,6 @@ after_fread:
         if(inbufptr >= 2 && inbuf[1] == 'P') {
           /* Prefix info requested */
           struct in6_addr addr;
-          int i;
           char *s = strchr(ipaddr, '/');
           if(s != NULL) {
             *s = '\0';
@@ -318,7 +315,7 @@ after_fread:
                     addr.s6_addr[6], addr.s6_addr[7]);
             slip_send('!');
             slip_send('P');
-            for(i = 0; i < 8; i++) {
+            for(int i = 0; i < 8; i++) {
               /* need to call the slip_send_char for stuffing */
               slip_send_char(addr.s6_addr[i]);
             }
@@ -509,7 +506,6 @@ static void
 write_to_serial(const void *inbuf, int len)
 {
   const uint8_t *p = inbuf;
-  int i;
 
   if(verbose > 2) {
     if(timestamp) {
@@ -525,7 +521,7 @@ write_to_serial(const void *inbuf, int len)
    * really necessary.
    */
 
-  for(i = 0; i < len; i++) {
+  for(int i = 0; i < len; i++) {
     slip_send_char(p[i]);
   }
   slip_send(SLIP_END);
@@ -835,7 +831,7 @@ ifconf(const char *tundev, const char *ipaddr)
   {
     char lladdr[40];
     char c, *ptr = (char *)ipaddr;
-    uint16_t digit, ai, a[8], cc, scc, i;
+    uint16_t digit, ai, a[8], cc, scc;
     for(ai = 0; ai < 8; ai++) {
       a[ai] = 0;
     }
@@ -864,7 +860,7 @@ ifconf(const char *tundev, const char *ipaddr)
     }
     /* Get # elided and shift what's after to the end */
     cc = 8 - ai;
-    for(i = 0; i < cc; i++) {
+    for(uint16_t i = 0; i < cc; i++) {
       if((8 - i - cc) <= scc) {
         a[7 - i] = 0;
       } else {
@@ -1158,8 +1154,7 @@ main(int argc, char **argv)
       static const char *siodevs[] = {
         "ttyUSB0", "cuaU0", "ucom0" /* linux, fbsd6, fbsd5 */
       };
-      int i;
-      for(i = 0; i < 3; i++) {
+      for(int i = 0; i < 3; i++) {
         siodev = siodevs[i];
         slipfd = devopen(siodev, O_RDWR | O_NONBLOCK);
         if(slipfd != -1) {
