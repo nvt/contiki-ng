@@ -879,29 +879,18 @@ ifconf(const char *tundev, const char *ipaddr)
   }
 #endif /* link local */
 #elif defined(__APPLE__)
-  {
-    char *itfaddr = strdup(ipaddr);
-    char *prefix = index(itfaddr, '/');
-    if(prefix != NULL) {
-      *prefix = '\0';
-      prefix++;
-    } else {
-      prefix = "64";
-    }
-    if(timestamp) {
-      stamptime();
-    }
-    ssystem("ifconfig %s inet6 mtu %d up", tundev, devmtu);
-    if(timestamp) {
-      stamptime();
-    }
-    ssystem("ifconfig %s inet6 %s add", tundev, ipaddr);
-    if(timestamp) {
-      stamptime();
-    }
-    ssystem("sysctl -w net.inet6.ip6.forwarding=1");
-    free(itfaddr);
+  if(timestamp) {
+    stamptime();
   }
+  ssystem("ifconfig %s inet6 mtu %d up", tundev, devmtu);
+  if(timestamp) {
+    stamptime();
+  }
+  ssystem("ifconfig %s inet6 %s add", tundev, ipaddr);
+  if(timestamp) {
+    stamptime();
+  }
+  ssystem("sysctl -w net.inet6.ip6.forwarding=1");
 #else
   if(timestamp) {
     stamptime();
