@@ -525,35 +525,7 @@ write_to_serial(void *inbuf, int len)
    */
 
   for(i = 0; i < len; i++) {
-    switch(p[i]) {
-    case SLIP_END:
-      slip_send(SLIP_ESC);
-      slip_send(SLIP_ESC_END);
-      break;
-    case SLIP_ESC:
-      slip_send(SLIP_ESC);
-      slip_send(SLIP_ESC_ESC);
-      break;
-    case XON:
-      if(flowcontrol_xonxoff) {
-        slip_send(SLIP_ESC);
-        slip_send(SLIP_ESC_XON);
-      } else {
-        slip_send(p[i]);
-      }
-      break;
-    case XOFF:
-      if(flowcontrol_xonxoff) {
-        slip_send(SLIP_ESC);
-        slip_send(SLIP_ESC_XOFF);
-      } else {
-        slip_send(p[i]);
-      }
-      break;
-    default:
-      slip_send(p[i]);
-      break;
-    }
+    slip_send_char(p[i]);
   }
   slip_send(SLIP_END);
   PROGRESS("t");
