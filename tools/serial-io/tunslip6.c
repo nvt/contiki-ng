@@ -172,6 +172,30 @@ is_sensible_string(const unsigned char *s, int len)
   return 1;
 }
 /*---------------------------------------------------------------------------*/
+static void
+print_packet_hex(const unsigned char *buf, int len)
+{
+  int i;
+#if WIRESHARK_IMPORT_FORMAT
+  printf("0000");
+  for(i = 0; i < len; i++) {
+    printf(" %02x", buf[i]);
+  }
+#else
+  printf("         ");
+  for(i = 0; i < len; i++) {
+    printf("%02x", buf[i]);
+    if((i & 3) == 3) {
+      printf(" ");
+    }
+    if((i & 15) == 15) {
+      printf("\n         ");
+    }
+  }
+#endif
+  printf("\n");
+}
+/*---------------------------------------------------------------------------*/
 /*
  * Read from serial, when we have a packet write it to tun. No output
  * buffering, input buffered by stdio.
@@ -183,7 +207,7 @@ serial_to_tun(FILE *inslip, int outfd)
     unsigned char inbuf[2000];
   } uip;
   static int inbufptr = 0;
-  int ret, i;
+  int ret;
   unsigned char c;
 
 #ifdef linux
@@ -305,24 +329,7 @@ after_fread:
           }
           printf("Packet from SLIP of length %d - write TUN\n", inbufptr);
           if(verbose > 4) {
-#if WIRESHARK_IMPORT_FORMAT
-            printf("0000");
-            for(i = 0; i < inbufptr; i++) {
-              printf(" %02x", uip.inbuf[i]);
-            }
-#else
-            printf("         ");
-            for(i = 0; i < inbufptr; i++) {
-              printf("%02x", uip.inbuf[i]);
-              if((i & 3) == 3) {
-                printf(" ");
-              }
-              if((i & 15) == 15) {
-                printf("\n         ");
-              }
-            }
-#endif
-            printf("\n");
+            print_packet_hex(uip.inbuf, inbufptr);
           }
         }
 
@@ -499,24 +506,7 @@ write_to_serial(void *inbuf, int len)
     }
     printf("Packet from TUN of length %d - write SLIP\n", len);
     if(verbose > 4) {
-#if WIRESHARK_IMPORT_FORMAT
-      printf("0000");
-      for(i = 0; i < len; i++) {
-        printf(" %02x", p[i]);
-      }
-#else
-      printf("         ");
-      for(i = 0; i < len; i++) {
-        printf("%02x", p[i]);
-        if((i & 3) == 3) {
-          printf(" ");
-        }
-        if((i & 15) == 15) {
-          printf("\n         ");
-        }
-      }
-#endif
-      printf("\n");
+      print_packet_hex(p, len);
     }
   }
 
