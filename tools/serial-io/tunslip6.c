@@ -597,27 +597,6 @@ sigcleanup(int signo)
   should_exit = signo;
 }
 /*---------------------------------------------------------------------------*/
-static volatile sig_atomic_t got_sigalarm;
-/*---------------------------------------------------------------------------*/
-static void
-sigalarm(int signo)
-{
-  (void)signo;
-  got_sigalarm = 1;
-}
-/*---------------------------------------------------------------------------*/
-static void
-sigalarm_reset()
-{
-#ifdef linux
-#define TIMEOUT (997 * 1000)
-#else
-#define TIMEOUT (2451 * 1000)
-#endif
-  ualarm(TIMEOUT, TIMEOUT);
-  got_sigalarm = 0;
-}
-/*---------------------------------------------------------------------------*/
 static void
 print_usage(const char *prog)
 {
@@ -631,7 +610,6 @@ print_usage(const char *prog)
 #endif
   fprintf(stderr, " -P             Show progress\n");
   fprintf(stderr, " -H             Hardware CTS/RTS flow control (default disabled)\n");
-  fprintf(stderr, " -I             Inquire IP address\n");
   fprintf(stderr, " -X             Software XON/XOFF flow control (default disabled)\n");
   fprintf(stderr, " -L             Log output format (adds time stamps)\n");
   fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
@@ -673,7 +651,6 @@ struct options {
   const char *siodev;   /* serial device, or NULL to probe defaults */
   const char *host;     /* TCP server host, or NULL to use a serial device */
   const char *port;     /* TCP server port */
-  int ipa_enable;       /* -I: inquire about the IP address */
 };
 /*---------------------------------------------------------------------------*/
 static void
@@ -686,9 +663,8 @@ parse_args(int argc, char **argv, struct options *opt)
   opt->siodev = NULL;
   opt->host = NULL;
   opt->port = NULL;
-  opt->ipa_enable = 0;
 
-  while((c = getopt(argc, argv, "B:HILPhXM:s:t:v::d::a:p:")) != -1) {
+  while((c = getopt(argc, argv, "B:HLPhXM:s:t:v::d::a:p:")) != -1) {
     switch(c) {
     case 'B':
       baudrate = atoi(optarg);
@@ -723,11 +699,6 @@ parse_args(int argc, char **argv, struct options *opt)
       } else {
         opt->siodev = optarg;
       }
-      break;
-
-    case 'I':
-      opt->ipa_enable = 1;
-      fprintf(stderr, "Will inquire about IP address using IPA=\n");
       break;
 
     case 't':
@@ -772,7 +743,7 @@ parse_args(int argc, char **argv, struct options *opt)
   argv += optind - 1;
 
   if(argc != 2 && argc != 3) {
-    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-t tundev] "
+    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-X] [-L] [-s siodev] [-M] [-t tundev] "
 #ifdef __APPLE__
          "[-v level] [-d basedelay] "
 #else
@@ -889,11 +860,10 @@ setup_signal_handlers(void)
   signal(SIGHUP, sigcleanup);
   signal(SIGTERM, sigcleanup);
   signal(SIGINT, sigcleanup);
-  signal(SIGALRM, sigalarm);
 }
 /*---------------------------------------------------------------------------*/
 static void
-event_loop(FILE *inslip, int tunfd, int ipa_enable)
+event_loop(FILE *inslip, int tunfd)
 {
   fd_set rset, wset;
   int maxfd, ret;
@@ -907,16 +877,6 @@ event_loop(FILE *inslip, int tunfd, int ipa_enable)
     maxfd = 0;
     FD_ZERO(&rset);
     FD_ZERO(&wset);
-
-    if(got_sigalarm && ipa_enable) {
-      /* Send "?IPA". */
-      slip_send('?');
-      slip_send('I');
-      slip_send('P');
-      slip_send('A');
-      slip_send(SLIP_END);
-      got_sigalarm = 0;
-    }
 
     if(!slip_empty()) {   /* Anything to flush? */
       FD_SET(slipfd, &wset);
@@ -945,9 +905,6 @@ event_loop(FILE *inslip, int tunfd, int ipa_enable)
 
       if(FD_ISSET(slipfd, &wset)) {
         slip_flushbuf(slipfd);
-        if(ipa_enable) {
-          sigalarm_reset();
-        }
       }
 
       /* Optional delay between outgoing packets */
@@ -970,9 +927,6 @@ event_loop(FILE *inslip, int tunfd, int ipa_enable)
         if(slip_empty() && FD_ISSET(tunfd, &rset)) {
           tun_to_serial(tunfd);
           slip_flushbuf(slipfd);
-          if(ipa_enable) {
-            sigalarm_reset();
-          }
           if(basedelay) {
             struct timeval tv;
             if(gettimeofday(&tv, NULL) == -1) {
@@ -1023,7 +977,7 @@ main(int argc, char **argv)
   setup_signal_handlers();
   tunslip_ifconf(tundev, ipaddr);
 
-  event_loop(inslip, tunfd, opt.ipa_enable);
+  event_loop(inslip, tunfd);
   return 0;
 }
 /*---------------------------------------------------------------------------*/
