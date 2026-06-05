@@ -52,6 +52,7 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <sys/uio.h>
+#include <sys/wait.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -104,12 +105,24 @@ ssystem(const char *fmt, ...)
 {
   char cmd[128];
   va_list ap;
+  int ret;
+
   va_start(ap, fmt);
   vsnprintf(cmd, sizeof(cmd), fmt, ap);
   va_end(ap);
   printf("%s\n", cmd);
   fflush(stdout);
-  return system(cmd);
+
+  ret = system(cmd);
+  if(ret == -1) {
+    fprintf(stderr, "*** failed to run ``%s'': %s\n", cmd, strerror(errno));
+  } else if(WIFSIGNALED(ret)) {
+    fprintf(stderr, "*** ``%s'' terminated by signal %d\n", cmd, WTERMSIG(ret));
+  } else if(WIFEXITED(ret) && WEXITSTATUS(ret) != 0) {
+    fprintf(stderr, "*** ``%s'' exited with status %d\n",
+            cmd, WEXITSTATUS(ret));
+  }
+  return ret;
 }
 /*---------------------------------------------------------------------------*/
 #define SLIP_END      0300
