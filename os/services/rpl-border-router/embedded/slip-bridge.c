@@ -85,22 +85,6 @@ slip_input_callback(void)
       set_prefix_64(&prefix);
     }
     uipbuf_clear();
-
-  } else if(uip_buf[0] == '?') {
-    LOG_INFO("Got request message of type %c\n", uip_buf[1]);
-    if(uip_buf[1] == 'M') {
-      char *hexchar = "0123456789abcdef";
-      int j;
-      /* this is just a test so far... just to see if it works */
-      uip_buf[0] = '!';
-      for(j = 0; j < UIP_LLADDR_LEN; j++) {
-        uip_buf[2 + j * 2] = hexchar[uip_lladdr.addr[j] >> 4];
-        uip_buf[3 + j * 2] = hexchar[uip_lladdr.addr[j] & 15];
-      }
-      uip_len = 18;
-      slip_write(uip_buf, uip_len);
-    }
-    uipbuf_clear();
   } else {
     /* Save the last sender received over SLIP to avoid bouncing the
        packet back if no route is found */
