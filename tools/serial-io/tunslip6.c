@@ -66,7 +66,7 @@
 #ifndef BAUDRATE
 #define BAUDRATE B115200
 #endif
-static speed_t b_rate = BAUDRATE;
+static speed_t baud_speed = BAUDRATE;
 
 static int verbose = 2;
 static const char *ipaddr;
@@ -76,7 +76,7 @@ static uint32_t delaystartsec, delaystartmsec;
 static bool timestamp = false, flowcontrol = false, showprogress = false,
             flowcontrol_xonxoff = false;
 
-static int ssystem(const char *fmt, ...)
+static int run_command(const char *fmt, ...)
 __attribute__((__format__(__printf__, 1, 2)));
 static void write_to_serial(const void *inbuf, int len);
 
@@ -101,7 +101,7 @@ progress(const char *s)
 }
 /*---------------------------------------------------------------------------*/
 static int
-ssystem(const char *fmt, ...)
+run_command(const char *fmt, ...)
 {
   char cmd[128];
   va_list ap;
@@ -303,15 +303,15 @@ after_fread:
             if(timestamp) {
               stamptime();
             }
-            ssystem("ifconfig %s down", tundev);
+            run_command("ifconfig %s down", tundev);
             if(timestamp) {
               stamptime();
             }
-            ssystem("ifconfig %s hw ether %s", tundev, &macs[6]);
+            run_command("ifconfig %s hw ether %s", tundev, &macs[6]);
             if(timestamp) {
               stamptime();
             }
-            ssystem("ifconfig %s up", tundev);
+            run_command("ifconfig %s up", tundev);
           }
         }
       } else if(inbuf[0] == '?') {
@@ -579,11 +579,11 @@ tun_to_serial(int infd)
 }
 /*---------------------------------------------------------------------------*/
 static void
-stty_telos(int fd)
+configure_tty(int fd)
 {
   struct termios tty;
-  speed_t speed = b_rate;
-  int i;
+  speed_t speed = baud_speed;
+  int modem_bits;
 
   if(tcflush(fd, TCIOFLUSH) == -1) {
     err(EXIT_FAILURE, "tcflush");
@@ -628,8 +628,8 @@ stty_telos(int fd)
     err(EXIT_FAILURE, "tcsetattr");
   }
 
-  i = TIOCM_DTR;
-  if(ioctl(fd, TIOCMBIS, &i) == -1) {
+  modem_bits = TIOCM_DTR;
+  if(ioctl(fd, TIOCMBIS, &modem_bits) == -1) {
     err(EXIT_FAILURE, "ioctl");
   }
 #endif
@@ -658,7 +658,7 @@ static int
 tun_alloc(char *dev, int tap)
 {
   struct ifreq ifr;
-  int fd, err;
+  int fd, ret;
 
   if((fd = open("/dev/net/tun", O_RDWR)) < 0) {
     perror("can not open /dev/net/tun");
@@ -678,11 +678,11 @@ tun_alloc(char *dev, int tap)
     ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
   }
 
-  if((err = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
+  if((ret = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
     close(fd);
     fprintf(stderr, "can not tunsetiff to %s (flags=%08x): %s\n", dev, ifr.ifr_flags,
             strerror(errno));
-    return err;
+    return ret;
   }
 
   /* get resulting tunnel name */
@@ -765,7 +765,7 @@ tun_alloc(char *dev, int tap)
 /*---------------------------------------------------------------------------*/
 /*
  * Restore the host network configuration at exit. Every command here is
- * best-effort: ssystem() reports any failure, but cleanup() deliberately
+ * best-effort: run_command() reports any failure, but cleanup() deliberately
  * runs all of them and never aborts, since some (e.g. removing a route that
  * is already gone) can fail harmlessly during shutdown.
  */
@@ -777,27 +777,27 @@ cleanup(void)
   if(timestamp) {
     stamptime();
   }
-  ssystem("ifconfig %s down", tundev);
+  run_command("ifconfig %s down", tundev);
 #ifndef linux
-  ssystem("sysctl -w net.ipv6.conf.all.forwarding=1");
+  run_command("sysctl -w net.ipv6.conf.all.forwarding=1");
 #endif
   if(timestamp) {
     stamptime();
   }
-  ssystem("netstat -nr"
-          " | awk '{ if ($2 == \"%s\") print \"route delete -net \"$1; }'"
-          " | sh",
-          tundev);
+  run_command("netstat -nr"
+              " | awk '{ if ($2 == \"%s\") print \"route delete -net \"$1; }'"
+              " | sh",
+              tundev);
 #else
   {
     if(timestamp) {
       stamptime();
     }
-    ssystem("ifconfig %s inet6 %s remove", tundev, ipaddr);
+    run_command("ifconfig %s inet6 %s remove", tundev, ipaddr);
     if(timestamp) {
       stamptime();
     }
-    ssystem("ifconfig %s down", tundev);
+    run_command("ifconfig %s down", tundev);
   }
 #endif
 }
@@ -843,42 +843,42 @@ ifconf(const char *tundev, const char *ipaddr)
   if(timestamp) {
     stamptime();
   }
-  ssystem("ifconfig %s inet `hostname` mtu %d up", tundev, devmtu);
+  run_command("ifconfig %s inet `hostname` mtu %d up", tundev, devmtu);
   if(timestamp) {
     stamptime();
   }
-  ssystem("ifconfig %s add %s", tundev, ipaddr);
+  run_command("ifconfig %s add %s", tundev, ipaddr);
 
 /* radvd needs a link local address for routing */
 #if 0
 /* fe80::1/64 is good enough */
-  ssystem("ifconfig %s add fe80::1/64", tundev);
+  run_command("ifconfig %s add fe80::1/64", tundev);
 #elif 1
 /* Generate a link local address a la sixxs/aiccu */
 /* First a full parse, stripping off the prefix length */
   {
     char lladdr[40];
     char c, *ptr = (char *)ipaddr;
-    uint16_t digit, ai, a[8], cc, scc;
+    uint16_t digit, ai, a[8], colon_seen, double_colon_pos, n_elided;
     for(ai = 0; ai < 8; ai++) {
       a[ai] = 0;
     }
     ai = 0;
-    cc = scc = 0;
+    colon_seen = double_colon_pos = 0;
     while((c = *ptr++) != 0) {
       if(c == '/') {
         break;
       }
       if(c == ':') {
-        if(cc) {
-          scc = ai;
+        if(colon_seen) {
+          double_colon_pos = ai;
         }
-        cc = 1;
+        colon_seen = 1;
         if(++ai > 7) {
           break;
         }
       } else {
-        cc = 0;
+        colon_seen = 0;
         digit = c - '0';
         if(digit > 9) {
           digit = 10 + (c & 0xdf) - 'A';
@@ -887,50 +887,50 @@ ifconf(const char *tundev, const char *ipaddr)
       }
     }
     /* Get # elided and shift what's after to the end */
-    cc = 8 - ai;
-    for(uint16_t i = 0; i < cc; i++) {
-      if(8 - i - cc <= scc) {
+    n_elided = 8 - ai;
+    for(uint16_t i = 0; i < n_elided; i++) {
+      if(8 - i - n_elided <= double_colon_pos) {
         a[7 - i] = 0;
       } else {
-        a[7 - i] = a[8 - i - cc];
-        a[8 - i - cc] = 0;
+        a[7 - i] = a[8 - i - n_elided];
+        a[8 - i - n_elided] = 0;
       }
     }
     sprintf(lladdr, "fe80::%x:%x:%x:%x", a[1] & 0xfefd, a[2], a[3], a[7]);
     if(timestamp) {
       stamptime();
     }
-    ssystem("ifconfig %s add %s/64", tundev, lladdr);
+    run_command("ifconfig %s add %s/64", tundev, lladdr);
   }
 #endif /* link local */
 #elif defined(__APPLE__)
   if(timestamp) {
     stamptime();
   }
-  ssystem("ifconfig %s inet6 mtu %d up", tundev, devmtu);
+  run_command("ifconfig %s inet6 mtu %d up", tundev, devmtu);
   if(timestamp) {
     stamptime();
   }
-  ssystem("ifconfig %s inet6 %s add", tundev, ipaddr);
+  run_command("ifconfig %s inet6 %s add", tundev, ipaddr);
   if(timestamp) {
     stamptime();
   }
-  ssystem("sysctl -w net.inet6.ip6.forwarding=1");
+  run_command("sysctl -w net.inet6.ip6.forwarding=1");
 #else
   if(timestamp) {
     stamptime();
   }
-  ssystem("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu);
+  run_command("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu);
   if(timestamp) {
     stamptime();
   }
-  ssystem("sysctl -w net.inet.ip.forwarding=1");
+  run_command("sysctl -w net.inet.ip.forwarding=1");
 #endif /* !linux */
 
   if(timestamp) {
     stamptime();
   }
-  ssystem("ifconfig %s\n", tundev);
+  run_command("ifconfig %s\n", tundev);
 }
 /*---------------------------------------------------------------------------*/
 int
@@ -1100,8 +1100,8 @@ main(int argc, char **argv)
   ipaddr = argv[1];
 
   if(baudrate != -2) { /* -2: use default baudrate */
-    b_rate = select_baudrate(baudrate);
-    if(b_rate == 0) {
+    baud_speed = select_baudrate(baudrate);
+    if(baud_speed == 0) {
       errx(EXIT_FAILURE, "unknown baudrate %d", baudrate);
     }
   }
@@ -1187,7 +1187,7 @@ main(int argc, char **argv)
       stamptime();
     }
     fprintf(stderr, "********SLIP started on ``/dev/%s''\n", siodev);
-    stty_telos(slipfd);
+    configure_tty(slipfd);
   }
   slip_send(SLIP_END);
   inslip = fdopen(slipfd, "r");
