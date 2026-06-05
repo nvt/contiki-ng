@@ -218,7 +218,7 @@ after_fread:
   case SLIP_END:
     if(inbufptr > 0) {
       if(uip.inbuf[0] == '!') {
-        if(uip.inbuf[1] == 'M') {
+        if(inbufptr >= 18 && uip.inbuf[1] == 'M') {
           /* Read gateway MAC address and autoconfigure tap0 interface */
           char macs[24];
           int i, pos;
@@ -247,7 +247,7 @@ after_fread:
           ssystem("ifconfig %s up", tundev);
         }
       } else if(uip.inbuf[0] == '?') {
-        if(uip.inbuf[1] == 'P') {
+        if(inbufptr >= 2 && uip.inbuf[1] == 'P') {
           /* Prefix info requested */
           struct in6_addr addr;
           int i;
