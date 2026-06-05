@@ -294,23 +294,26 @@ after_fread:
           if(s != NULL) {
             *s = '\0';
           }
-          inet_pton(AF_INET6, ipaddr, &addr);
-          if(timestamp) {
-            stamptime();
+          if(inet_pton(AF_INET6, ipaddr, &addr) != 1) {
+            fprintf(stderr, "*** invalid IPv6 address ``%s''\n", ipaddr);
+          } else {
+            if(timestamp) {
+              stamptime();
+            }
+            fprintf(stderr, "*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
+                    ipaddr,
+                    addr.s6_addr[0], addr.s6_addr[1],
+                    addr.s6_addr[2], addr.s6_addr[3],
+                    addr.s6_addr[4], addr.s6_addr[5],
+                    addr.s6_addr[6], addr.s6_addr[7]);
+            slip_send('!');
+            slip_send('P');
+            for(i = 0; i < 8; i++) {
+              /* need to call the slip_send_char for stuffing */
+              slip_send_char(addr.s6_addr[i]);
+            }
+            slip_send(SLIP_END);
           }
-          fprintf(stderr, "*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
-                  ipaddr,
-                  addr.s6_addr[0], addr.s6_addr[1],
-                  addr.s6_addr[2], addr.s6_addr[3],
-                  addr.s6_addr[4], addr.s6_addr[5],
-                  addr.s6_addr[6], addr.s6_addr[7]);
-          slip_send('!');
-          slip_send('P');
-          for(i = 0; i < 8; i++) {
-            /* need to call the slip_send_char for stuffing */
-            slip_send_char(addr.s6_addr[i]);
-          }
-          slip_send(SLIP_END);
         }
 #define DEBUG_LINE_MARKER '\r'
       } else if(uip.inbuf[0] == DEBUG_LINE_MARKER) {
@@ -1129,7 +1132,9 @@ main(int argc, char **argv)
       errx(EXIT_FAILURE, "can't connect to ``%s:%s''", host, port);
     }
 
-    fcntl(slipfd, F_SETFL, O_NONBLOCK);
+    if(fcntl(slipfd, F_SETFL, O_NONBLOCK) == -1) {
+      err(EXIT_FAILURE, "fcntl(F_SETFL, O_NONBLOCK)");
+    }
 
     inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
               s, sizeof(s));
