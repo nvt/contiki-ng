@@ -852,6 +852,42 @@ setup_signal_handlers(void)
   signal(SIGINT, sigcleanup);
 }
 /*---------------------------------------------------------------------------*/
+/* Clear the inter-packet delay once its configured interval has elapsed. */
+static void
+update_delay(void)
+{
+  struct timeval tv;
+  int dmsec;
+
+  if(!delaymsec) {
+    return;
+  }
+  if(gettimeofday(&tv, NULL) == -1) {
+    err(EXIT_FAILURE, "gettimeofday");
+  }
+  dmsec = (tv.tv_sec - delaystartsec) * 1000 + tv.tv_usec / 1000 - delaystartmsec;
+  if(dmsec < 0 || dmsec > delaymsec) {
+    delaymsec = 0;
+  }
+}
+/*---------------------------------------------------------------------------*/
+/* Read a packet from tun, SLIP-encode it, and arm the base delay if set. */
+static void
+forward_tun_to_serial(int tunfd)
+{
+  tun_to_serial(tunfd);
+  slip_flushbuf(slipfd);
+  if(basedelay) {
+    struct timeval tv;
+    if(gettimeofday(&tv, NULL) == -1) {
+      err(EXIT_FAILURE, "gettimeofday");
+    }
+    delaymsec = basedelay;
+    delaystartsec = tv.tv_sec;
+    delaystartmsec = tv.tv_usec / 1000;
+  }
+}
+/*---------------------------------------------------------------------------*/
 static void
 event_loop(FILE *inslip, int tunfd)
 {
@@ -897,36 +933,11 @@ event_loop(FILE *inslip, int tunfd)
         slip_flushbuf(slipfd);
       }
 
-      /* Optional delay between outgoing packets */
-      /* Base delay times number of 6lowpan fragments to be sent */
-      if(delaymsec) {
-        struct timeval tv;
-        int dmsec;
-        if(gettimeofday(&tv, NULL) == -1) {
-          err(EXIT_FAILURE, "gettimeofday");
-        }
-        dmsec = (tv.tv_sec - delaystartsec) * 1000 + tv.tv_usec / 1000 - delaystartmsec;
-        if(dmsec < 0) {
-          delaymsec = 0;
-        }
-        if(dmsec > delaymsec) {
-          delaymsec = 0;
-        }
-      }
-      if(delaymsec == 0) {
-        if(slip_empty() && FD_ISSET(tunfd, &rset)) {
-          tun_to_serial(tunfd);
-          slip_flushbuf(slipfd);
-          if(basedelay) {
-            struct timeval tv;
-            if(gettimeofday(&tv, NULL) == -1) {
-              err(EXIT_FAILURE, "gettimeofday");
-            }
-            delaymsec = basedelay;
-            delaystartsec = tv.tv_sec;
-            delaystartmsec = tv.tv_usec / 1000;
-          }
-        }
+      /* Optional delay between outgoing packets: base delay times the
+         number of 6LoWPAN fragments to be sent. */
+      update_delay();
+      if(delaymsec == 0 && slip_empty() && FD_ISSET(tunfd, &rset)) {
+        forward_tun_to_serial(tunfd);
       }
     }
   }
