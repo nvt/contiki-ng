@@ -87,7 +87,7 @@ char tundev[1024] = { "" };
 /* IPv6 required minimum MTU */
 #define MIN_DEVMTU 1500
 int devmtu = MIN_DEVMTU;
-
+/*---------------------------------------------------------------------------*/
 int
 ssystem(const char *fmt, ...) __attribute__((__format__(__printf__, 1, 2)));
 
@@ -103,6 +103,7 @@ ssystem(const char *fmt, ...)
   fflush(stdout);
   return system(cmd);
 }
+/*---------------------------------------------------------------------------*/
 #define SLIP_END      0300
 #define SLIP_ESC      0333
 #define SLIP_ESC_END  0334
@@ -112,7 +113,7 @@ ssystem(const char *fmt, ...)
 #define SLIP_ESC_XOFF 0337
 #define XON           17
 #define XOFF          19
-
+/*---------------------------------------------------------------------------*/
 /* get sockaddr, IPv4 or IPv6: */
 void *
 get_in_addr(struct sockaddr *sa)
@@ -122,6 +123,7 @@ get_in_addr(struct sockaddr *sa)
   }
   return &(((struct sockaddr_in6 *)sa)->sin6_addr);
 }
+/*---------------------------------------------------------------------------*/
 void
 stamptime(void)
 {
@@ -153,6 +155,7 @@ stamptime(void)
     fprintf(stderr, "\n%s ", timec);
   }
 }
+/*---------------------------------------------------------------------------*/
 int
 is_sensible_string(const unsigned char *s, int len)
 {
@@ -173,6 +176,7 @@ is_sensible_string(const unsigned char *s, int len)
 
   return 1;
 }
+/*---------------------------------------------------------------------------*/
 /*
  * Read from serial, when we have a packet write it to tun. No output
  * buffering, input buffered by stdio.
@@ -390,9 +394,10 @@ after_fread:
 
   goto read_more;
 }
+/*---------------------------------------------------------------------------*/
 unsigned char slip_buf[2000];
 unsigned int slip_end, slip_begin;
-
+/*---------------------------------------------------------------------------*/
 void
 slip_send_char(unsigned char c)
 {
@@ -426,6 +431,7 @@ slip_send_char(unsigned char c)
     break;
   }
 }
+/*---------------------------------------------------------------------------*/
 void
 slip_send(unsigned char c)
 {
@@ -435,11 +441,13 @@ slip_send(unsigned char c)
   slip_buf[slip_end] = c;
   slip_end++;
 }
+/*---------------------------------------------------------------------------*/
 int
 slip_empty()
 {
   return slip_end == 0;
 }
+/*---------------------------------------------------------------------------*/
 void
 slip_flushbuf(int fd)
 {
@@ -462,6 +470,7 @@ slip_flushbuf(int fd)
     }
   }
 }
+/*---------------------------------------------------------------------------*/
 void
 write_to_serial(void *inbuf, int len)
 {
@@ -534,6 +543,7 @@ write_to_serial(void *inbuf, int len)
   slip_send(SLIP_END);
   PROGRESS("t");
 }
+/*---------------------------------------------------------------------------*/
 /*
  * Read from tun, write to slip.
  */
@@ -564,6 +574,7 @@ tun_to_serial(int infd)
 #endif
   return size;
 }
+/*---------------------------------------------------------------------------*/
 void
 stty_telos(int fd)
 {
@@ -627,6 +638,7 @@ stty_telos(int fd)
     err(1, "tcflush");
   }
 }
+/*---------------------------------------------------------------------------*/
 int
 devopen(const char *dev, int flags)
 {
@@ -635,6 +647,7 @@ devopen(const char *dev, int flags)
   strncat(t, dev, sizeof(t) - 5);
   return open(t, flags);
 }
+/*---------------------------------------------------------------------------*/
 #ifdef linux
 #include <linux/if.h>
 #include <linux/if_tun.h>
@@ -747,7 +760,7 @@ tun_alloc(char *dev, int tap)
   return devopen(dev, O_RDWR);
 }
 #endif
-
+/*---------------------------------------------------------------------------*/
 void
 cleanup(void)
 {
@@ -780,20 +793,23 @@ cleanup(void)
   }
 #endif
 }
+/*---------------------------------------------------------------------------*/
 void
 sigcleanup(int signo)
 {
   fprintf(stderr, "signal %d\n", signo);
   exit(0);      /* exit(0) will call cleanup() */
 }
+/*---------------------------------------------------------------------------*/
 static int got_sigalarm;
-
+/*---------------------------------------------------------------------------*/
 void
 sigalarm(int signo)
 {
   got_sigalarm = 1;
   return;
 }
+/*---------------------------------------------------------------------------*/
 void
 sigalarm_reset()
 {
@@ -805,6 +821,7 @@ sigalarm_reset()
   ualarm(TIMEOUT, TIMEOUT);
   got_sigalarm = 0;
 }
+/*---------------------------------------------------------------------------*/
 void
 ifconf(const char *tundev, const char *ipaddr)
 {
@@ -912,6 +929,7 @@ ifconf(const char *tundev, const char *ipaddr)
   }
   ssystem("ifconfig %s\n", tundev);
 }
+/*---------------------------------------------------------------------------*/
 int
 main(int argc, char **argv)
 {
@@ -1269,3 +1287,4 @@ main(int argc, char **argv)
     }
   }
 }
+/*---------------------------------------------------------------------------*/
