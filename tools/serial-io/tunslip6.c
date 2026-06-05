@@ -769,14 +769,20 @@ cleanup(void)
 #endif
 }
 /*---------------------------------------------------------------------------*/
+static volatile sig_atomic_t should_exit;
+/*---------------------------------------------------------------------------*/
 void
 sigcleanup(int signo)
 {
-  fprintf(stderr, "signal %d\n", signo);
-  exit(EXIT_SUCCESS);      /* will call cleanup() via atexit() */
+  /*
+   * Only record the signal here. Printing and exit() (which runs cleanup(),
+   * and therefore system()) are not async-signal-safe, so they are deferred
+   * to the main loop.
+   */
+  should_exit = signo;
 }
 /*---------------------------------------------------------------------------*/
-static int got_sigalarm;
+static volatile sig_atomic_t got_sigalarm;
 /*---------------------------------------------------------------------------*/
 void
 sigalarm(int signo)
@@ -1183,6 +1189,11 @@ main(int argc, char **argv)
   ifconf(tundev, ipaddr);
 
   while(1) {
+    if(should_exit) {
+      fprintf(stderr, "signal %d\n", (int)should_exit);
+      exit(EXIT_SUCCESS);      /* will call cleanup() via atexit() */
+    }
+
     maxfd = 0;
     FD_ZERO(&rset);
     FD_ZERO(&wset);
