@@ -82,13 +82,19 @@ static void write_to_serial(const void *inbuf, int len);
 static void slip_send(unsigned char c);
 static void slip_send_char(unsigned char c);
 
-#define PROGRESS(s) if(showprogress) fprintf(stderr, s)
-
 static char tundev[1024] = { "" };
 
 /* IPv6 required minimum MTU */
 #define MIN_DEVMTU 1500
 static int devmtu = MIN_DEVMTU;
+/*---------------------------------------------------------------------------*/
+static void
+progress(const char *s)
+{
+  if(showprogress) {
+    fprintf(stderr, "%s", s);
+  }
+}
 /*---------------------------------------------------------------------------*/
 static int
 ssystem(const char *fmt, ...)
@@ -240,7 +246,7 @@ after_fread:
     clearerr(inslip);
     return;
   }
-  PROGRESS(".");
+  progress(".");
   switch(c) {
   case SLIP_END:
     if(inbufptr > 0) {
@@ -491,7 +497,7 @@ slip_flushbuf(int fd)
   if(n == -1 && errno != EAGAIN) {
     err(EXIT_FAILURE, "slip_flushbuf write failed");
   } else if(n == -1) {
-    PROGRESS("Q");    /* Outqueueis full! */
+    progress("Q");    /* Outqueue is full! */
   } else {
     slip_begin += n;
     if(slip_begin == slip_end) {
@@ -524,7 +530,7 @@ write_to_serial(const void *inbuf, int len)
     slip_send_char(p[i]);
   }
   slip_send(SLIP_END);
-  PROGRESS("t");
+  progress("t");
 }
 /*---------------------------------------------------------------------------*/
 /*
