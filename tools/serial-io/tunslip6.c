@@ -67,7 +67,6 @@ speed_t b_rate = BAUDRATE;
 
 int verbose = 2;
 const char *ipaddr;
-const char *netmask;
 int slipfd = 0;
 uint16_t basedelay = 0, delaymsec = 0;
 uint32_t startsec, startmsec, delaystartsec, delaystartmsec;
@@ -88,9 +87,6 @@ char tundev[1024] = { "" };
 #define MIN_DEVMTU 1500
 int devmtu = MIN_DEVMTU;
 /*---------------------------------------------------------------------------*/
-int
-ssystem(const char *fmt, ...) __attribute__((__format__(__printf__, 1, 2)));
-
 int
 ssystem(const char *fmt, ...)
 {
@@ -151,7 +147,6 @@ stamptime(void)
     t = time(NULL);
     tmp = localtime(&t);
     strftime(timec, sizeof(timec), "%T", tmp);
-/*    fprintf(stderr,"\n%s.%03lu ",timec,msecs); */
     fprintf(stderr, "\n%s ", timec);
   }
 }
@@ -237,7 +232,6 @@ after_fread:
             stamptime();
           }
           macs[pos] = '\0';
-/*	  printf("*** Gateway's MAC address: %s\n", macs); */
           fprintf(stderr, "*** Gateway's MAC address: %s\n", macs);
           if(timestamp) {
             stamptime();
@@ -507,7 +501,6 @@ write_to_serial(void *inbuf, int len)
   /* It would be ``nice'' to send a SLIP_END here but it's not
    * really necessary.
    */
-  /* slip_send(SLIP_END); */
 
   for(i = 0; i < len; i++) {
     switch(p[i]) {
@@ -772,7 +765,6 @@ cleanup(void)
 #ifndef linux
   ssystem("sysctl -w net.ipv6.conf.all.forwarding=1");
 #endif
-  /* ssystem("arp -d %s", ipaddr); */
   if(timestamp) {
     stamptime();
   }
@@ -1277,7 +1269,6 @@ main(int argc, char **argv)
           if(basedelay) {
             struct timeval tv;
             gettimeofday(&tv, NULL);
-            /*         delaymsec=basedelay*(1+(size/120));//multiply by # of 6lowpan packets? */
             delaymsec = basedelay;
             delaystartsec = tv.tv_sec;
             delaystartmsec = tv.tv_usec / 1000;
