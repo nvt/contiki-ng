@@ -133,6 +133,8 @@ run_command(const char *fmt, ...)
 #define SLIP_ESC_XOFF 0337
 #define XON           17
 #define XOFF          19
+
+#define DEBUG_LINE_MARKER '\r'
 /*---------------------------------------------------------------------------*/
 /* get sockaddr, IPv4 or IPv6: */
 static const void *
@@ -226,6 +228,110 @@ print_packet_hex(const unsigned char *buf, int len)
   printf("\n");
 }
 /*---------------------------------------------------------------------------*/
+/* Handle a "!M" command: configure the interface with the gateway MAC. */
+static void
+handle_gateway_mac(const unsigned char *inbuf, int len)
+{
+  char macs[24];
+  int i, pos;
+
+  if(len < 18 || inbuf[1] != 'M') {
+    return;
+  }
+
+  /* The 16 payload bytes are interpolated into a shell command, so reject
+     anything that is not a hex digit to avoid passing untrusted serial data
+     through to system(). */
+  for(i = 0; i < 16; i++) {
+    unsigned char d = inbuf[2 + i];
+    if(!((d >= '0' && d <= '9') || (d >= 'a' && d <= 'f')
+         || (d >= 'A' && d <= 'F'))) {
+      break;
+    }
+  }
+  if(i < 16) {
+    fprintf(stderr, "*** ignoring malformed gateway MAC address\n");
+    return;
+  }
+
+  for(i = 0, pos = 0; i < 16; i++) {
+    macs[pos++] = inbuf[2 + i];
+    if((i & 1) == 1 && i < 14) {
+      macs[pos++] = ':';
+    }
+  }
+  macs[pos] = '\0';
+  if(timestamp) {
+    stamptime();
+  }
+  fprintf(stderr, "*** Gateway's MAC address: %s\n", macs);
+  if(timestamp) {
+    stamptime();
+  }
+  run_command("ifconfig %s down", tundev);
+  if(timestamp) {
+    stamptime();
+  }
+  run_command("ifconfig %s hw ether %s", tundev, &macs[6]);
+  if(timestamp) {
+    stamptime();
+  }
+  run_command("ifconfig %s up", tundev);
+}
+/*---------------------------------------------------------------------------*/
+/* Handle a "?P" command: reply with the configured IPv6 prefix. */
+static void
+handle_prefix_request(const unsigned char *inbuf, int len)
+{
+  struct in6_addr addr;
+  char *s;
+
+  if(len < 2 || inbuf[1] != 'P') {
+    return;
+  }
+
+  s = strchr(ipaddr, '/');
+  if(s != NULL) {
+    *s = '\0';
+  }
+  if(inet_pton(AF_INET6, ipaddr, &addr) != 1) {
+    fprintf(stderr, "*** invalid IPv6 address ``%s''\n", ipaddr);
+    return;
+  }
+  if(timestamp) {
+    stamptime();
+  }
+  fprintf(stderr, "*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
+          ipaddr,
+          addr.s6_addr[0], addr.s6_addr[1],
+          addr.s6_addr[2], addr.s6_addr[3],
+          addr.s6_addr[4], addr.s6_addr[5],
+          addr.s6_addr[6], addr.s6_addr[7]);
+  slip_send('!');
+  slip_send('P');
+  for(int i = 0; i < 8; i++) {
+    /* need to call slip_send_char for stuffing */
+    slip_send_char(addr.s6_addr[i]);
+  }
+  slip_send(SLIP_END);
+}
+/*---------------------------------------------------------------------------*/
+/* Write a received SLIP packet out to the tun interface. */
+static void
+deliver_packet(int outfd, const unsigned char *inbuf, int len)
+{
+  if(verbose > 2) {
+    if(timestamp) {
+      stamptime();
+    }
+    printf("Packet from SLIP of length %d - write TUN\n", len);
+    if(verbose > 4) {
+      print_packet_hex(inbuf, len);
+    }
+  }
+  tun_write(outfd, inbuf, len);
+}
+/*---------------------------------------------------------------------------*/
 /*
  * Read from serial, when we have a packet write it to tun. No output
  * buffering, input buffered by stdio.
@@ -270,79 +376,9 @@ after_fread:
   case SLIP_END:
     if(inbufptr > 0) {
       if(inbuf[0] == '!') {
-        if(inbufptr >= 18 && inbuf[1] == 'M') {
-          /* Read gateway MAC address and autoconfigure tap0 interface */
-          char macs[24];
-          int i, pos;
-
-          /* The 16 payload bytes are interpolated into a shell command, so
-             reject anything that is not a hex digit to avoid passing
-             untrusted serial data through to system(). */
-          for(i = 0; i < 16; i++) {
-            unsigned char d = inbuf[2 + i];
-            if(!((d >= '0' && d <= '9') || (d >= 'a' && d <= 'f')
-                 || (d >= 'A' && d <= 'F'))) {
-              break;
-            }
-          }
-          if(i < 16) {
-            fprintf(stderr, "*** ignoring malformed gateway MAC address\n");
-          } else {
-            for(i = 0, pos = 0; i < 16; i++) {
-              macs[pos++] = inbuf[2 + i];
-              if((i & 1) == 1 && i < 14) {
-                macs[pos++] = ':';
-              }
-            }
-            if(timestamp) {
-              stamptime();
-            }
-            macs[pos] = '\0';
-            fprintf(stderr, "*** Gateway's MAC address: %s\n", macs);
-            if(timestamp) {
-              stamptime();
-            }
-            run_command("ifconfig %s down", tundev);
-            if(timestamp) {
-              stamptime();
-            }
-            run_command("ifconfig %s hw ether %s", tundev, &macs[6]);
-            if(timestamp) {
-              stamptime();
-            }
-            run_command("ifconfig %s up", tundev);
-          }
-        }
+        handle_gateway_mac(inbuf, inbufptr);
       } else if(inbuf[0] == '?') {
-        if(inbufptr >= 2 && inbuf[1] == 'P') {
-          /* Prefix info requested */
-          struct in6_addr addr;
-          char *s = strchr(ipaddr, '/');
-          if(s != NULL) {
-            *s = '\0';
-          }
-          if(inet_pton(AF_INET6, ipaddr, &addr) != 1) {
-            fprintf(stderr, "*** invalid IPv6 address ``%s''\n", ipaddr);
-          } else {
-            if(timestamp) {
-              stamptime();
-            }
-            fprintf(stderr, "*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
-                    ipaddr,
-                    addr.s6_addr[0], addr.s6_addr[1],
-                    addr.s6_addr[2], addr.s6_addr[3],
-                    addr.s6_addr[4], addr.s6_addr[5],
-                    addr.s6_addr[6], addr.s6_addr[7]);
-            slip_send('!');
-            slip_send('P');
-            for(int i = 0; i < 8; i++) {
-              /* need to call the slip_send_char for stuffing */
-              slip_send_char(addr.s6_addr[i]);
-            }
-            slip_send(SLIP_END);
-          }
-        }
-#define DEBUG_LINE_MARKER '\r'
+        handle_prefix_request(inbuf, inbufptr);
       } else if(inbuf[0] == DEBUG_LINE_MARKER) {
         fwrite(inbuf + 1, inbufptr - 1, 1, stdout);
       } else if(is_sensible_string(inbuf, inbufptr)) {
@@ -353,17 +389,7 @@ after_fread:
           fwrite(inbuf, inbufptr, 1, stdout);
         }
       } else {
-        if(verbose > 2) {
-          if(timestamp) {
-            stamptime();
-          }
-          printf("Packet from SLIP of length %d - write TUN\n", inbufptr);
-          if(verbose > 4) {
-            print_packet_hex(inbuf, inbufptr);
-          }
-        }
-
-        tun_write(outfd, inbuf, inbufptr);
+        deliver_packet(outfd, inbuf, inbufptr);
       }
       inbufptr = 0;
     }
