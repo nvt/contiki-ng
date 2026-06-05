@@ -155,7 +155,12 @@ stamptime(void)
   struct tm *tmp;
   char timec[20];
 
-  gettimeofday(&tv, NULL);
+  if(gettimeofday(&tv, NULL) == -1) {
+    /* Non-fatal: stamptime() is also called from the atexit cleanup path,
+       where calling exit() would be undefined. Skip the timestamp. */
+    perror("gettimeofday");
+    return;
+  }
   msecs = tv.tv_usec / 1000;
   secs = tv.tv_sec;
   if(startsecs) {
@@ -1264,7 +1269,9 @@ main(int argc, char **argv)
       if(delaymsec) {
         struct timeval tv;
         int dmsec;
-        gettimeofday(&tv, NULL);
+        if(gettimeofday(&tv, NULL) == -1) {
+          err(EXIT_FAILURE, "gettimeofday");
+        }
         dmsec = (tv.tv_sec - delaystartsec) * 1000 + tv.tv_usec / 1000 - delaystartmsec;
         if(dmsec < 0) {
           delaymsec = 0;
@@ -1282,7 +1289,9 @@ main(int argc, char **argv)
           }
           if(basedelay) {
             struct timeval tv;
-            gettimeofday(&tv, NULL);
+            if(gettimeofday(&tv, NULL) == -1) {
+              err(EXIT_FAILURE, "gettimeofday");
+            }
             delaymsec = basedelay;
             delaystartsec = tv.tv_sec;
             delaystartmsec = tv.tv_usec / 1000;
