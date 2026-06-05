@@ -437,7 +437,7 @@ void
 slip_send(unsigned char c)
 {
   if(slip_end >= sizeof(slip_buf)) {
-    err(1, "slip_send overflow");
+    errx(1, "slip_send overflow");
   }
   slip_buf[slip_end] = c;
   slip_end++;
@@ -563,7 +563,7 @@ tun_to_serial(int infd)
 #define UTUN_HEADER_LEN 4
   /* Fake IFF_NO_PI on macOS by ignoring the first 4 bytes containing AF_INET6 */
   if(size <= UTUN_HEADER_LEN) {
-    err(1, "tun_to_serial: read too small");
+    errx(1, "tun_to_serial: read too small");
   }
 
   size -= UTUN_HEADER_LEN;
@@ -704,12 +704,12 @@ tun_alloc(char *dev, int tap)
   unsigned int tunif;
 
   if(tap) {
-    err(1, "tun_alloc: TAP is not supported with utun on macOS");
+    errx(1, "tun_alloc: TAP is not supported with utun on macOS");
     return -1;
   }
 
   if(sscanf(dev, "utun%u", &tunif) != 1 || tunif >= UINT8_MAX) {
-    err(1, "tun_alloc: invalid utun interface specified");
+    errx(1, "tun_alloc: invalid utun interface specified");
     return -1;
   }
 
@@ -1084,20 +1084,20 @@ main(int argc, char **argv)
   argv += (optind - 1);
 
   if(argc != 2 && argc != 3) {
-    err(1, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-T] [-t tundev] "
+    errx(1, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-T] [-t tundev] "
 #ifdef __APPLE__
-        "[-v level] [-d basedelay] "
+         "[-v level] [-d basedelay] "
 #else
-        "[-v [level]] [-d [basedelay]] "
+         "[-v [level]] [-d [basedelay]] "
 #endif
-        "[-a serveraddr] [-p serverport] ipaddress", prog);
+         "[-a serveraddr] [-p serverport] ipaddress", prog);
   }
   ipaddr = argv[1];
 
   if(baudrate != -2) { /* -2: use default baudrate */
     b_rate = select_baudrate(baudrate);
     if(b_rate == 0) {
-      err(1, "unknown baudrate %d", baudrate);
+      errx(1, "unknown baudrate %d", baudrate);
     }
   }
 
@@ -1123,7 +1123,7 @@ main(int argc, char **argv)
     hints.ai_socktype = SOCK_STREAM;
 
     if((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
-      err(1, "getaddrinfo: %s", gai_strerror(rv));
+      errx(1, "getaddrinfo: %s", gai_strerror(rv));
     }
 
     /* loop through all the results and connect to the first we can */
@@ -1143,7 +1143,7 @@ main(int argc, char **argv)
     }
 
     if(p == NULL) {
-      err(1, "can't connect to ``%s:%s''", host, port);
+      errx(1, "can't connect to ``%s:%s''", host, port);
     }
 
     fcntl(slipfd, F_SETFL, O_NONBLOCK);
