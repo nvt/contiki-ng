@@ -643,8 +643,7 @@ int
 devopen(const char *dev, int flags)
 {
   char t[1024];
-  strcpy(t, "/dev/");
-  strncat(t, dev, sizeof(t) - 5);
+  snprintf(t, sizeof(t), "/dev/%s", dev);
   return open(t, flags);
 }
 /*---------------------------------------------------------------------------*/
