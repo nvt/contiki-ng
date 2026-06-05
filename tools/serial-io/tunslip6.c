@@ -39,6 +39,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
@@ -71,7 +72,8 @@ static const char *ipaddr;
 static int slipfd = 0;
 static uint16_t basedelay = 0, delaymsec = 0;
 static uint32_t delaystartsec, delaystartmsec;
-static int timestamp = 0, flowcontrol = 0, showprogress = 0, flowcontrol_xonxoff = 0;
+static bool timestamp = false, flowcontrol = false, showprogress = false,
+            flowcontrol_xonxoff = false;
 
 static int ssystem(const char *fmt, ...)
 __attribute__((__format__(__printf__, 1, 2)));
@@ -152,7 +154,7 @@ stamptime(void)
   }
 }
 /*---------------------------------------------------------------------------*/
-static int
+static bool
 is_sensible_string(const unsigned char *s, int len)
 {
   int i;
@@ -160,17 +162,17 @@ is_sensible_string(const unsigned char *s, int len)
     if(s[i] == 0 || s[i] == '\r' || s[i] == '\n' || s[i] == '\t') {
       continue;
     } else if(s[i] < ' ' || '~' < s[i]) {
-      return 0;
+      return false;
     }
   }
 
   /* Edge-case: printable characters in flow label */
   if(len >= 2 && (s[0] & 0xF0) == 0x60
      && (s[1] == '\r' || s[1] == '\n' || s[1] == '\t')) {
-    return 0;
+    return false;
   }
 
-  return 1;
+  return true;
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -469,7 +471,7 @@ slip_send(unsigned char c)
   slip_end++;
 }
 /*---------------------------------------------------------------------------*/
-static int
+static bool
 slip_empty()
 {
   return slip_end == 0;
@@ -942,15 +944,15 @@ main(int argc, char **argv)
       break;
 
     case 'H':
-      flowcontrol = 1;
+      flowcontrol = true;
       break;
 
     case 'X':
-      flowcontrol_xonxoff = 1;
+      flowcontrol_xonxoff = true;
       break;
 
     case 'L':
-      timestamp = 1;
+      timestamp = true;
       break;
 
     case 'M':
@@ -961,7 +963,7 @@ main(int argc, char **argv)
       break;
 
     case 'P':
-      showprogress = 1;
+      showprogress = true;
       break;
 
     case 's':
