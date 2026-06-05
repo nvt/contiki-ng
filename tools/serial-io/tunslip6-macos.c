@@ -57,17 +57,12 @@
  */
 /*---------------------------------------------------------------------------*/
 int
-tunslip_open_tun(char *dev, int tap)
+tunslip_open_tun(char *dev)
 {
   struct sockaddr_ctl sc;
   struct ctl_info ctlInfo;
   int fd;
   unsigned int tunif;
-
-  if(tap) {
-    errx(EXIT_FAILURE, "tunslip_open_tun: TAP is not supported with utun on macOS");
-    return -1;
-  }
 
   if(sscanf(dev, "utun%u", &tunif) != 1 || tunif >= UINT8_MAX) {
     errx(EXIT_FAILURE, "tunslip_open_tun: invalid utun interface specified");

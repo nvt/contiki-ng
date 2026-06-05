@@ -50,7 +50,7 @@
 
 /*---------------------------------------------------------------------------*/
 int
-tunslip_open_tun(char *dev, int tap)
+tunslip_open_tun(char *dev)
 {
   struct ifreq ifr;
   int fd, ret;
@@ -63,11 +63,9 @@ tunslip_open_tun(char *dev, int tap)
   memset(&ifr, 0, sizeof(ifr));
 
   /* Flags: IFF_TUN   - TUN device (no Ethernet headers)
-   *        IFF_TAP   - TAP device
-   *
    *        IFF_NO_PI - Do not provide packet information
    */
-  ifr.ifr_flags = (tap ? IFF_TAP : IFF_TUN) | IFF_NO_PI;
+  ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
   if(*dev != 0) {
     strncpy(ifr.ifr_name, dev, sizeof(ifr.ifr_name) - 1);
     ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';

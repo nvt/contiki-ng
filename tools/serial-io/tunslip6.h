@@ -55,7 +55,7 @@ int devopen(const char *dev, int flags);
  * Per-platform implementations, selected at build time in the Makefile and
  * defined in tunslip6-linux.c, tunslip6-macos.c, or tunslip6-bsd.c.
  */
-int tunslip_open_tun(char *dev, int tap);
+int tunslip_open_tun(char *dev);
 
 /*
  * Read one packet from / write one packet to the tun device, handling any

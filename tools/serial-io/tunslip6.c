@@ -692,8 +692,7 @@ print_usage(const char *prog)
 #ifdef __APPLE__
   fprintf(stderr, " -t tundev      Name of interface (default utun10)\n");
 #else
-  fprintf(stderr, " -T             Make tap interface (default is tun interface)\n");
-  fprintf(stderr, " -t tundev      Name of interface (default tap0 or tun0)\n");
+  fprintf(stderr, " -t tundev      Name of interface (default tun0)\n");
 #endif
 #ifdef __APPLE__
   fprintf(stderr, " -v level       Verbosity level\n");
@@ -728,7 +727,6 @@ struct options {
   const char *host;     /* TCP server host, or NULL to use a serial device */
   const char *port;     /* TCP server port */
   int ipa_enable;       /* -I: inquire about the IP address */
-  int tap;              /* -T: create a tap (rather than tun) interface */
 };
 /*---------------------------------------------------------------------------*/
 static void
@@ -742,9 +740,8 @@ parse_args(int argc, char **argv, struct options *opt)
   opt->host = NULL;
   opt->port = NULL;
   opt->ipa_enable = 0;
-  opt->tap = 0;
 
-  while((c = getopt(argc, argv, "B:HILPhXM:s:t:v::d::a:p:T")) != -1) {
+  while((c = getopt(argc, argv, "B:HILPhXM:s:t:v::d::a:p:")) != -1) {
     switch(c) {
     case 'B':
       baudrate = atoi(optarg);
@@ -817,12 +814,6 @@ parse_args(int argc, char **argv, struct options *opt)
       }
       break;
 
-#ifndef __APPLE__
-    case 'T':
-      opt->tap = 1;
-      break;
-#endif
-
     case '?':
     case 'h':
     default:
@@ -834,7 +825,7 @@ parse_args(int argc, char **argv, struct options *opt)
   argv += optind - 1;
 
   if(argc != 2 && argc != 3) {
-    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-T] [-t tundev] "
+    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-t tundev] "
 #ifdef __APPLE__
          "[-v level] [-d basedelay] "
 #else
@@ -1073,15 +1064,14 @@ main(int argc, char **argv)
     err(EXIT_FAILURE, "main: fdopen");
   }
 
-  tunfd = tunslip_open_tun(tundev, opt.tap);
+  tunfd = tunslip_open_tun(tundev);
   if(tunfd == -1) {
     err(EXIT_FAILURE, "main: open /dev/tun");
   }
   if(timestamp) {
     stamptime();
   }
-  fprintf(stderr, "opened %s device ``/dev/%s''\n",
-          opt.tap ? "tap" : "tun", tundev);
+  fprintf(stderr, "opened tun device ``/dev/%s''\n", tundev);
 
   setup_signal_handlers();
   tunslip_ifconf(tundev, ipaddr);
