@@ -189,7 +189,7 @@ serial_to_tun(FILE *inslip, int outfd)
 #ifdef linux
   ret = fread(&c, 1, 1, inslip);
   if(ret == -1 || ret == 0) {
-    err(1, "serial_to_tun: read");
+    err(EXIT_FAILURE, "serial_to_tun: read");
   }
   goto after_fread;
 #endif
@@ -207,7 +207,7 @@ read_more:
 after_fread:
 #endif
   if(ret == -1) {
-    err(1, "serial_to_tun: read");
+    err(EXIT_FAILURE, "serial_to_tun: read");
   }
   if(ret == 0) {
     clearerr(inslip);
@@ -337,11 +337,11 @@ after_fread:
         iv[1].iov_len = inbufptr;
 
         if(writev(outfd, iv, 2) != (sizeof(type) + inbufptr)) {
-          err(1, "serial_to_tun: writev");
+          err(EXIT_FAILURE, "serial_to_tun: writev");
         }
 #else
         if(write(outfd, uip.inbuf, inbufptr) != inbufptr) {
-          err(1, "serial_to_tun: write");
+          err(EXIT_FAILURE, "serial_to_tun: write");
         }
 #endif
       }
@@ -452,7 +452,7 @@ void
 slip_send(unsigned char c)
 {
   if(slip_end >= sizeof(slip_buf)) {
-    errx(1, "slip_send overflow");
+    errx(EXIT_FAILURE, "slip_send overflow");
   }
   slip_buf[slip_end] = c;
   slip_end++;
@@ -476,7 +476,7 @@ slip_flushbuf(int fd)
   n = write(fd, slip_buf + slip_begin, (slip_end - slip_begin));
 
   if(n == -1 && errno != EAGAIN) {
-    err(1, "slip_flushbuf write failed");
+    err(EXIT_FAILURE, "slip_flushbuf write failed");
   } else if(n == -1) {
     PROGRESS("Q");    /* Outqueueis full! */
   } else {
@@ -571,14 +571,14 @@ tun_to_serial(int infd)
   int size;
 
   if((size = read(infd, uip.inbuf, sizeof(uip.inbuf))) == -1) {
-    err(1, "tun_to_serial: read");
+    err(EXIT_FAILURE, "tun_to_serial: read");
   }
 
 #ifdef __APPLE__
 #define UTUN_HEADER_LEN 4
   /* Fake IFF_NO_PI on macOS by ignoring the first 4 bytes containing AF_INET6 */
   if(size <= UTUN_HEADER_LEN) {
-    errx(1, "tun_to_serial: read too small");
+    errx(EXIT_FAILURE, "tun_to_serial: read too small");
   }
 
   size -= UTUN_HEADER_LEN;
@@ -598,11 +598,11 @@ stty_telos(int fd)
   int i;
 
   if(tcflush(fd, TCIOFLUSH) == -1) {
-    err(1, "tcflush");
+    err(EXIT_FAILURE, "tcflush");
   }
 
   if(tcgetattr(fd, &tty) == -1) {
-    err(1, "tcgetattr");
+    err(EXIT_FAILURE, "tcgetattr");
   }
 
   cfmakeraw(&tty);
@@ -628,21 +628,21 @@ stty_telos(int fd)
   cfsetospeed(&tty, speed);
 
   if(tcsetattr(fd, TCSAFLUSH, &tty) == -1) {
-    err(1, "tcsetattr");
+    err(EXIT_FAILURE, "tcsetattr");
   }
 
 #if 1
   /* Nonblocking read and write. */
-  /* if(fcntl(fd, F_SETFL, O_NONBLOCK) == -1) err(1, "fcntl"); */
+  /* if(fcntl(fd, F_SETFL, O_NONBLOCK) == -1) err(EXIT_FAILURE, "fcntl"); */
 
   tty.c_cflag |= CLOCAL;
   if(tcsetattr(fd, TCSAFLUSH, &tty) == -1) {
-    err(1, "tcsetattr");
+    err(EXIT_FAILURE, "tcsetattr");
   }
 
   i = TIOCM_DTR;
   if(ioctl(fd, TIOCMBIS, &i) == -1) {
-    err(1, "ioctl");
+    err(EXIT_FAILURE, "ioctl");
   }
 #endif
 
@@ -650,7 +650,7 @@ stty_telos(int fd)
 
   /* Flush input and output buffers. */
   if(tcflush(fd, TCIOFLUSH) == -1) {
-    err(1, "tcflush");
+    err(EXIT_FAILURE, "tcflush");
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -719,12 +719,12 @@ tun_alloc(char *dev, int tap)
   unsigned int tunif;
 
   if(tap) {
-    errx(1, "tun_alloc: TAP is not supported with utun on macOS");
+    errx(EXIT_FAILURE, "tun_alloc: TAP is not supported with utun on macOS");
     return -1;
   }
 
   if(sscanf(dev, "utun%u", &tunif) != 1 || tunif >= UINT8_MAX) {
-    errx(1, "tun_alloc: invalid utun interface specified");
+    errx(EXIT_FAILURE, "tun_alloc: invalid utun interface specified");
     return -1;
   }
 
@@ -811,7 +811,7 @@ void
 sigcleanup(int signo)
 {
   fprintf(stderr, "signal %d\n", signo);
-  exit(0);      /* exit(0) will call cleanup() */
+  exit(EXIT_SUCCESS);      /* will call cleanup() via atexit() */
 }
 /*---------------------------------------------------------------------------*/
 static int got_sigalarm;
@@ -1091,7 +1091,7 @@ main(int argc, char **argv)
 #endif
       fprintf(stderr, " -a serveraddr  \n");
       fprintf(stderr, " -p serverport  \n");
-      exit(1);
+      exit(EXIT_FAILURE);
       break;
     }
   }
@@ -1099,7 +1099,7 @@ main(int argc, char **argv)
   argv += (optind - 1);
 
   if(argc != 2 && argc != 3) {
-    errx(1, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-T] [-t tundev] "
+    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-T] [-t tundev] "
 #ifdef __APPLE__
          "[-v level] [-d basedelay] "
 #else
@@ -1112,7 +1112,7 @@ main(int argc, char **argv)
   if(baudrate != -2) { /* -2: use default baudrate */
     b_rate = select_baudrate(baudrate);
     if(b_rate == 0) {
-      errx(1, "unknown baudrate %d", baudrate);
+      errx(EXIT_FAILURE, "unknown baudrate %d", baudrate);
     }
   }
 
@@ -1138,7 +1138,7 @@ main(int argc, char **argv)
     hints.ai_socktype = SOCK_STREAM;
 
     if((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
-      errx(1, "getaddrinfo: %s", gai_strerror(rv));
+      errx(EXIT_FAILURE, "getaddrinfo: %s", gai_strerror(rv));
     }
 
     /* loop through all the results and connect to the first we can */
@@ -1158,7 +1158,7 @@ main(int argc, char **argv)
     }
 
     if(p == NULL) {
-      errx(1, "can't connect to ``%s:%s''", host, port);
+      errx(EXIT_FAILURE, "can't connect to ``%s:%s''", host, port);
     }
 
     fcntl(slipfd, F_SETFL, O_NONBLOCK);
@@ -1173,7 +1173,7 @@ main(int argc, char **argv)
     if(siodev != NULL) {
       slipfd = devopen(siodev, O_RDWR | O_NONBLOCK);
       if(slipfd == -1) {
-        err(1, "can't open siodev ``/dev/%s''", siodev);
+        err(EXIT_FAILURE, "can't open siodev ``/dev/%s''", siodev);
       }
     } else {
       static const char *siodevs[] = {
@@ -1188,7 +1188,7 @@ main(int argc, char **argv)
         }
       }
       if(slipfd == -1) {
-        err(1, "can't open siodev");
+        err(EXIT_FAILURE, "can't open siodev");
       }
     }
     if(timestamp) {
@@ -1200,12 +1200,12 @@ main(int argc, char **argv)
   slip_send(SLIP_END);
   inslip = fdopen(slipfd, "r");
   if(inslip == NULL) {
-    err(1, "main: fdopen");
+    err(EXIT_FAILURE, "main: fdopen");
   }
 
   tunfd = tun_alloc(tundev, tap);
   if(tunfd == -1) {
-    err(1, "main: open /dev/tun");
+    err(EXIT_FAILURE, "main: open /dev/tun");
   }
   if(timestamp) {
     stamptime();
@@ -1254,7 +1254,7 @@ main(int argc, char **argv)
 
     ret = select(maxfd + 1, &rset, &wset, NULL, NULL);
     if(ret == -1 && errno != EINTR) {
-      err(1, "select");
+      err(EXIT_FAILURE, "select");
     } else if(ret > 0) {
       if(FD_ISSET(slipfd, &rset)) {
         serial_to_tun(inslip, tunfd);
