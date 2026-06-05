@@ -99,6 +99,7 @@ progress(const char *s)
   }
 }
 /*---------------------------------------------------------------------------*/
+/* Run a printf-formatted shell command, reporting any failure on stderr. */
 int
 run_command(const char *fmt, ...)
 {
@@ -136,7 +137,7 @@ run_command(const char *fmt, ...)
 
 #define DEBUG_LINE_MARKER '\r'
 /*---------------------------------------------------------------------------*/
-/* get sockaddr, IPv4 or IPv6: */
+/* Return a pointer to the IPv4 or IPv6 address inside a sockaddr. */
 static const void *
 get_in_addr(const struct sockaddr *sa)
 {
