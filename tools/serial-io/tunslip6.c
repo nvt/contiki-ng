@@ -74,7 +74,7 @@ static int timestamp = 0, flowcontrol = 0, showprogress = 0, flowcontrol_xonxoff
 
 static int ssystem(const char *fmt, ...)
 __attribute__((__format__(__printf__, 1, 2)));
-static void write_to_serial(void *inbuf, int len);
+static void write_to_serial(const void *inbuf, int len);
 
 static void slip_send(unsigned char c);
 static void slip_send_char(unsigned char c);
@@ -111,13 +111,13 @@ ssystem(const char *fmt, ...)
 #define XOFF          19
 /*---------------------------------------------------------------------------*/
 /* get sockaddr, IPv4 or IPv6: */
-static void *
-get_in_addr(struct sockaddr *sa)
+static const void *
+get_in_addr(const struct sockaddr *sa)
 {
   if(sa->sa_family == AF_INET) {
-    return &(((struct sockaddr_in *)sa)->sin_addr);
+    return &(((const struct sockaddr_in *)sa)->sin_addr);
   }
-  return &(((struct sockaddr_in6 *)sa)->sin6_addr);
+  return &(((const struct sockaddr_in6 *)sa)->sin6_addr);
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -498,9 +498,9 @@ slip_flushbuf(int fd)
 }
 /*---------------------------------------------------------------------------*/
 static void
-write_to_serial(void *inbuf, int len)
+write_to_serial(const void *inbuf, int len)
 {
-  u_int8_t *p = inbuf;
+  const u_int8_t *p = inbuf;
   int i;
 
   if(verbose > 2) {
@@ -1136,7 +1136,7 @@ main(int argc, char **argv)
       err(EXIT_FAILURE, "fcntl(F_SETFL, O_NONBLOCK)");
     }
 
-    inet_ntop(p->ai_family, get_in_addr((struct sockaddr *)p->ai_addr),
+    inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
               s, sizeof(s));
     fprintf(stderr, "slip connected to ``%s:%s''\n", s, port);
 
