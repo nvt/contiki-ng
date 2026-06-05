@@ -965,6 +965,7 @@ main(int argc, char **argv)
       if(devmtu < MIN_DEVMTU) {
         devmtu = MIN_DEVMTU;
       }
+      break;
 
     case 'P':
       showprogress = 1;
@@ -1037,7 +1038,7 @@ main(int argc, char **argv)
       fprintf(stderr, " -X             Software XON/XOFF flow control (default disabled)\n");
       fprintf(stderr, " -L             Log output format (adds time stamps)\n");
       fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
-      fprintf(stderr, " -M             Interface MTU (default and min: 1280)\n");
+      fprintf(stderr, " -M             Interface MTU (default and min: 1500)\n");
 #ifdef __APPLE__
       fprintf(stderr, " -t tundev      Name of interface (default utun10)\n");
 #else
