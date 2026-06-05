@@ -619,10 +619,6 @@ configure_tty(int fd)
     err(EXIT_FAILURE, "tcsetattr");
   }
 
-#if 1
-  /* Nonblocking read and write. */
-  /* if(fcntl(fd, F_SETFL, O_NONBLOCK) == -1) err(EXIT_FAILURE, "fcntl"); */
-
   tty.c_cflag |= CLOCAL;
   if(tcsetattr(fd, TCSAFLUSH, &tty) == -1) {
     err(EXIT_FAILURE, "tcsetattr");
@@ -632,7 +628,6 @@ configure_tty(int fd)
   if(ioctl(fd, TIOCMBIS, &modem_bits) == -1) {
     err(EXIT_FAILURE, "ioctl");
   }
-#endif
 
   usleep(10 * 1000);    /* Wait for hardware 10ms. */
 
@@ -849,13 +844,8 @@ ifconf(const char *tundev, const char *ipaddr)
   }
   run_command("ifconfig %s add %s", tundev, ipaddr);
 
-/* radvd needs a link local address for routing */
-#if 0
-/* fe80::1/64 is good enough */
-  run_command("ifconfig %s add fe80::1/64", tundev);
-#elif 1
-/* Generate a link local address a la sixxs/aiccu */
-/* First a full parse, stripping off the prefix length */
+  /* radvd needs a link local address for routing. Generate one a la
+     sixxs/aiccu: a full parse, stripping off the prefix length. */
   {
     char lladdr[40];
     char c, *ptr = (char *)ipaddr;
@@ -902,7 +892,6 @@ ifconf(const char *tundev, const char *ipaddr)
     }
     run_command("ifconfig %s add %s/64", tundev, lladdr);
   }
-#endif /* link local */
 #elif defined(__APPLE__)
   if(timestamp) {
     stamptime();
