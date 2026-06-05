@@ -363,24 +363,7 @@ after_fread:
           }
         }
 
-#ifdef __APPLE__
-        /* Fake IFF_NO_PI on macOS by sending a 4 byte header containing AF_INET6 */
-        uint32_t type = htonl(AF_INET6);
-        struct iovec iv[2];
-
-        iv[0].iov_base = &type;
-        iv[0].iov_len = sizeof(type);
-        iv[1].iov_base = inbuf;
-        iv[1].iov_len = inbufptr;
-
-        if(writev(outfd, iv, 2) != (sizeof(type) + inbufptr)) {
-          err(EXIT_FAILURE, "serial_to_tun: writev");
-        }
-#else
-        if(write(outfd, inbuf, inbufptr) != inbufptr) {
-          err(EXIT_FAILURE, "serial_to_tun: write");
-        }
-#endif
+        tun_write(outfd, inbuf, inbufptr);
       }
       inbufptr = 0;
     }
@@ -555,25 +538,9 @@ static int
 tun_to_serial(int infd)
 {
   unsigned char inbuf[TUN_BUFSIZE];
-  int size;
+  int size = tun_read(infd, inbuf, sizeof(inbuf));
 
-  if((size = read(infd, inbuf, sizeof(inbuf))) == -1) {
-    err(EXIT_FAILURE, "tun_to_serial: read");
-  }
-
-#ifdef __APPLE__
-#define UTUN_HEADER_LEN 4
-  /* Fake IFF_NO_PI on macOS by ignoring the first 4 bytes containing AF_INET6 */
-  if(size <= UTUN_HEADER_LEN) {
-    errx(EXIT_FAILURE, "tun_to_serial: read too small");
-  }
-
-  size -= UTUN_HEADER_LEN;
-  write_to_serial(inbuf + UTUN_HEADER_LEN, size);
-#undef UTUN_HEADER_LEN
-#else
   write_to_serial(inbuf, size);
-#endif
   return size;
 }
 /*---------------------------------------------------------------------------*/

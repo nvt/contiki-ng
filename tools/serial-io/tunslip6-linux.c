@@ -37,9 +37,11 @@
 #include "tunslip6.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <err.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -81,6 +83,24 @@ tun_alloc(char *dev, int tap)
   /* get resulting tunnel name */
   strcpy(dev, ifr.ifr_name);
   return fd;
+}
+/*---------------------------------------------------------------------------*/
+int
+tun_read(int fd, unsigned char *buf, int size)
+{
+  int n = read(fd, buf, size);
+  if(n == -1) {
+    err(EXIT_FAILURE, "tun_read");
+  }
+  return n;
+}
+/*---------------------------------------------------------------------------*/
+void
+tun_write(int fd, const unsigned char *buf, int len)
+{
+  if(write(fd, buf, len) != len) {
+    err(EXIT_FAILURE, "tun_write");
+  }
 }
 /*---------------------------------------------------------------------------*/
 void

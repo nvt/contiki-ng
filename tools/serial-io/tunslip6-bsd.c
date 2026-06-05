@@ -37,6 +37,9 @@
 #include "tunslip6.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <err.h>
 #include <fcntl.h>
 
 /*---------------------------------------------------------------------------*/
@@ -45,6 +48,24 @@ tun_alloc(char *dev, int tap)
 {
   (void)tap;
   return devopen(dev, O_RDWR);
+}
+/*---------------------------------------------------------------------------*/
+int
+tun_read(int fd, unsigned char *buf, int size)
+{
+  int n = read(fd, buf, size);
+  if(n == -1) {
+    err(EXIT_FAILURE, "tun_read");
+  }
+  return n;
+}
+/*---------------------------------------------------------------------------*/
+void
+tun_write(int fd, const unsigned char *buf, int len)
+{
+  if(write(fd, buf, len) != len) {
+    err(EXIT_FAILURE, "tun_write");
+  }
 }
 /*---------------------------------------------------------------------------*/
 void

@@ -56,6 +56,15 @@ int devopen(const char *dev, int flags);
  * defined in tunslip6-linux.c, tunslip6-macos.c, or tunslip6-bsd.c.
  */
 int tun_alloc(char *dev, int tap);
+
+/*
+ * Read one packet from / write one packet to the tun device, handling any
+ * platform-specific framing (e.g. the 4-byte macOS utun protocol header).
+ * tun_read() returns the payload length; both abort on I/O error.
+ */
+int tun_read(int fd, unsigned char *buf, int size);
+void tun_write(int fd, const unsigned char *buf, int len);
+
 void ifconf(const char *tundev, const char *ipaddr);
 
 /*
