@@ -282,6 +282,27 @@ deliver_packet(int outfd, const unsigned char *inbuf, int len)
   tunslip_write_packet(outfd, inbuf, len);
 }
 /*---------------------------------------------------------------------------*/
+/* Echo received serial bytes to stdout according to the verbosity level. */
+static void
+echo_received_byte(unsigned char c, unsigned char *inbuf, int *inbufptr)
+{
+  /* Echo whole lines for verbose 2, 3, and 5+; echo printable chars for 4. */
+  if(verbose == 2 || verbose == 3 || verbose > 4) {
+    if(c == '\n' && is_sensible_string(inbuf, *inbufptr)) {
+      stamptime();
+      fwrite(inbuf, *inbufptr, 1, stdout);
+      *inbufptr = 0;
+    }
+  } else if(verbose == 4) {
+    if(c == 0 || c == '\r' || c == '\n' || c == '\t' || (c >= ' ' && c <= '~')) {
+      fwrite(&c, 1, 1, stdout);
+      if(c == '\n') {
+        stamptime();
+      }
+    }
+  }
+}
+/*---------------------------------------------------------------------------*/
 /*
  * Read from serial, when we have a packet write it to tun. No output
  * buffering, input buffered by stdio.
@@ -364,26 +385,7 @@ after_fread:
   /* FALLTHROUGH */
   default:
     inbuf[inbufptr++] = c;
-
-    /* Echo lines as they are received for verbose=2,3,5+ */
-    /* Echo all printable characters for verbose==4 */
-    if(verbose == 2 || verbose == 3 || verbose > 4) {
-      if(c == '\n') {
-        if(is_sensible_string(inbuf, inbufptr)) {
-          stamptime();
-          fwrite(inbuf, inbufptr, 1, stdout);
-          inbufptr = 0;
-        }
-      }
-    } else if(verbose == 4) {
-      if(c == 0 || c == '\r' || c == '\n' || c == '\t' || (c >= ' ' && c <= '~')) {
-        fwrite(&c, 1, 1, stdout);
-        if(c == '\n') {
-          stamptime();
-        }
-      }
-    }
-
+    echo_received_byte(c, inbuf, &inbufptr);
     break;
   }
 
