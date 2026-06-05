@@ -87,6 +87,9 @@ static char tundev[1024] = { "" };
 /* IPv6 required minimum MTU */
 #define MIN_DEVMTU 1500
 static int devmtu = MIN_DEVMTU;
+
+/* Maximum size of an IP packet carried over the tunnel, in either direction. */
+#define TUN_BUFSIZE 2000
 /*---------------------------------------------------------------------------*/
 static void
 progress(const char *s)
@@ -212,9 +215,7 @@ print_packet_hex(const unsigned char *buf, int len)
 static void
 serial_to_tun(FILE *inslip, int outfd)
 {
-  static union {
-    unsigned char inbuf[2000];
-  } uip;
+  static unsigned char inbuf[TUN_BUFSIZE];
   static int inbufptr = 0;
   int ret;
   unsigned char c;
@@ -228,7 +229,7 @@ serial_to_tun(FILE *inslip, int outfd)
 #endif
 
 read_more:
-  if(inbufptr >= (int)sizeof(uip.inbuf)) {
+  if(inbufptr >= (int)sizeof(inbuf)) {
     if(timestamp) {
       stamptime();
     }
@@ -250,8 +251,8 @@ after_fread:
   switch(c) {
   case SLIP_END:
     if(inbufptr > 0) {
-      if(uip.inbuf[0] == '!') {
-        if(inbufptr >= 18 && uip.inbuf[1] == 'M') {
+      if(inbuf[0] == '!') {
+        if(inbufptr >= 18 && inbuf[1] == 'M') {
           /* Read gateway MAC address and autoconfigure tap0 interface */
           char macs[24];
           int i, pos;
@@ -260,7 +261,7 @@ after_fread:
              reject anything that is not a hex digit to avoid passing
              untrusted serial data through to system(). */
           for(i = 0; i < 16; i++) {
-            unsigned char d = uip.inbuf[2 + i];
+            unsigned char d = inbuf[2 + i];
             if(!((d >= '0' && d <= '9') || (d >= 'a' && d <= 'f')
                  || (d >= 'A' && d <= 'F'))) {
               break;
@@ -270,7 +271,7 @@ after_fread:
             fprintf(stderr, "*** ignoring malformed gateway MAC address\n");
           } else {
             for(i = 0, pos = 0; i < 16; i++) {
-              macs[pos++] = uip.inbuf[2 + i];
+              macs[pos++] = inbuf[2 + i];
               if((i & 1) == 1 && i < 14) {
                 macs[pos++] = ':';
               }
@@ -294,8 +295,8 @@ after_fread:
             ssystem("ifconfig %s up", tundev);
           }
         }
-      } else if(uip.inbuf[0] == '?') {
-        if(inbufptr >= 2 && uip.inbuf[1] == 'P') {
+      } else if(inbuf[0] == '?') {
+        if(inbufptr >= 2 && inbuf[1] == 'P') {
           /* Prefix info requested */
           struct in6_addr addr;
           int i;
@@ -325,14 +326,14 @@ after_fread:
           }
         }
 #define DEBUG_LINE_MARKER '\r'
-      } else if(uip.inbuf[0] == DEBUG_LINE_MARKER) {
-        fwrite(uip.inbuf + 1, inbufptr - 1, 1, stdout);
-      } else if(is_sensible_string(uip.inbuf, inbufptr)) {
+      } else if(inbuf[0] == DEBUG_LINE_MARKER) {
+        fwrite(inbuf + 1, inbufptr - 1, 1, stdout);
+      } else if(is_sensible_string(inbuf, inbufptr)) {
         if(verbose == 1) {   /* strings already echoed below for verbose>1 */
           if(timestamp) {
             stamptime();
           }
-          fwrite(uip.inbuf, inbufptr, 1, stdout);
+          fwrite(inbuf, inbufptr, 1, stdout);
         }
       } else {
         if(verbose > 2) {
@@ -341,7 +342,7 @@ after_fread:
           }
           printf("Packet from SLIP of length %d - write TUN\n", inbufptr);
           if(verbose > 4) {
-            print_packet_hex(uip.inbuf, inbufptr);
+            print_packet_hex(inbuf, inbufptr);
           }
         }
 
@@ -352,14 +353,14 @@ after_fread:
 
         iv[0].iov_base = &type;
         iv[0].iov_len = sizeof(type);
-        iv[1].iov_base = uip.inbuf;
+        iv[1].iov_base = inbuf;
         iv[1].iov_len = inbufptr;
 
         if(writev(outfd, iv, 2) != (sizeof(type) + inbufptr)) {
           err(EXIT_FAILURE, "serial_to_tun: writev");
         }
 #else
-        if(write(outfd, uip.inbuf, inbufptr) != inbufptr) {
+        if(write(outfd, inbuf, inbufptr) != inbufptr) {
           err(EXIT_FAILURE, "serial_to_tun: write");
         }
 #endif
@@ -392,17 +393,17 @@ after_fread:
     }
   /* FALLTHROUGH */
   default:
-    uip.inbuf[inbufptr++] = c;
+    inbuf[inbufptr++] = c;
 
     /* Echo lines as they are received for verbose=2,3,5+ */
     /* Echo all printable characters for verbose==4 */
     if((verbose == 2) || (verbose == 3) || (verbose > 4)) {
       if(c == '\n') {
-        if(is_sensible_string(uip.inbuf, inbufptr)) {
+        if(is_sensible_string(inbuf, inbufptr)) {
           if(timestamp) {
             stamptime();
           }
-          fwrite(uip.inbuf, inbufptr, 1, stdout);
+          fwrite(inbuf, inbufptr, 1, stdout);
           inbufptr = 0;
         }
       }
@@ -423,8 +424,6 @@ after_fread:
   goto read_more;
 }
 /*---------------------------------------------------------------------------*/
-/* Maximum size of an IP packet read from the tun interface. */
-#define TUN_BUFSIZE 2000
 /*
  * The SLIP output buffer must hold the fully escaped encoding of a single
  * packet: in the worst case every byte is escaped into two bytes, plus a
@@ -539,12 +538,10 @@ write_to_serial(const void *inbuf, int len)
 static int
 tun_to_serial(int infd)
 {
-  struct {
-    unsigned char inbuf[TUN_BUFSIZE];
-  } uip;
+  unsigned char inbuf[TUN_BUFSIZE];
   int size;
 
-  if((size = read(infd, uip.inbuf, sizeof(uip.inbuf))) == -1) {
+  if((size = read(infd, inbuf, sizeof(inbuf))) == -1) {
     err(EXIT_FAILURE, "tun_to_serial: read");
   }
 
@@ -556,10 +553,10 @@ tun_to_serial(int infd)
   }
 
   size -= UTUN_HEADER_LEN;
-  write_to_serial(uip.inbuf + UTUN_HEADER_LEN, size);
+  write_to_serial(inbuf + UTUN_HEADER_LEN, size);
 #undef UTUN_HEADER_LEN
 #else
-  write_to_serial(uip.inbuf, size);
+  write_to_serial(inbuf, size);
 #endif
   return size;
 }
