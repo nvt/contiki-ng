@@ -38,6 +38,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
@@ -338,7 +339,7 @@ after_fread:
 
 #ifdef __APPLE__
         /* Fake IFF_NO_PI on macOS by sending a 4 byte header containing AF_INET6 */
-        u_int32_t type = htonl(AF_INET6);
+        uint32_t type = htonl(AF_INET6);
         struct iovec iv[2];
 
         iv[0].iov_base = &type;
@@ -500,7 +501,7 @@ slip_flushbuf(int fd)
 static void
 write_to_serial(const void *inbuf, int len)
 {
-  const u_int8_t *p = inbuf;
+  const uint8_t *p = inbuf;
   int i;
 
   if(verbose > 2) {
