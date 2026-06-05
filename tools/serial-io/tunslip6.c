@@ -62,6 +62,7 @@
 #include <err.h>
 
 #include "tools-utils.h"
+#include "tunslip6.h"
 
 #ifndef BAUDRATE
 #define BAUDRATE B115200
@@ -69,25 +70,23 @@
 static speed_t baud_speed = BAUDRATE;
 
 static int verbose = 2;
-static const char *ipaddr;
+const char *ipaddr;
 static int slipfd = 0;
 static uint16_t basedelay = 0, delaymsec = 0;
 static uint32_t delaystartsec, delaystartmsec;
-static bool timestamp = false, flowcontrol = false, showprogress = false,
-            flowcontrol_xonxoff = false;
+bool timestamp = false;
+static bool flowcontrol = false, showprogress = false, flowcontrol_xonxoff = false;
 
-static int run_command(const char *fmt, ...)
-__attribute__((__format__(__printf__, 1, 2)));
 static void write_to_serial(const void *inbuf, int len);
 
 static void slip_send(unsigned char c);
 static void slip_send_char(unsigned char c);
 
-static char tundev[1024] = { "" };
+char tundev[1024] = { "" };
 
 /* IPv6 required minimum MTU */
 #define MIN_DEVMTU 1500
-static int devmtu = MIN_DEVMTU;
+int devmtu = MIN_DEVMTU;
 
 /* Maximum size of an IP packet carried over the tunnel, in either direction. */
 #define TUN_BUFSIZE 2000
@@ -100,7 +99,7 @@ progress(const char *s)
   }
 }
 /*---------------------------------------------------------------------------*/
-static int
+int
 run_command(const char *fmt, ...)
 {
   char cmd[128];
@@ -145,7 +144,7 @@ get_in_addr(const struct sockaddr *sa)
   return &((const struct sockaddr_in6 *)sa)->sin6_addr;
 }
 /*---------------------------------------------------------------------------*/
-static void
+void
 stamptime(void)
 {
   static long startsecs = 0, startmsecs = 0;
@@ -637,164 +636,12 @@ configure_tty(int fd)
   }
 }
 /*---------------------------------------------------------------------------*/
-static int
+int
 devopen(const char *dev, int flags)
 {
   char t[1024];
   snprintf(t, sizeof(t), "/dev/%s", dev);
   return open(t, flags);
-}
-/*---------------------------------------------------------------------------*/
-#ifdef linux
-#include <linux/if.h>
-#include <linux/if_tun.h>
-
-static int
-tun_alloc(char *dev, int tap)
-{
-  struct ifreq ifr;
-  int fd, ret;
-
-  if((fd = open("/dev/net/tun", O_RDWR)) < 0) {
-    perror("can not open /dev/net/tun");
-    return -1;
-  }
-
-  memset(&ifr, 0, sizeof(ifr));
-
-  /* Flags: IFF_TUN   - TUN device (no Ethernet headers)
-   *        IFF_TAP   - TAP device
-   *
-   *        IFF_NO_PI - Do not provide packet information
-   */
-  ifr.ifr_flags = (tap ? IFF_TAP : IFF_TUN) | IFF_NO_PI;
-  if(*dev != 0) {
-    strncpy(ifr.ifr_name, dev, sizeof(ifr.ifr_name) - 1);
-    ifr.ifr_name[sizeof(ifr.ifr_name) - 1] = '\0';
-  }
-
-  if((ret = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
-    close(fd);
-    fprintf(stderr, "can not tunsetiff to %s (flags=%08x): %s\n", dev, ifr.ifr_flags,
-            strerror(errno));
-    return ret;
-  }
-
-  /* get resulting tunnel name */
-  strcpy(dev, ifr.ifr_name);
-  return fd;
-}
-#elif defined __APPLE__
-#include <sys/sys_domain.h>
-#include <sys/kern_control.h>
-#include <net/if_utun.h>
-
-/*
- * Reference for utun on macOS:
- * http://newosxbook.com/src.jl?tree=listings&file=17-15-utun.c
- */
-static int
-tun_alloc(char *dev, int tap)
-{
-  struct sockaddr_ctl sc;
-  struct ctl_info ctlInfo;
-  int fd;
-  unsigned int tunif;
-
-  if(tap) {
-    errx(EXIT_FAILURE, "tun_alloc: TAP is not supported with utun on macOS");
-    return -1;
-  }
-
-  if(sscanf(dev, "utun%u", &tunif) != 1 || tunif >= UINT8_MAX) {
-    errx(EXIT_FAILURE, "tun_alloc: invalid utun interface specified");
-    return -1;
-  }
-
-  memset(&ctlInfo, 0, sizeof(ctlInfo));
-  if(strlcpy(ctlInfo.ctl_name, UTUN_CONTROL_NAME, sizeof(ctlInfo.ctl_name)) >=
-     sizeof(ctlInfo.ctl_name)) {
-    fprintf(stderr, "UTUN_CONTROL_NAME too long");
-    return -1;
-  }
-
-  fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
-
-  if(fd == -1) {
-    perror("socket(SYSPROTO_CONTROL)");
-    return -1;
-  }
-
-  if(ioctl(fd, CTLIOCGINFO, &ctlInfo) == -1) {
-    perror("ioctl(CTLIOCGINFO)");
-    close(fd);
-    return -1;
-  }
-
-  sc.sc_id = ctlInfo.ctl_id;
-  sc.sc_len = sizeof(sc);
-  sc.sc_family = AF_SYSTEM;
-  sc.ss_sysaddr = AF_SYS_CONTROL;
-  sc.sc_unit = tunif + 1;
-
-  /*
-   * If the connect is successful, a utun%d device will be created, where "%d"
-   * is our unit number -1
-   */
-
-  if(connect(fd, (struct sockaddr *)&sc, sizeof(sc)) == -1) {
-    perror("connect(AF_SYS_CONTROL)");
-    close(fd);
-    return -1;
-  }
-
-  return fd;
-}
-#else
-static int
-tun_alloc(char *dev, int tap)
-{
-  return devopen(dev, O_RDWR);
-}
-#endif
-/*---------------------------------------------------------------------------*/
-/*
- * Restore the host network configuration at exit. Every command here is
- * best-effort: run_command() reports any failure, but cleanup() deliberately
- * runs all of them and never aborts, since some (e.g. removing a route that
- * is already gone) can fail harmlessly during shutdown.
- */
-static void
-cleanup(void)
-{
-  fprintf(stderr, "*** cleaning up: restoring network configuration\n");
-#ifndef __APPLE__
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s down", tundev);
-#ifndef linux
-  run_command("sysctl -w net.ipv6.conf.all.forwarding=1");
-#endif
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("netstat -nr"
-              " | awk '{ if ($2 == \"%s\") print \"route delete -net \"$1; }'"
-              " | sh",
-              tundev);
-#else
-  {
-    if(timestamp) {
-      stamptime();
-    }
-    run_command("ifconfig %s inet6 %s remove", tundev, ipaddr);
-    if(timestamp) {
-      stamptime();
-    }
-    run_command("ifconfig %s down", tundev);
-  }
-#endif
 }
 /*---------------------------------------------------------------------------*/
 static volatile sig_atomic_t should_exit;
@@ -829,97 +676,6 @@ sigalarm_reset()
 #endif
   ualarm(TIMEOUT, TIMEOUT);
   got_sigalarm = 0;
-}
-/*---------------------------------------------------------------------------*/
-static void
-ifconf(const char *tundev, const char *ipaddr)
-{
-#ifdef linux
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s inet `hostname` mtu %d up", tundev, devmtu);
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s add %s", tundev, ipaddr);
-
-  /* radvd needs a link local address for routing. Generate one a la
-     sixxs/aiccu: a full parse, stripping off the prefix length. */
-  {
-    char lladdr[40];
-    char c, *ptr = (char *)ipaddr;
-    uint16_t digit, ai, a[8], colon_seen, double_colon_pos, n_elided;
-    for(ai = 0; ai < 8; ai++) {
-      a[ai] = 0;
-    }
-    ai = 0;
-    colon_seen = double_colon_pos = 0;
-    while((c = *ptr++) != 0) {
-      if(c == '/') {
-        break;
-      }
-      if(c == ':') {
-        if(colon_seen) {
-          double_colon_pos = ai;
-        }
-        colon_seen = 1;
-        if(++ai > 7) {
-          break;
-        }
-      } else {
-        colon_seen = 0;
-        digit = c - '0';
-        if(digit > 9) {
-          digit = 10 + (c & 0xdf) - 'A';
-        }
-        a[ai] = (a[ai] << 4) + digit;
-      }
-    }
-    /* Get # elided and shift what's after to the end */
-    n_elided = 8 - ai;
-    for(uint16_t i = 0; i < n_elided; i++) {
-      if(8 - i - n_elided <= double_colon_pos) {
-        a[7 - i] = 0;
-      } else {
-        a[7 - i] = a[8 - i - n_elided];
-        a[8 - i - n_elided] = 0;
-      }
-    }
-    sprintf(lladdr, "fe80::%x:%x:%x:%x", a[1] & 0xfefd, a[2], a[3], a[7]);
-    if(timestamp) {
-      stamptime();
-    }
-    run_command("ifconfig %s add %s/64", tundev, lladdr);
-  }
-#elif defined(__APPLE__)
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s inet6 mtu %d up", tundev, devmtu);
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s inet6 %s add", tundev, ipaddr);
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("sysctl -w net.inet6.ip6.forwarding=1");
-#else
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu);
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("sysctl -w net.inet.ip.forwarding=1");
-#endif /* !linux */
-
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s\n", tundev);
 }
 /*---------------------------------------------------------------------------*/
 int
