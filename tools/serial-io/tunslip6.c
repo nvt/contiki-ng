@@ -140,9 +140,9 @@ static const void *
 get_in_addr(const struct sockaddr *sa)
 {
   if(sa->sa_family == AF_INET) {
-    return &(((const struct sockaddr_in *)sa)->sin_addr);
+    return &((const struct sockaddr_in *)sa)->sin_addr;
   }
-  return &(((const struct sockaddr_in6 *)sa)->sin6_addr);
+  return &((const struct sockaddr_in6 *)sa)->sin6_addr;
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -410,7 +410,7 @@ after_fread:
 
     /* Echo lines as they are received for verbose=2,3,5+ */
     /* Echo all printable characters for verbose==4 */
-    if((verbose == 2) || (verbose == 3) || (verbose > 4)) {
+    if(verbose == 2 || verbose == 3 || verbose > 4) {
       if(c == '\n') {
         if(is_sensible_string(inbuf, inbufptr)) {
           if(timestamp) {
@@ -504,7 +504,7 @@ slip_flushbuf(int fd)
     return;
   }
 
-  n = write(fd, slip_buf + slip_begin, (slip_end - slip_begin));
+  n = write(fd, slip_buf + slip_begin, slip_end - slip_begin);
 
   if(n == -1 && errno != EAGAIN) {
     err(EXIT_FAILURE, "slip_flushbuf write failed");
@@ -884,7 +884,7 @@ ifconf(const char *tundev, const char *ipaddr)
     /* Get # elided and shift what's after to the end */
     cc = 8 - ai;
     for(uint16_t i = 0; i < cc; i++) {
-      if((8 - i - cc) <= scc) {
+      if(8 - i - cc <= scc) {
         a[7 - i] = 0;
       } else {
         a[7 - i] = a[8 - i - cc];
@@ -1080,8 +1080,8 @@ main(int argc, char **argv)
       break;
     }
   }
-  argc -= (optind - 1);
-  argv += (optind - 1);
+  argc -= optind - 1;
+  argv += optind - 1;
 
   if(argc != 2 && argc != 3) {
     errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-I] [-X] [-L] [-s siodev] [-M] [-T] [-t tundev] "
