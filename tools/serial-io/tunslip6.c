@@ -389,7 +389,14 @@ after_fread:
   goto read_more;
 }
 /*---------------------------------------------------------------------------*/
-unsigned char slip_buf[2000];
+/* Maximum size of an IP packet read from the tun interface. */
+#define TUN_BUFSIZE 2000
+/*
+ * The SLIP output buffer must hold the fully escaped encoding of a single
+ * packet: in the worst case every byte is escaped into two bytes, plus a
+ * trailing SLIP_END delimiter.
+ */
+unsigned char slip_buf[2 * TUN_BUFSIZE + 1];
 unsigned int slip_end, slip_begin;
 /*---------------------------------------------------------------------------*/
 void
@@ -544,11 +551,11 @@ int
 tun_to_serial(int infd)
 {
   struct {
-    unsigned char inbuf[2000];
+    unsigned char inbuf[TUN_BUFSIZE];
   } uip;
   int size;
 
-  if((size = read(infd, uip.inbuf, 2000)) == -1) {
+  if((size = read(infd, uip.inbuf, sizeof(uip.inbuf))) == -1) {
     err(1, "tun_to_serial: read");
   }
 
