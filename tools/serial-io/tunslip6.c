@@ -312,84 +312,81 @@ serial_to_tun(FILE *inslip, int outfd)
 {
   static unsigned char inbuf[TUN_BUFSIZE];
   static int inbufptr = 0;
-  int ret;
   unsigned char c;
+  bool first = true;
 
-#ifdef linux
-  ret = fread(&c, 1, 1, inslip);
-  if(ret == -1 || ret == 0) {
-    err(EXIT_FAILURE, "serial_to_tun: read");
-  }
-  goto after_fread;
-#endif
-
-read_more:
-  if(inbufptr >= (int)sizeof(inbuf)) {
-    stamptime();
-    fprintf(stderr, "*** dropping large %d byte packet\n", inbufptr);
-    inbufptr = 0;
-  }
-  ret = fread(&c, 1, 1, inslip);
-#ifdef linux
-after_fread:
-#endif
-  if(ret == -1) {
-    err(EXIT_FAILURE, "serial_to_tun: read");
-  }
-  if(ret == 0) {
-    clearerr(inslip);
-    return;
-  }
-  progress(".");
-  switch(c) {
-  case SLIP_END:
-    if(inbufptr > 0) {
-      if(inbuf[0] == '?') {
-        handle_prefix_request(inbuf, inbufptr);
-      } else if(inbuf[0] == DEBUG_LINE_MARKER) {
-        fwrite(inbuf + 1, inbufptr - 1, 1, stdout);
-      } else if(is_sensible_string(inbuf, inbufptr)) {
-        if(verbose == 1) {   /* strings already echoed below for verbose>1 */
-          stamptime();
-          fwrite(inbuf, inbufptr, 1, stdout);
-        }
-      } else {
-        deliver_packet(outfd, inbuf, inbufptr);
-      }
+  while(1) {
+    if(inbufptr >= (int)sizeof(inbuf)) {
+      stamptime();
+      fprintf(stderr, "*** dropping large %d byte packet\n", inbufptr);
       inbufptr = 0;
     }
-    break;
 
-  case SLIP_ESC:
+    /*
+     * serial_to_tun() runs only when select() reports the SLIP source
+     * readable, so the first byte must be available: a zero-byte read on the
+     * first iteration means the source has closed (EOF), and exiting avoids
+     * spinning in the select() loop. A later zero-byte read just means stdio
+     * has drained what it buffered, so return to select().
+     */
     if(fread(&c, 1, 1, inslip) != 1) {
+      if(first) {
+        err(EXIT_FAILURE, "serial_to_tun: read");
+      }
       clearerr(inslip);
-      /* Put ESC back and give up! */
-      ungetc(SLIP_ESC, inslip);
       return;
     }
+    first = false;
 
+    progress(".");
     switch(c) {
-    case SLIP_ESC_END:
-      c = SLIP_END;
+    case SLIP_END:
+      if(inbufptr > 0) {
+        if(inbuf[0] == '?') {
+          handle_prefix_request(inbuf, inbufptr);
+        } else if(inbuf[0] == DEBUG_LINE_MARKER) {
+          fwrite(inbuf + 1, inbufptr - 1, 1, stdout);
+        } else if(is_sensible_string(inbuf, inbufptr)) {
+          if(verbose == 1) {   /* strings already echoed below for verbose>1 */
+            stamptime();
+            fwrite(inbuf, inbufptr, 1, stdout);
+          }
+        } else {
+          deliver_packet(outfd, inbuf, inbufptr);
+        }
+        inbufptr = 0;
+      }
       break;
-    case SLIP_ESC_ESC:
-      c = SLIP_ESC;
-      break;
-    case SLIP_ESC_XON:
-      c = XON;
-      break;
-    case SLIP_ESC_XOFF:
-      c = XOFF;
+
+    case SLIP_ESC:
+      if(fread(&c, 1, 1, inslip) != 1) {
+        clearerr(inslip);
+        /* Put ESC back and give up! */
+        ungetc(SLIP_ESC, inslip);
+        return;
+      }
+
+      switch(c) {
+      case SLIP_ESC_END:
+        c = SLIP_END;
+        break;
+      case SLIP_ESC_ESC:
+        c = SLIP_ESC;
+        break;
+      case SLIP_ESC_XON:
+        c = XON;
+        break;
+      case SLIP_ESC_XOFF:
+        c = XOFF;
+        break;
+      }
+    /* FALLTHROUGH */
+    default:
+      inbuf[inbufptr++] = c;
+      echo_received_byte(c, inbuf, &inbufptr);
       break;
     }
-  /* FALLTHROUGH */
-  default:
-    inbuf[inbufptr++] = c;
-    echo_received_byte(c, inbuf, &inbufptr);
-    break;
   }
-
-  goto read_more;
 }
 /*---------------------------------------------------------------------------*/
 /*
