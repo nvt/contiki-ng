@@ -671,25 +671,78 @@ sigalarm_reset()
   got_sigalarm = 0;
 }
 /*---------------------------------------------------------------------------*/
-int
-main(int argc, char **argv)
+static void
+print_usage(const char *prog)
 {
-  int c;
-  int tunfd, maxfd;
-  int ret;
-  fd_set rset, wset;
-  FILE *inslip;
-  const char *siodev = NULL;
-  const char *host = NULL;
-  const char *port = NULL;
-  const char *prog;
+  fprintf(stderr, "usage:  %s [options] ipaddress\n", prog);
+  fprintf(stderr, "example: tunslip6 -L -v2 -s ttyUSB1 fd00::1/64\n");
+  fprintf(stderr, "Options are:\n");
+#ifndef __APPLE__
+  fprintf(stderr, " -B baudrate    9600,19200,38400,57600,115200 (default),230400,460800,921600\n");
+#else
+  fprintf(stderr, " -B baudrate    9600,19200,38400,57600,115200 (default),230400\n");
+#endif
+  fprintf(stderr, " -P             Show progress\n");
+  fprintf(stderr, " -H             Hardware CTS/RTS flow control (default disabled)\n");
+  fprintf(stderr, " -I             Inquire IP address\n");
+  fprintf(stderr, " -X             Software XON/XOFF flow control (default disabled)\n");
+  fprintf(stderr, " -L             Log output format (adds time stamps)\n");
+  fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
+  fprintf(stderr, " -M             Interface MTU (default and min: 1500)\n");
+#ifdef __APPLE__
+  fprintf(stderr, " -t tundev      Name of interface (default utun10)\n");
+#else
+  fprintf(stderr, " -T             Make tap interface (default is tun interface)\n");
+  fprintf(stderr, " -t tundev      Name of interface (default tap0 or tun0)\n");
+#endif
+#ifdef __APPLE__
+  fprintf(stderr, " -v level       Verbosity level\n");
+#else
+  fprintf(stderr, " -v[level]      Verbosity level\n");
+#endif
+  fprintf(stderr, "    -v0         No messages\n");
+  fprintf(stderr, "    -v1         Encapsulated SLIP debug messages\n");
+  fprintf(stderr, "    -v2         Printable strings after they are received (default)\n");
+  fprintf(stderr, "    -v3         Printable strings and SLIP packet notifications\n");
+  fprintf(stderr, "    -v4         All printable characters as they are received\n");
+  fprintf(stderr, "    -v5         All SLIP packets in hex\n");
+#ifndef __APPLE__
+  fprintf(stderr, "    -v          Equivalent to -v2\n");
+#endif
+#ifdef __APPLE__
+  fprintf(stderr, " -d basedelay   Minimum delay between outgoing SLIP packets.\n");
+#else
+  fprintf(stderr, " -d[basedelay]  Minimum delay between outgoing SLIP packets.\n");
+#endif
+  fprintf(stderr, "                Actual delay is basedelay*(#6LowPAN fragments) milliseconds.\n");
+#ifndef __APPLE__
+  fprintf(stderr, "                -d is equivalent to -d10.\n");
+#endif
+  fprintf(stderr, " -a serveraddr  \n");
+  fprintf(stderr, " -p serverport  \n");
+}
+/*---------------------------------------------------------------------------*/
+/* Command-line options that are not stored in globals. */
+struct options {
+  const char *siodev;   /* serial device, or NULL to probe defaults */
+  const char *host;     /* TCP server host, or NULL to use a serial device */
+  const char *port;     /* TCP server port */
+  int ipa_enable;       /* -I: inquire about the IP address */
+  int tap;              /* -T: create a tap (rather than tun) interface */
+};
+/*---------------------------------------------------------------------------*/
+static void
+parse_args(int argc, char **argv, struct options *opt)
+{
+  const char *prog = argv[0];
   int baudrate = -2;
-  int ipa_enable = 0;
-  int tap = 0;
-  slipfd = 0;
+  int c;
 
-  prog = argv[0];
-  setvbuf(stdout, NULL, _IOLBF, 0); /* Line buffered output. */
+  opt->siodev = NULL;
+  opt->host = NULL;
+  opt->port = NULL;
+  opt->ipa_enable = 0;
+  opt->tap = 0;
 
   while((c = getopt(argc, argv, "B:HILPhXM:s:t:v::d::a:p:T")) != -1) {
     switch(c) {
@@ -722,14 +775,14 @@ main(int argc, char **argv)
 
     case 's':
       if(strncmp("/dev/", optarg, 5) == 0) {
-        siodev = optarg + 5;
+        opt->siodev = optarg + 5;
       } else {
-        siodev = optarg;
+        opt->siodev = optarg;
       }
       break;
 
     case 'I':
-      ipa_enable = 1;
+      opt->ipa_enable = 1;
       fprintf(stderr, "Will inquire about IP address using IPA=\n");
       break;
 
@@ -743,11 +796,11 @@ main(int argc, char **argv)
       break;
 
     case 'a':
-      host = optarg;
+      opt->host = optarg;
       break;
 
     case 'p':
-      port = optarg;
+      opt->port = optarg;
       break;
 
     case 'd':
@@ -766,61 +819,15 @@ main(int argc, char **argv)
 
 #ifndef __APPLE__
     case 'T':
-      tap = 1;
+      opt->tap = 1;
       break;
 #endif
 
     case '?':
     case 'h':
     default:
-      fprintf(stderr, "usage:  %s [options] ipaddress\n", prog);
-      fprintf(stderr, "example: tunslip6 -L -v2 -s ttyUSB1 fd00::1/64\n");
-      fprintf(stderr, "Options are:\n");
-#ifndef __APPLE__
-      fprintf(stderr, " -B baudrate    9600,19200,38400,57600,115200 (default),230400,460800,921600\n");
-#else
-      fprintf(stderr, " -B baudrate    9600,19200,38400,57600,115200 (default),230400\n");
-#endif
-      fprintf(stderr, " -P             Show progress\n");
-      fprintf(stderr, " -H             Hardware CTS/RTS flow control (default disabled)\n");
-      fprintf(stderr, " -I             Inquire IP address\n");
-      fprintf(stderr, " -X             Software XON/XOFF flow control (default disabled)\n");
-      fprintf(stderr, " -L             Log output format (adds time stamps)\n");
-      fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
-      fprintf(stderr, " -M             Interface MTU (default and min: 1500)\n");
-#ifdef __APPLE__
-      fprintf(stderr, " -t tundev      Name of interface (default utun10)\n");
-#else
-      fprintf(stderr, " -T             Make tap interface (default is tun interface)\n");
-      fprintf(stderr, " -t tundev      Name of interface (default tap0 or tun0)\n");
-#endif
-#ifdef __APPLE__
-      fprintf(stderr, " -v level       Verbosity level\n");
-#else
-      fprintf(stderr, " -v[level]      Verbosity level\n");
-#endif
-      fprintf(stderr, "    -v0         No messages\n");
-      fprintf(stderr, "    -v1         Encapsulated SLIP debug messages\n");
-      fprintf(stderr, "    -v2         Printable strings after they are received (default)\n");
-      fprintf(stderr, "    -v3         Printable strings and SLIP packet notifications\n");
-      fprintf(stderr, "    -v4         All printable characters as they are received\n");
-      fprintf(stderr, "    -v5         All SLIP packets in hex\n");
-#ifndef __APPLE__
-      fprintf(stderr, "    -v          Equivalent to -v2\n");
-#endif
-#ifdef __APPLE__
-      fprintf(stderr, " -d basedelay   Minimum delay between outgoing SLIP packets.\n");
-#else
-      fprintf(stderr, " -d[basedelay]  Minimum delay between outgoing SLIP packets.\n");
-#endif
-      fprintf(stderr, "                Actual delay is basedelay*(#6LowPAN fragments) milliseconds.\n");
-#ifndef __APPLE__
-      fprintf(stderr, "                -d is equivalent to -d10.\n");
-#endif
-      fprintf(stderr, " -a serveraddr  \n");
-      fprintf(stderr, " -p serverport  \n");
+      print_usage(prog);
       exit(EXIT_FAILURE);
-      break;
     }
   }
   argc -= optind - 1;
@@ -847,108 +854,111 @@ main(int argc, char **argv)
 #ifdef __APPLE__
   if(*tundev == '\0') {
     /* utun0-3 are in use on Big Sur, so use utun10 as default */
-
     strcpy(tundev, "utun10");
   }
 #endif
+}
+/*---------------------------------------------------------------------------*/
+static int
+connect_to_server(const char *host, const char *port)
+{
+  struct addrinfo hints, *servinfo, *p;
+  int rv, fd = -1;
+  char s[INET6_ADDRSTRLEN];
 
-  if(host != NULL) {
-    struct addrinfo hints, *servinfo, *p;
-    int rv;
-    char s[INET6_ADDRSTRLEN];
+  if(port == NULL) {
+    port = "60001";
+  }
 
-    if(port == NULL) {
-      port = "60001";
+  memset(&hints, 0, sizeof hints);
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+
+  if((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
+    errx(EXIT_FAILURE, "getaddrinfo: %s", gai_strerror(rv));
+  }
+
+  /* loop through all the results and connect to the first we can */
+  for(p = servinfo; p != NULL; p = p->ai_next) {
+    if((fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+      perror("client: socket");
+      continue;
     }
 
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
-    if((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
-      errx(EXIT_FAILURE, "getaddrinfo: %s", gai_strerror(rv));
+    if(connect(fd, p->ai_addr, p->ai_addrlen) == -1) {
+      perror("client: connect");
+      close(fd);
+      continue;
     }
+    break;
+  }
 
-    /* loop through all the results and connect to the first we can */
-    for(p = servinfo; p != NULL; p = p->ai_next) {
-      if((slipfd = socket(p->ai_family, p->ai_socktype,
-                          p->ai_protocol)) == -1) {
-        perror("client: socket");
-        continue;
-      }
+  if(p == NULL) {
+    errx(EXIT_FAILURE, "can't connect to ``%s:%s''", host, port);
+  }
 
-      if(connect(slipfd, p->ai_addr, p->ai_addrlen) == -1) {
-        perror("client: connect");
-        close(slipfd);
-        continue;
-      }
-      break;
+  if(fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
+    err(EXIT_FAILURE, "fcntl(F_SETFL, O_NONBLOCK)");
+  }
+
+  const char *addr_str = inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
+                                   s, sizeof(s));
+  fprintf(stderr, "slip connected to ``%s:%s''\n",
+          addr_str != NULL ? addr_str : "?", port);
+
+  freeaddrinfo(servinfo);
+  return fd;
+}
+/*---------------------------------------------------------------------------*/
+static int
+open_serial(const char *siodev)
+{
+  int fd;
+
+  if(siodev != NULL) {
+    fd = devopen(siodev, O_RDWR | O_NONBLOCK);
+    if(fd == -1) {
+      err(EXIT_FAILURE, "can't open siodev ``/dev/%s''", siodev);
     }
-
-    if(p == NULL) {
-      errx(EXIT_FAILURE, "can't connect to ``%s:%s''", host, port);
-    }
-
-    if(fcntl(slipfd, F_SETFL, O_NONBLOCK) == -1) {
-      err(EXIT_FAILURE, "fcntl(F_SETFL, O_NONBLOCK)");
-    }
-
-    const char *addr_str = inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
-                                     s, sizeof(s));
-    fprintf(stderr, "slip connected to ``%s:%s''\n",
-            addr_str != NULL ? addr_str : "?", port);
-
-    /* all done with this structure */
-    freeaddrinfo(servinfo);
   } else {
-    if(siodev != NULL) {
-      slipfd = devopen(siodev, O_RDWR | O_NONBLOCK);
-      if(slipfd == -1) {
-        err(EXIT_FAILURE, "can't open siodev ``/dev/%s''", siodev);
-      }
-    } else {
-      static const char *siodevs[] = {
-        "ttyUSB0", "cuaU0", "ucom0" /* linux, fbsd6, fbsd5 */
-      };
-      for(int i = 0; i < 3; i++) {
-        siodev = siodevs[i];
-        slipfd = devopen(siodev, O_RDWR | O_NONBLOCK);
-        if(slipfd != -1) {
-          break;
-        }
-      }
-      if(slipfd == -1) {
-        err(EXIT_FAILURE, "can't open siodev");
+    static const char *siodevs[] = {
+      "ttyUSB0", "cuaU0", "ucom0" /* linux, fbsd6, fbsd5 */
+    };
+    fd = -1;
+    for(int i = 0; i < 3; i++) {
+      siodev = siodevs[i];
+      fd = devopen(siodev, O_RDWR | O_NONBLOCK);
+      if(fd != -1) {
+        break;
       }
     }
-    if(timestamp) {
-      stamptime();
+    if(fd == -1) {
+      err(EXIT_FAILURE, "can't open siodev");
     }
-    fprintf(stderr, "********SLIP started on ``/dev/%s''\n", siodev);
-    configure_tty(slipfd);
-  }
-  slip_send(SLIP_END);
-  inslip = fdopen(slipfd, "r");
-  if(inslip == NULL) {
-    err(EXIT_FAILURE, "main: fdopen");
-  }
-
-  tunfd = tun_alloc(tundev, tap);
-  if(tunfd == -1) {
-    err(EXIT_FAILURE, "main: open /dev/tun");
   }
   if(timestamp) {
     stamptime();
   }
-  fprintf(stderr, "opened %s device ``/dev/%s''\n",
-          tap ? "tap" : "tun", tundev);
-
+  fprintf(stderr, "********SLIP started on ``/dev/%s''\n", siodev);
+  configure_tty(fd);
+  return fd;
+}
+/*---------------------------------------------------------------------------*/
+static void
+setup_signal_handlers(void)
+{
   atexit(cleanup);
   signal(SIGHUP, sigcleanup);
   signal(SIGTERM, sigcleanup);
   signal(SIGINT, sigcleanup);
   signal(SIGALRM, sigalarm);
-  ifconf(tundev, ipaddr);
+}
+/*---------------------------------------------------------------------------*/
+static void
+event_loop(FILE *inslip, int tunfd, int ipa_enable)
+{
+  fd_set rset, wset;
+  int maxfd, ret;
 
   while(1) {
     if(should_exit) {
@@ -1038,5 +1048,45 @@ main(int argc, char **argv)
       }
     }
   }
+}
+/*---------------------------------------------------------------------------*/
+int
+main(int argc, char **argv)
+{
+  struct options opt;
+  FILE *inslip;
+  int tunfd;
+
+  setvbuf(stdout, NULL, _IOLBF, 0); /* Line buffered output. */
+
+  parse_args(argc, argv, &opt);
+
+  if(opt.host != NULL) {
+    slipfd = connect_to_server(opt.host, opt.port);
+  } else {
+    slipfd = open_serial(opt.siodev);
+  }
+
+  slip_send(SLIP_END);
+  inslip = fdopen(slipfd, "r");
+  if(inslip == NULL) {
+    err(EXIT_FAILURE, "main: fdopen");
+  }
+
+  tunfd = tun_alloc(tundev, opt.tap);
+  if(tunfd == -1) {
+    err(EXIT_FAILURE, "main: open /dev/tun");
+  }
+  if(timestamp) {
+    stamptime();
+  }
+  fprintf(stderr, "opened %s device ``/dev/%s''\n",
+          opt.tap ? "tap" : "tun", tundev);
+
+  setup_signal_handlers();
+  ifconf(tundev, ipaddr);
+
+  event_loop(inslip, tunfd, opt.ipa_enable);
+  return 0;
 }
 /*---------------------------------------------------------------------------*/
