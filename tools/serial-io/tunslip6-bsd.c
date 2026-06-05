@@ -44,32 +44,32 @@
 
 /*---------------------------------------------------------------------------*/
 int
-tun_alloc(char *dev, int tap)
+tunslip_open_tun(char *dev, int tap)
 {
   (void)tap;
   return devopen(dev, O_RDWR);
 }
 /*---------------------------------------------------------------------------*/
 int
-tun_read(int fd, unsigned char *buf, int size)
+tunslip_read_packet(int fd, unsigned char *buf, int size)
 {
   int n = read(fd, buf, size);
   if(n == -1) {
-    err(EXIT_FAILURE, "tun_read");
+    err(EXIT_FAILURE, "tunslip_read_packet");
   }
   return n;
 }
 /*---------------------------------------------------------------------------*/
 void
-tun_write(int fd, const unsigned char *buf, int len)
+tunslip_write_packet(int fd, const unsigned char *buf, int len)
 {
   if(write(fd, buf, len) != len) {
-    err(EXIT_FAILURE, "tun_write");
+    err(EXIT_FAILURE, "tunslip_write_packet");
   }
 }
 /*---------------------------------------------------------------------------*/
 void
-ifconf(const char *tundev, const char *ipaddr)
+tunslip_ifconf(const char *tundev, const char *ipaddr)
 {
   if(timestamp) {
     stamptime();
@@ -87,7 +87,7 @@ ifconf(const char *tundev, const char *ipaddr)
 }
 /*---------------------------------------------------------------------------*/
 void
-cleanup(void)
+tunslip_cleanup(void)
 {
   fprintf(stderr, "*** cleaning up: restoring network configuration\n");
   if(timestamp) {

@@ -55,24 +55,24 @@ int devopen(const char *dev, int flags);
  * Per-platform implementations, selected at build time in the Makefile and
  * defined in tunslip6-linux.c, tunslip6-macos.c, or tunslip6-bsd.c.
  */
-int tun_alloc(char *dev, int tap);
+int tunslip_open_tun(char *dev, int tap);
 
 /*
  * Read one packet from / write one packet to the tun device, handling any
  * platform-specific framing (e.g. the 4-byte macOS utun protocol header).
- * tun_read() returns the payload length; both abort on I/O error.
+ * tunslip_read_packet() returns the payload length; both abort on I/O error.
  */
-int tun_read(int fd, unsigned char *buf, int size);
-void tun_write(int fd, const unsigned char *buf, int len);
+int tunslip_read_packet(int fd, unsigned char *buf, int size);
+void tunslip_write_packet(int fd, const unsigned char *buf, int len);
 
-void ifconf(const char *tundev, const char *ipaddr);
+void tunslip_ifconf(const char *tundev, const char *ipaddr);
 
 /*
  * Restore the host network configuration at exit. Best-effort: run_command()
- * reports any failure, but cleanup() runs all of its commands and never
+ * reports any failure, but tunslip_cleanup() runs all of its commands and never
  * aborts, since some (e.g. removing a route that is already gone) can fail
  * harmlessly during shutdown.
  */
-void cleanup(void);
+void tunslip_cleanup(void);
 
 #endif /* TUNSLIP6_H_ */

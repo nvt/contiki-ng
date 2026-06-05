@@ -57,7 +57,7 @@
  */
 /*---------------------------------------------------------------------------*/
 int
-tun_alloc(char *dev, int tap)
+tunslip_open_tun(char *dev, int tap)
 {
   struct sockaddr_ctl sc;
   struct ctl_info ctlInfo;
@@ -65,12 +65,12 @@ tun_alloc(char *dev, int tap)
   unsigned int tunif;
 
   if(tap) {
-    errx(EXIT_FAILURE, "tun_alloc: TAP is not supported with utun on macOS");
+    errx(EXIT_FAILURE, "tunslip_open_tun: TAP is not supported with utun on macOS");
     return -1;
   }
 
   if(sscanf(dev, "utun%u", &tunif) != 1 || tunif >= UINT8_MAX) {
-    errx(EXIT_FAILURE, "tun_alloc: invalid utun interface specified");
+    errx(EXIT_FAILURE, "tunslip_open_tun: invalid utun interface specified");
     return -1;
   }
 
@@ -115,7 +115,7 @@ tun_alloc(char *dev, int tap)
 }
 /*---------------------------------------------------------------------------*/
 int
-tun_read(int fd, unsigned char *buf, int size)
+tunslip_read_packet(int fd, unsigned char *buf, int size)
 {
   /* utun prepends a 4-byte protocol header; read it into a throwaway via
      readv so the payload lands at the start of buf. */
@@ -130,16 +130,16 @@ tun_read(int fd, unsigned char *buf, int size)
 
   n = readv(fd, iv, 2);
   if(n == -1) {
-    err(EXIT_FAILURE, "tun_read");
+    err(EXIT_FAILURE, "tunslip_read_packet");
   }
   if(n <= (ssize_t)sizeof(type)) {
-    errx(EXIT_FAILURE, "tun_read: packet too small");
+    errx(EXIT_FAILURE, "tunslip_read_packet: packet too small");
   }
   return (int)(n - sizeof(type));
 }
 /*---------------------------------------------------------------------------*/
 void
-tun_write(int fd, const unsigned char *buf, int len)
+tunslip_write_packet(int fd, const unsigned char *buf, int len)
 {
   /* Fake IFF_NO_PI by prepending a 4-byte header containing AF_INET6. */
   uint32_t type = htonl(AF_INET6);
@@ -151,12 +151,12 @@ tun_write(int fd, const unsigned char *buf, int len)
   iv[1].iov_len = len;
 
   if(writev(fd, iv, 2) != (ssize_t)(sizeof(type) + len)) {
-    err(EXIT_FAILURE, "tun_write");
+    err(EXIT_FAILURE, "tunslip_write_packet");
   }
 }
 /*---------------------------------------------------------------------------*/
 void
-ifconf(const char *tundev, const char *ipaddr)
+tunslip_ifconf(const char *tundev, const char *ipaddr)
 {
   if(timestamp) {
     stamptime();
@@ -178,7 +178,7 @@ ifconf(const char *tundev, const char *ipaddr)
 }
 /*---------------------------------------------------------------------------*/
 void
-cleanup(void)
+tunslip_cleanup(void)
 {
   fprintf(stderr, "*** cleaning up: restoring network configuration\n");
   if(timestamp) {

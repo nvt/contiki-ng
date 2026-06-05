@@ -157,7 +157,7 @@ stamptime(void)
   char timec[20];
 
   if(gettimeofday(&tv, NULL) == -1) {
-    /* Non-fatal: stamptime() is also called from the atexit cleanup path,
+    /* Non-fatal: stamptime() is also called from the atexit tunslip_cleanup path,
        where calling exit() would be undefined. Skip the timestamp. */
     perror("gettimeofday");
     return;
@@ -329,7 +329,7 @@ deliver_packet(int outfd, const unsigned char *inbuf, int len)
       print_packet_hex(inbuf, len);
     }
   }
-  tun_write(outfd, inbuf, len);
+  tunslip_write_packet(outfd, inbuf, len);
 }
 /*---------------------------------------------------------------------------*/
 /*
@@ -564,7 +564,7 @@ static int
 tun_to_serial(int infd)
 {
   unsigned char inbuf[TUN_BUFSIZE];
-  int size = tun_read(infd, inbuf, sizeof(inbuf));
+  int size = tunslip_read_packet(infd, inbuf, sizeof(inbuf));
 
   write_to_serial(inbuf, size);
   return size;
@@ -643,7 +643,7 @@ static void
 sigcleanup(int signo)
 {
   /*
-   * Only record the signal here. Printing and exit() (which runs cleanup(),
+   * Only record the signal here. Printing and exit() (which runs tunslip_cleanup(),
    * and therefore system()) are not async-signal-safe, so they are deferred
    * to the main loop.
    */
@@ -947,7 +947,7 @@ open_serial(const char *siodev)
 static void
 setup_signal_handlers(void)
 {
-  atexit(cleanup);
+  atexit(tunslip_cleanup);
   signal(SIGHUP, sigcleanup);
   signal(SIGTERM, sigcleanup);
   signal(SIGINT, sigcleanup);
@@ -963,7 +963,7 @@ event_loop(FILE *inslip, int tunfd, int ipa_enable)
   while(1) {
     if(should_exit) {
       fprintf(stderr, "signal %d\n", (int)should_exit);
-      exit(EXIT_SUCCESS);      /* will call cleanup() via atexit() */
+      exit(EXIT_SUCCESS);      /* will call tunslip_cleanup() via atexit() */
     }
 
     maxfd = 0;
@@ -1073,7 +1073,7 @@ main(int argc, char **argv)
     err(EXIT_FAILURE, "main: fdopen");
   }
 
-  tunfd = tun_alloc(tundev, opt.tap);
+  tunfd = tunslip_open_tun(tundev, opt.tap);
   if(tunfd == -1) {
     err(EXIT_FAILURE, "main: open /dev/tun");
   }
@@ -1084,7 +1084,7 @@ main(int argc, char **argv)
           opt.tap ? "tap" : "tun", tundev);
 
   setup_signal_handlers();
-  ifconf(tundev, ipaddr);
+  tunslip_ifconf(tundev, ipaddr);
 
   event_loop(inslip, tunfd, opt.ipa_enable);
   return 0;
