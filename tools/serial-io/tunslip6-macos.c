@@ -153,22 +153,14 @@ tunslip_write_packet(int fd, const unsigned char *buf, int len)
 void
 tunslip_ifconf(const char *tundev, const char *ipaddr)
 {
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   run_command("ifconfig %s inet6 mtu %d up", tundev, devmtu);
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   run_command("ifconfig %s inet6 %s add", tundev, ipaddr);
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   run_command("sysctl -w net.inet6.ip6.forwarding=1");
 
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   run_command("ifconfig %s\n", tundev);
 }
 /*---------------------------------------------------------------------------*/
@@ -176,13 +168,9 @@ void
 tunslip_cleanup(void)
 {
   fprintf(stderr, "*** cleaning up: restoring network configuration\n");
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   run_command("ifconfig %s inet6 %s remove", tundev, ipaddr);
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   run_command("ifconfig %s down", tundev);
 }
 /*---------------------------------------------------------------------------*/

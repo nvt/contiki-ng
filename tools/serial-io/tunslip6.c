@@ -156,6 +156,11 @@ stamptime(void)
   struct tm *tmp;
   char timec[20];
 
+  /* Timestamping is opt-in (-L); callers no longer need to guard on it. */
+  if(!timestamp) {
+    return;
+  }
+
   if(gettimeofday(&tv, NULL) == -1) {
     /* Non-fatal: stamptime() is also called from the atexit tunslip_cleanup path,
        where calling exit() would be undefined. Skip the timestamp. */
@@ -247,9 +252,7 @@ handle_prefix_request(const unsigned char *inbuf, int len)
     fprintf(stderr, "*** invalid IPv6 address ``%s''\n", ipaddr);
     return;
   }
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   fprintf(stderr, "*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
           ipaddr,
           addr.s6_addr[0], addr.s6_addr[1],
@@ -270,9 +273,7 @@ static void
 deliver_packet(int outfd, const unsigned char *inbuf, int len)
 {
   if(verbose > 2) {
-    if(timestamp) {
-      stamptime();
-    }
+    stamptime();
     printf("Packet from SLIP of length %d - write TUN\n", len);
     if(verbose > 4) {
       print_packet_hex(inbuf, len);
@@ -303,9 +304,7 @@ serial_to_tun(FILE *inslip, int outfd)
 
 read_more:
   if(inbufptr >= (int)sizeof(inbuf)) {
-    if(timestamp) {
-      stamptime();
-    }
+    stamptime();
     fprintf(stderr, "*** dropping large %d byte packet\n", inbufptr);
     inbufptr = 0;
   }
@@ -330,9 +329,7 @@ after_fread:
         fwrite(inbuf + 1, inbufptr - 1, 1, stdout);
       } else if(is_sensible_string(inbuf, inbufptr)) {
         if(verbose == 1) {   /* strings already echoed below for verbose>1 */
-          if(timestamp) {
-            stamptime();
-          }
+          stamptime();
           fwrite(inbuf, inbufptr, 1, stdout);
         }
       } else {
@@ -373,9 +370,7 @@ after_fread:
     if(verbose == 2 || verbose == 3 || verbose > 4) {
       if(c == '\n') {
         if(is_sensible_string(inbuf, inbufptr)) {
-          if(timestamp) {
-            stamptime();
-          }
+          stamptime();
           fwrite(inbuf, inbufptr, 1, stdout);
           inbufptr = 0;
         }
@@ -384,9 +379,7 @@ after_fread:
       if(c == 0 || c == '\r' || c == '\n' || c == '\t' || (c >= ' ' && c <= '~')) {
         fwrite(&c, 1, 1, stdout);
         if(c == '\n') {
-          if(timestamp) {
-            stamptime();
-          }
+          stamptime();
         }
       }
     }
@@ -484,9 +477,7 @@ write_to_serial(const void *inbuf, int len)
   const uint8_t *p = inbuf;
 
   if(verbose > 2) {
-    if(timestamp) {
-      stamptime();
-    }
+    stamptime();
     printf("Packet from TUN of length %d - write SLIP\n", len);
     if(verbose > 4) {
       print_packet_hex(p, len);
@@ -844,9 +835,7 @@ open_serial(const char *siodev)
       err(EXIT_FAILURE, "can't open siodev");
     }
   }
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   fprintf(stderr, "********SLIP started on ``/dev/%s''\n", siodev);
   configure_tty(fd);
   return fd;
@@ -968,9 +957,7 @@ main(int argc, char **argv)
   if(tunfd == -1) {
     err(EXIT_FAILURE, "main: open /dev/tun");
   }
-  if(timestamp) {
-    stamptime();
-  }
+  stamptime();
   fprintf(stderr, "opened tun device ``/dev/%s''\n", tundev);
 
   setup_signal_handlers();
