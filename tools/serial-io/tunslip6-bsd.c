@@ -32,7 +32,15 @@
  *
  */
 
-/* Generic BSD/other-Unix tunslip6 platform support. */
+/*
+ * Generic BSD/other-Unix tunslip6 platform support.
+ *
+ * FIXME: the ifconfig/sysctl commands below mirror the macOS (utun) path
+ * and have NOT been validated on a real BSD. The exact IPv6 ifconfig
+ * syntax varies across FreeBSD/NetBSD/OpenBSD (e.g. "alias"/"-alias"
+ * versus "add"/"remove"); verify and adjust on the target before relying
+ * on this platform.
+ */
 
 #include "tunslip6.h"
 
@@ -73,11 +81,15 @@ tunslip_ifconf(const char *tundev, const char *ipaddr)
   if(timestamp) {
     stamptime();
   }
-  run_command("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu);
+  run_command("ifconfig %s inet6 mtu %d up", tundev, devmtu);
   if(timestamp) {
     stamptime();
   }
-  run_command("sysctl -w net.inet.ip.forwarding=1");
+  run_command("ifconfig %s inet6 %s add", tundev, ipaddr);
+  if(timestamp) {
+    stamptime();
+  }
+  run_command("sysctl -w net.inet6.ip6.forwarding=1");
 
   if(timestamp) {
     stamptime();
@@ -92,8 +104,11 @@ tunslip_cleanup(void)
   if(timestamp) {
     stamptime();
   }
+  run_command("ifconfig %s inet6 %s remove", tundev, ipaddr);
+  if(timestamp) {
+    stamptime();
+  }
   run_command("ifconfig %s down", tundev);
-  run_command("sysctl -w net.ipv6.conf.all.forwarding=1");
   if(timestamp) {
     stamptime();
   }
