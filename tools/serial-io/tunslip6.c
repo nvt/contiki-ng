@@ -219,7 +219,7 @@ serial_to_tun(FILE *inslip, int outfd)
 #endif
 
 read_more:
-  if(inbufptr >= sizeof(uip.inbuf)) {
+  if(inbufptr >= (int)sizeof(uip.inbuf)) {
     if(timestamp) {
       stamptime();
     }
@@ -781,8 +781,8 @@ static int got_sigalarm;
 void
 sigalarm(int signo)
 {
+  (void)signo;
   got_sigalarm = 1;
-  return;
 }
 /*---------------------------------------------------------------------------*/
 void
