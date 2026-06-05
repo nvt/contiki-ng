@@ -228,57 +228,6 @@ print_packet_hex(const unsigned char *buf, int len)
   printf("\n");
 }
 /*---------------------------------------------------------------------------*/
-/* Handle a "!M" command: configure the interface with the gateway MAC. */
-static void
-handle_gateway_mac(const unsigned char *inbuf, int len)
-{
-  char macs[24];
-  int i, pos;
-
-  if(len < 18 || inbuf[1] != 'M') {
-    return;
-  }
-
-  /* The 16 payload bytes are interpolated into a shell command, so reject
-     anything that is not a hex digit to avoid passing untrusted serial data
-     through to system(). */
-  for(i = 0; i < 16; i++) {
-    unsigned char d = inbuf[2 + i];
-    if(!((d >= '0' && d <= '9') || (d >= 'a' && d <= 'f')
-         || (d >= 'A' && d <= 'F'))) {
-      break;
-    }
-  }
-  if(i < 16) {
-    fprintf(stderr, "*** ignoring malformed gateway MAC address\n");
-    return;
-  }
-
-  for(i = 0, pos = 0; i < 16; i++) {
-    macs[pos++] = inbuf[2 + i];
-    if((i & 1) == 1 && i < 14) {
-      macs[pos++] = ':';
-    }
-  }
-  macs[pos] = '\0';
-  if(timestamp) {
-    stamptime();
-  }
-  fprintf(stderr, "*** Gateway's MAC address: %s\n", macs);
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s down", tundev);
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s hw ether %s", tundev, &macs[6]);
-  if(timestamp) {
-    stamptime();
-  }
-  run_command("ifconfig %s up", tundev);
-}
-/*---------------------------------------------------------------------------*/
 /* Handle a "?P" command: reply with the configured IPv6 prefix. */
 static void
 handle_prefix_request(const unsigned char *inbuf, int len)
@@ -375,9 +324,7 @@ after_fread:
   switch(c) {
   case SLIP_END:
     if(inbufptr > 0) {
-      if(inbuf[0] == '!') {
-        handle_gateway_mac(inbuf, inbufptr);
-      } else if(inbuf[0] == '?') {
+      if(inbuf[0] == '?') {
         handle_prefix_request(inbuf, inbufptr);
       } else if(inbuf[0] == DEBUG_LINE_MARKER) {
         fwrite(inbuf + 1, inbufptr - 1, 1, stdout);
