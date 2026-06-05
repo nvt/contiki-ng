@@ -222,29 +222,44 @@ after_fread:
           /* Read gateway MAC address and autoconfigure tap0 interface */
           char macs[24];
           int i, pos;
-          for(i = 0, pos = 0; i < 16; i++) {
-            macs[pos++] = uip.inbuf[2 + i];
-            if((i & 1) == 1 && i < 14) {
-              macs[pos++] = ':';
+
+          /* The 16 payload bytes are interpolated into a shell command, so
+             reject anything that is not a hex digit to avoid passing
+             untrusted serial data through to system(). */
+          for(i = 0; i < 16; i++) {
+            unsigned char d = uip.inbuf[2 + i];
+            if(!((d >= '0' && d <= '9') || (d >= 'a' && d <= 'f')
+                 || (d >= 'A' && d <= 'F'))) {
+              break;
             }
           }
-          if(timestamp) {
-            stamptime();
+          if(i < 16) {
+            fprintf(stderr, "*** ignoring malformed gateway MAC address\n");
+          } else {
+            for(i = 0, pos = 0; i < 16; i++) {
+              macs[pos++] = uip.inbuf[2 + i];
+              if((i & 1) == 1 && i < 14) {
+                macs[pos++] = ':';
+              }
+            }
+            if(timestamp) {
+              stamptime();
+            }
+            macs[pos] = '\0';
+            fprintf(stderr, "*** Gateway's MAC address: %s\n", macs);
+            if(timestamp) {
+              stamptime();
+            }
+            ssystem("ifconfig %s down", tundev);
+            if(timestamp) {
+              stamptime();
+            }
+            ssystem("ifconfig %s hw ether %s", tundev, &macs[6]);
+            if(timestamp) {
+              stamptime();
+            }
+            ssystem("ifconfig %s up", tundev);
           }
-          macs[pos] = '\0';
-          fprintf(stderr, "*** Gateway's MAC address: %s\n", macs);
-          if(timestamp) {
-            stamptime();
-          }
-          ssystem("ifconfig %s down", tundev);
-          if(timestamp) {
-            stamptime();
-          }
-          ssystem("ifconfig %s hw ether %s", tundev, &macs[6]);
-          if(timestamp) {
-            stamptime();
-          }
-          ssystem("ifconfig %s up", tundev);
         }
       } else if(uip.inbuf[0] == '?') {
         if(inbufptr >= 2 && uip.inbuf[1] == 'P') {
