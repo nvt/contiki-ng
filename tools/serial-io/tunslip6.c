@@ -158,8 +158,11 @@ stamptime(void)
     startmsecs = msecs;
     t = time(NULL);
     tmp = localtime(&t);
-    strftime(timec, sizeof(timec), "%T", tmp);
-    fprintf(stderr, "\n%s ", timec);
+    if(tmp != NULL && strftime(timec, sizeof(timec), "%T", tmp) > 0) {
+      fprintf(stderr, "\n%s ", timec);
+    } else {
+      fprintf(stderr, "\n");
+    }
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -1138,9 +1141,10 @@ main(int argc, char **argv)
       err(EXIT_FAILURE, "fcntl(F_SETFL, O_NONBLOCK)");
     }
 
-    inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
-              s, sizeof(s));
-    fprintf(stderr, "slip connected to ``%s:%s''\n", s, port);
+    const char *addr_str = inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
+                                     s, sizeof(s));
+    fprintf(stderr, "slip connected to ``%s:%s''\n",
+            addr_str != NULL ? addr_str : "?", port);
 
     /* all done with this structure */
     freeaddrinfo(servinfo);
