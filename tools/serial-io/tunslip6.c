@@ -758,9 +758,16 @@ tun_alloc(char *dev, int tap)
 }
 #endif
 /*---------------------------------------------------------------------------*/
+/*
+ * Restore the host network configuration at exit. Every command here is
+ * best-effort: ssystem() reports any failure, but cleanup() deliberately
+ * runs all of them and never aborts, since some (e.g. removing a route that
+ * is already gone) can fail harmlessly during shutdown.
+ */
 static void
 cleanup(void)
 {
+  fprintf(stderr, "*** cleaning up: restoring network configuration\n");
 #ifndef __APPLE__
   if(timestamp) {
     stamptime();
