@@ -75,6 +75,7 @@ static time_t delaystartsec;
 static long delaystartmsec;
 bool timestamp = false;
 static bool flowcontrol, showprogress, flowcontrol_xonxoff;
+static bool quiet;   /* -q: suppress tunslip6's own messages */
 
 /* ANSI styling for tunslip6's own log lines; resolved from color_mode at startup. */
 static const char *log_style = "";
@@ -226,6 +227,9 @@ tunslip_log(const char *fmt, ...)
 {
   va_list ap;
 
+  if(quiet) {
+    return;
+  }
   stamptime(stderr);
   fprintf(stderr, "%stunslip6: ", log_style);
   va_start(ap, fmt);
@@ -639,6 +643,7 @@ print_usage(const char *prog)
   fprintf(stderr, " -X             Software XON/XOFF flow control (default disabled)\n");
   fprintf(stderr, " -L             Log output format (adds time stamps)\n");
   fprintf(stderr, " -C when        Color own messages: auto (default), always, never\n");
+  fprintf(stderr, " -q             Quiet: suppress tunslip6's own messages\n");
   fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
   fprintf(stderr, " -M             Interface MTU (default and min: 1500)\n");
 #ifdef __APPLE__
@@ -691,7 +696,7 @@ parse_args(int argc, char **argv, struct options *opt)
   opt->host = NULL;
   opt->port = NULL;
 
-  while((c = getopt(argc, argv, "B:C:HLPhXM:s:t:v::d::a:p:")) != -1) {
+  while((c = getopt(argc, argv, "B:C:HLPqhXM:s:t:v::d::a:p:")) != -1) {
     switch(c) {
     case 'B':
       baudrate = atoi(optarg);
@@ -731,6 +736,10 @@ parse_args(int argc, char **argv, struct options *opt)
 
     case 'P':
       showprogress = true;
+      break;
+
+    case 'q':
+      quiet = true;
       break;
 
     case 's':
@@ -782,7 +791,7 @@ parse_args(int argc, char **argv, struct options *opt)
   argv += optind - 1;
 
   if(argc != 2 && argc != 3) {
-    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-X] [-L] [-C when] [-s siodev] [-M] [-t tundev] "
+    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-q] [-H] [-X] [-L] [-C when] [-s siodev] [-M] [-t tundev] "
 #ifdef __APPLE__
          "[-v level] [-d basedelay] "
 #else
