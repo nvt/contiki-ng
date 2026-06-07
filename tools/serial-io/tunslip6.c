@@ -69,11 +69,11 @@ static speed_t baud_speed = BAUDRATE;
 
 static int verbose = 2;
 const char *ipaddr;
-static int slipfd = 0;
-static uint16_t basedelay = 0, delaymsec = 0;
+static int slipfd;
+static uint16_t basedelay, delaymsec;
 static uint32_t delaystartsec, delaystartmsec;
 bool timestamp = false;
-static bool flowcontrol = false, showprogress = false, flowcontrol_xonxoff = false;
+static bool flowcontrol, showprogress, flowcontrol_xonxoff;
 
 static void write_to_serial(const void *inbuf, int len);
 
@@ -103,7 +103,6 @@ run_command(const char *fmt, ...)
 {
   char cmd[128];
   va_list ap;
-  int ret;
 
   va_start(ap, fmt);
   vsnprintf(cmd, sizeof(cmd), fmt, ap);
@@ -111,7 +110,7 @@ run_command(const char *fmt, ...)
   printf("%s\n", cmd);
   fflush(stdout);
 
-  ret = system(cmd);
+  int ret = system(cmd);
   if(ret == -1) {
     fprintf(stderr, "*** failed to run ``%s'': %s\n", cmd, strerror(errno));
   } else if(WIFSIGNALED(ret)) {
@@ -148,12 +147,8 @@ get_in_addr(const struct sockaddr *sa)
 void
 stamptime(void)
 {
-  static long startsecs = 0, startmsecs = 0;
-  long secs, msecs;
+  static long startsecs, startmsecs;
   struct timeval tv;
-  time_t t;
-  struct tm *tmp;
-  char timec[20];
 
   /* Timestamping is opt-in (-L); callers no longer need to guard on it. */
   if(!timestamp) {
@@ -166,8 +161,8 @@ stamptime(void)
     perror("gettimeofday");
     return;
   }
-  msecs = tv.tv_usec / 1000;
-  secs = tv.tv_sec;
+  long msecs = tv.tv_usec / 1000;
+  long secs = tv.tv_sec;
   if(startsecs) {
     secs -= startsecs;
     msecs -= startmsecs;
@@ -179,8 +174,9 @@ stamptime(void)
   } else {
     startsecs = secs;
     startmsecs = msecs;
-    t = time(NULL);
-    tmp = localtime(&t);
+    time_t t = time(NULL);
+    struct tm *tmp = localtime(&t);
+    char timec[20];
     if(tmp != NULL && strftime(timec, sizeof(timec), "%T", tmp) > 0) {
       fprintf(stderr, "\n%s ", timec);
     } else {
@@ -236,17 +232,15 @@ print_packet_hex(const unsigned char *buf, int len)
 static void
 handle_prefix_request(const unsigned char *inbuf, int len)
 {
-  struct in6_addr addr;
-  char *s;
-
   if(len < 2 || inbuf[1] != 'P') {
     return;
   }
 
-  s = strchr(ipaddr, '/');
+  char *s = strchr(ipaddr, '/');
   if(s != NULL) {
     *s = '\0';
   }
+  struct in6_addr addr;
   if(inet_pton(AF_INET6, ipaddr, &addr) != 1) {
     fprintf(stderr, "*** invalid IPv6 address ``%s''\n", ipaddr);
     return;
@@ -310,7 +304,7 @@ static void
 serial_to_tun(FILE *inslip, int outfd)
 {
   static unsigned char inbuf[TUN_BUFSIZE];
-  static int inbufptr = 0;
+  static int inbufptr;
   unsigned char c;
   bool first = true;
 
@@ -449,13 +443,11 @@ slip_empty()
 static void
 slip_flushbuf(int fd)
 {
-  int n;
-
   if(slip_empty()) {
     return;
   }
 
-  n = write(fd, slip_buf + slip_begin, slip_end - slip_begin);
+  int n = write(fd, slip_buf + slip_begin, slip_end - slip_begin);
 
   if(n == -1 && errno != EAGAIN) {
     err(EXIT_FAILURE, "slip_flushbuf write failed");
@@ -511,7 +503,6 @@ configure_tty(int fd)
 {
   struct termios tty;
   speed_t speed = baud_speed;
-  int modem_bits;
 
   if(tcflush(fd, TCIOFLUSH) == -1) {
     err(EXIT_FAILURE, "tcflush");
@@ -552,7 +543,7 @@ configure_tty(int fd)
     err(EXIT_FAILURE, "tcsetattr");
   }
 
-  modem_bits = TIOCM_DTR;
+  int modem_bits = TIOCM_DTR;
   if(ioctl(fd, TIOCMBIS, &modem_bits) == -1) {
     err(EXIT_FAILURE, "ioctl");
   }
@@ -761,7 +752,6 @@ connect_to_server(const char *host, const char *port)
 {
   struct addrinfo hints, *servinfo, *p;
   int rv, fd = -1;
-  char s[INET6_ADDRSTRLEN];
 
   if(port == NULL) {
     port = "60001";
@@ -798,6 +788,7 @@ connect_to_server(const char *host, const char *port)
     err(EXIT_FAILURE, "fcntl(F_SETFL, O_NONBLOCK)");
   }
 
+  char s[INET6_ADDRSTRLEN];
   const char *addr_str = inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
                                    s, sizeof(s));
   fprintf(stderr, "slip connected to ``%s:%s''\n",
@@ -853,7 +844,6 @@ static void
 update_delay(void)
 {
   struct timeval tv;
-  int dmsec;
 
   if(!delaymsec) {
     return;
@@ -861,7 +851,7 @@ update_delay(void)
   if(gettimeofday(&tv, NULL) == -1) {
     err(EXIT_FAILURE, "gettimeofday");
   }
-  dmsec = (tv.tv_sec - delaystartsec) * 1000 + tv.tv_usec / 1000 - delaystartmsec;
+  int dmsec = (tv.tv_sec - delaystartsec) * 1000 + tv.tv_usec / 1000 - delaystartmsec;
   if(dmsec < 0 || dmsec > delaymsec) {
     delaymsec = 0;
   }
@@ -888,7 +878,6 @@ static void
 event_loop(FILE *inslip, int tunfd)
 {
   fd_set rset, wset;
-  int maxfd, ret;
 
   while(1) {
     if(should_exit) {
@@ -896,7 +885,7 @@ event_loop(FILE *inslip, int tunfd)
       exit(EXIT_SUCCESS);      /* will call tunslip_cleanup() via atexit() */
     }
 
-    maxfd = 0;
+    int maxfd = 0;
     FD_ZERO(&rset);
     FD_ZERO(&wset);
 
@@ -917,7 +906,7 @@ event_loop(FILE *inslip, int tunfd)
       }
     }
 
-    ret = select(maxfd + 1, &rset, &wset, NULL, NULL);
+    int ret = select(maxfd + 1, &rset, &wset, NULL, NULL);
     if(ret == -1 && errno != EINTR) {
       err(EXIT_FAILURE, "select");
     } else if(ret > 0) {
@@ -943,8 +932,6 @@ int
 main(int argc, char **argv)
 {
   struct options opt;
-  FILE *inslip;
-  int tunfd;
 
   setvbuf(stdout, NULL, _IOLBF, 0); /* Line buffered output. */
 
@@ -957,12 +944,12 @@ main(int argc, char **argv)
   }
 
   slip_send(SLIP_END);
-  inslip = fdopen(slipfd, "r");
+  FILE *inslip = fdopen(slipfd, "r");
   if(inslip == NULL) {
     err(EXIT_FAILURE, "main: fdopen");
   }
 
-  tunfd = tunslip_open_tun(tundev, sizeof(tundev));
+  int tunfd = tunslip_open_tun(tundev, sizeof(tundev));
   if(tunfd == -1) {
     err(EXIT_FAILURE, "main: open /dev/tun");
   }
