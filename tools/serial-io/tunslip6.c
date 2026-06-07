@@ -76,6 +76,14 @@ static long delaystartmsec;
 bool timestamp = false;
 static bool flowcontrol, showprogress, flowcontrol_xonxoff;
 
+/* ANSI styling for tunslip6's own log lines; resolved from color_mode at startup. */
+static const char *log_style = "";
+static const char *log_style_reset = "";
+
+/* Color mode for tunslip6's own messages, selectable with -C. */
+enum colormode { COLOR_AUTO, COLOR_ALWAYS, COLOR_NEVER };
+static enum colormode color_mode = COLOR_AUTO;
+
 static void write_to_serial(const void *inbuf, size_t len);
 
 static void slip_send(unsigned char c);
@@ -115,17 +123,35 @@ run_command(const char *fmt, ...)
   va_start(ap, fmt);
   vsnprintf(cmd, sizeof(cmd), fmt, ap);
   va_end(ap);
-  printf("%s\n", cmd);
-  fflush(stdout);
+  tunslip_log("running: %s", cmd);
 
-  int ret = system(cmd);
+  /* Capture the command's stdout and stderr and re-emit each line through the
+     same channel, so its output is tagged as tunslip6's rather than appearing
+     plain on stdout like the mote's output. */
+  char piped[SHELL_CMD_SIZE + sizeof(" 2>&1")];
+  snprintf(piped, sizeof(piped), "%s 2>&1", cmd);
+
+  FILE *fp = popen(piped, "r");
+  if(fp == NULL) {
+    tunslip_log("failed to run '%s': %s", cmd, strerror(errno));
+    return -1;
+  }
+
+  char line[512];
+  while(fgets(line, sizeof(line), fp) != NULL) {
+    line[strcspn(line, "\n")] = '\0';
+    if(line[0] != '\0') {   /* skip blank lines from the command's output */
+      tunslip_log("  %s", line);
+    }
+  }
+
+  int ret = pclose(fp);
   if(ret == -1) {
-    fprintf(stderr, "*** failed to run ``%s'': %s\n", cmd, strerror(errno));
+    tunslip_log("failed to run '%s': %s", cmd, strerror(errno));
   } else if(WIFSIGNALED(ret)) {
-    fprintf(stderr, "*** ``%s'' terminated by signal %d\n", cmd, WTERMSIG(ret));
+    tunslip_log("'%s' terminated by signal %d", cmd, WTERMSIG(ret));
   } else if(WIFEXITED(ret) && WEXITSTATUS(ret) != 0) {
-    fprintf(stderr, "*** ``%s'' exited with status %d\n",
-            cmd, WEXITSTATUS(ret));
+    tunslip_log("'%s' exited with status %d", cmd, WEXITSTATUS(ret));
   }
   return ret;
 }
@@ -152,8 +178,9 @@ get_in_addr(const struct sockaddr *sa)
   return &((const struct sockaddr_in6 *)sa)->sin6_addr;
 }
 /*---------------------------------------------------------------------------*/
-void
-stamptime(void)
+/* Write the -L timestamp (if enabled) to out, ahead of the line it prefixes. */
+static void
+stamptime(FILE *out)
 {
   static long startsecs, startmsecs;
   struct timeval tv;
@@ -164,8 +191,8 @@ stamptime(void)
   }
 
   if(gettimeofday(&tv, NULL) == -1) {
-    /* Non-fatal: stamptime() is also called from the atexit tunslip_cleanup path,
-       where calling exit() would be undefined. Skip the timestamp. */
+    /* Non-fatal: stamptime() is reached from the atexit tunslip_cleanup path
+       (via tunslip_log), where calling exit() would be undefined. Skip it. */
     perror("gettimeofday");
     return;
   }
@@ -178,7 +205,7 @@ stamptime(void)
       secs--;
       msecs += 1000;
     }
-    fprintf(stderr, "%04lu.%03lu ", secs, msecs);
+    fprintf(out, "%04lu.%03lu ", secs, msecs);
   } else {
     startsecs = secs;
     startmsecs = msecs;
@@ -186,11 +213,25 @@ stamptime(void)
     struct tm *tmp = localtime(&t);
     char timec[sizeof("HH:MM:SS")];
     if(tmp != NULL && strftime(timec, sizeof(timec), "%T", tmp) > 0) {
-      fprintf(stderr, "\n%s ", timec);
+      fprintf(out, "\n%s ", timec);
     } else {
-      fprintf(stderr, "\n");
+      fprintf(out, "\n");
     }
   }
+}
+/*---------------------------------------------------------------------------*/
+/* Print one of tunslip6's own messages on stderr (see tunslip6.h). */
+void
+tunslip_log(const char *fmt, ...)
+{
+  va_list ap;
+
+  stamptime(stderr);
+  fprintf(stderr, "%stunslip6: ", log_style);
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  fprintf(stderr, "%s\n", log_style_reset);
 }
 /*---------------------------------------------------------------------------*/
 static bool
@@ -250,16 +291,15 @@ handle_prefix_request(const unsigned char *inbuf, size_t len)
   }
   struct in6_addr addr;
   if(inet_pton(AF_INET6, ipaddr, &addr) != 1) {
-    fprintf(stderr, "*** invalid IPv6 address ``%s''\n", ipaddr);
+    tunslip_log("invalid IPv6 address '%s'", ipaddr);
     return;
   }
-  stamptime();
-  fprintf(stderr, "*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
-          ipaddr,
-          addr.s6_addr[0], addr.s6_addr[1],
-          addr.s6_addr[2], addr.s6_addr[3],
-          addr.s6_addr[4], addr.s6_addr[5],
-          addr.s6_addr[6], addr.s6_addr[7]);
+  tunslip_log("address %s => %02x%02x:%02x%02x:%02x%02x:%02x%02x",
+              ipaddr,
+              addr.s6_addr[0], addr.s6_addr[1],
+              addr.s6_addr[2], addr.s6_addr[3],
+              addr.s6_addr[4], addr.s6_addr[5],
+              addr.s6_addr[6], addr.s6_addr[7]);
   slip_send('!');
   slip_send('P');
   for(int i = 0; i < 8; i++) {
@@ -274,8 +314,7 @@ static void
 deliver_packet(int outfd, const unsigned char *inbuf, size_t len)
 {
   if(verbose > 2) {
-    stamptime();
-    printf("Packet from SLIP of length %zu - write TUN\n", len);
+    tunslip_log("packet from SLIP of length %zu - write TUN", len);
     if(verbose > 4) {
       print_packet_hex(inbuf, len);
     }
@@ -290,7 +329,7 @@ echo_received_byte(unsigned char c, unsigned char *inbuf, size_t *inbufptr)
   /* Echo whole lines for verbose 2, 3, and 5+; echo printable chars for 4. */
   if(verbose == 2 || verbose == 3 || verbose > 4) {
     if(c == '\n' && is_sensible_string(inbuf, *inbufptr)) {
-      stamptime();
+      stamptime(stdout);
       fwrite(inbuf, *inbufptr, 1, stdout);
       *inbufptr = 0;
     }
@@ -298,7 +337,7 @@ echo_received_byte(unsigned char c, unsigned char *inbuf, size_t *inbufptr)
     if(c == 0 || c == '\r' || c == '\n' || c == '\t' || (c >= ' ' && c <= '~')) {
       fwrite(&c, 1, 1, stdout);
       if(c == '\n') {
-        stamptime();
+        stamptime(stdout);
       }
     }
   }
@@ -318,8 +357,7 @@ serial_to_tun(FILE *inslip, int outfd)
 
   while(1) {
     if(inbufptr >= sizeof(inbuf)) {
-      stamptime();
-      fprintf(stderr, "*** dropping large %zu byte packet\n", inbufptr);
+      tunslip_log("dropping large %zu byte packet", inbufptr);
       inbufptr = 0;
     }
 
@@ -349,7 +387,7 @@ serial_to_tun(FILE *inslip, int outfd)
           fwrite(inbuf + 1, inbufptr - 1, 1, stdout);
         } else if(is_sensible_string(inbuf, inbufptr)) {
           if(verbose == 1) {   /* strings already echoed below for verbose>1 */
-            stamptime();
+            stamptime(stdout);
             fwrite(inbuf, inbufptr, 1, stdout);
           }
         } else {
@@ -475,8 +513,7 @@ write_to_serial(const void *inbuf, size_t len)
   const uint8_t *p = inbuf;
 
   if(verbose > 2) {
-    stamptime();
-    printf("Packet from TUN of length %zu - write SLIP\n", len);
+    tunslip_log("packet from TUN of length %zu - write SLIP", len);
     if(verbose > 4) {
       print_packet_hex(p, len);
     }
@@ -601,6 +638,7 @@ print_usage(const char *prog)
   fprintf(stderr, " -H             Hardware CTS/RTS flow control (default disabled)\n");
   fprintf(stderr, " -X             Software XON/XOFF flow control (default disabled)\n");
   fprintf(stderr, " -L             Log output format (adds time stamps)\n");
+  fprintf(stderr, " -C when        Color own messages: auto (default), always, never\n");
   fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
   fprintf(stderr, " -M             Interface MTU (default and min: 1500)\n");
 #ifdef __APPLE__
@@ -653,7 +691,7 @@ parse_args(int argc, char **argv, struct options *opt)
   opt->host = NULL;
   opt->port = NULL;
 
-  while((c = getopt(argc, argv, "B:HLPhXM:s:t:v::d::a:p:")) != -1) {
+  while((c = getopt(argc, argv, "B:C:HLPhXM:s:t:v::d::a:p:")) != -1) {
     switch(c) {
     case 'B':
       baudrate = atoi(optarg);
@@ -669,6 +707,19 @@ parse_args(int argc, char **argv, struct options *opt)
 
     case 'L':
       timestamp = true;
+      break;
+
+    case 'C':
+      if(strcmp(optarg, "auto") == 0) {
+        color_mode = COLOR_AUTO;
+      } else if(strcmp(optarg, "always") == 0) {
+        color_mode = COLOR_ALWAYS;
+      } else if(strcmp(optarg, "never") == 0) {
+        color_mode = COLOR_NEVER;
+      } else {
+        errx(EXIT_FAILURE, "invalid -C value ``%s'' (use auto, always, or never)",
+             optarg);
+      }
       break;
 
     case 'M':
@@ -731,7 +782,7 @@ parse_args(int argc, char **argv, struct options *opt)
   argv += optind - 1;
 
   if(argc != 2 && argc != 3) {
-    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-X] [-L] [-s siodev] [-M] [-t tundev] "
+    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-H] [-X] [-L] [-C when] [-s siodev] [-M] [-t tundev] "
 #ifdef __APPLE__
          "[-v level] [-d basedelay] "
 #else
@@ -800,8 +851,8 @@ connect_to_server(const char *host, const char *port)
   char s[INET6_ADDRSTRLEN];
   const char *addr_str = inet_ntop(p->ai_family, get_in_addr(p->ai_addr),
                                    s, sizeof(s));
-  fprintf(stderr, "slip connected to ``%s:%s''\n",
-          addr_str != NULL ? addr_str : "?", port);
+  tunslip_log("slip connected to %s:%s",
+              addr_str != NULL ? addr_str : "?", port);
 
   freeaddrinfo(servinfo);
   return fd;
@@ -833,8 +884,7 @@ open_serial(const char *siodev)
       err(EXIT_FAILURE, "can't open siodev");
     }
   }
-  stamptime();
-  fprintf(stderr, "********SLIP started on ``/dev/%s''\n", siodev);
+  tunslip_log("SLIP started on /dev/%s", siodev);
   configure_tty(fd);
   return fd;
 }
@@ -890,7 +940,7 @@ event_loop(FILE *inslip, int tunfd)
 
   while(1) {
     if(should_exit) {
-      fprintf(stderr, "signal %d\n", (int)should_exit);
+      tunslip_log("caught signal %d, exiting", (int)should_exit);
       exit(EXIT_SUCCESS);      /* will call tunslip_cleanup() via atexit() */
     }
 
@@ -937,6 +987,32 @@ event_loop(FILE *inslip, int tunfd)
   }
 }
 /*---------------------------------------------------------------------------*/
+/* Resolve the -C color mode into the ANSI styling used by tunslip_log(). */
+static void
+init_log_style(void)
+{
+  bool enabled;
+
+  switch(color_mode) {
+  case COLOR_ALWAYS:
+    enabled = true;
+    break;
+  case COLOR_NEVER:
+    enabled = false;
+    break;
+  case COLOR_AUTO:
+  default:
+    /* Color a terminal only, and honor the NO_COLOR convention. */
+    enabled = isatty(STDERR_FILENO) && getenv("NO_COLOR") == NULL;
+    break;
+  }
+
+  if(enabled) {
+    log_style = "\033[2m";      /* dim */
+    log_style_reset = "\033[0m";
+  }
+}
+/*---------------------------------------------------------------------------*/
 int
 main(int argc, char **argv)
 {
@@ -945,6 +1021,7 @@ main(int argc, char **argv)
   setvbuf(stdout, NULL, _IOLBF, 0); /* Line buffered output. */
 
   parse_args(argc, argv, &opt);
+  init_log_style();
 
   if(opt.host != NULL) {
     slipfd = connect_to_server(opt.host, opt.port);
@@ -962,8 +1039,7 @@ main(int argc, char **argv)
   if(tunfd == -1) {
     err(EXIT_FAILURE, "main: open /dev/tun");
   }
-  stamptime();
-  fprintf(stderr, "opened tun device ``/dev/%s''\n", tundev);
+  tunslip_log("opened tun device /dev/%s", tundev);
 
   setup_signal_handlers();
   tunslip_ifconf(tundev, ipaddr);

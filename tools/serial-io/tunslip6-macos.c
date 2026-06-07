@@ -72,7 +72,7 @@ tunslip_open_tun(char *dev, size_t devsize)
   memset(&ctlInfo, 0, sizeof(ctlInfo));
   if(strlcpy(ctlInfo.ctl_name, UTUN_CONTROL_NAME, sizeof(ctlInfo.ctl_name)) >=
      sizeof(ctlInfo.ctl_name)) {
-    fprintf(stderr, "UTUN_CONTROL_NAME too long");
+    tunslip_log("UTUN_CONTROL_NAME too long");
     return -1;
   }
 
@@ -153,24 +153,17 @@ tunslip_write_packet(int fd, const unsigned char *buf, size_t len)
 void
 tunslip_ifconf(const char *tundev, const char *ipaddr)
 {
-  stamptime();
   run_command("ifconfig %s inet6 mtu %d up", tundev, devmtu);
-  stamptime();
   run_command("ifconfig %s inet6 %s add", tundev, ipaddr);
-  stamptime();
   run_command("sysctl -w net.inet6.ip6.forwarding=1");
-
-  stamptime();
-  run_command("ifconfig %s\n", tundev);
+  run_command("ifconfig %s", tundev);
 }
 /*---------------------------------------------------------------------------*/
 void
 tunslip_cleanup(void)
 {
-  fprintf(stderr, "*** cleaning up: restoring network configuration\n");
-  stamptime();
+  tunslip_log("cleaning up: restoring network configuration");
   run_command("ifconfig %s inet6 %s remove", tundev, ipaddr);
-  stamptime();
   run_command("ifconfig %s down", tundev);
 }
 /*---------------------------------------------------------------------------*/

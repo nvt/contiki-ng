@@ -71,8 +71,8 @@ tunslip_open_tun(char *dev, size_t devsize)
 
   if((ret = ioctl(fd, TUNSETIFF, (void *)&ifr)) < 0) {
     close(fd);
-    fprintf(stderr, "can not tunsetiff to %s (flags=%08x): %s\n", dev, ifr.ifr_flags,
-            strerror(errno));
+    tunslip_log("can not tunsetiff to %s (flags=%08x): %s", dev, ifr.ifr_flags,
+                strerror(errno));
     return ret;
   }
 
@@ -102,9 +102,7 @@ tunslip_write_packet(int fd, const unsigned char *buf, size_t len)
 void
 tunslip_ifconf(const char *tundev, const char *ipaddr)
 {
-  stamptime();
   run_command("ifconfig %s inet `hostname` mtu %d up", tundev, devmtu);
-  stamptime();
   run_command("ifconfig %s add %s", tundev, ipaddr);
 
   /* radvd needs a link local address for routing. Generate one a la
@@ -150,21 +148,17 @@ tunslip_ifconf(const char *tundev, const char *ipaddr)
       }
     }
     snprintf(lladdr, sizeof(lladdr), "fe80::%x:%x:%x:%x", a[1] & 0xfefd, a[2], a[3], a[7]);
-    stamptime();
     run_command("ifconfig %s add %s/64", tundev, lladdr);
   }
 
-  stamptime();
-  run_command("ifconfig %s\n", tundev);
+  run_command("ifconfig %s", tundev);
 }
 /*---------------------------------------------------------------------------*/
 void
 tunslip_cleanup(void)
 {
-  fprintf(stderr, "*** cleaning up: restoring network configuration\n");
-  stamptime();
+  tunslip_log("cleaning up: restoring network configuration");
   run_command("ifconfig %s down", tundev);
-  stamptime();
   run_command("netstat -nr"
               " | awk '{ if ($2 == \"%s\") print \"route delete -net \"$1; }'"
               " | sh",

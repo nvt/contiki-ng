@@ -47,7 +47,15 @@ extern const char *ipaddr;
 
 int run_command(const char *fmt, ...)
 __attribute__((__format__(__printf__, 1, 2)));
-void stamptime(void);
+
+/*
+ * Emit one of tunslip6's own messages: a "tunslip6: " prefix (dimmed when
+ * stderr is a terminal) and an optional -L timestamp, all on stderr, so the
+ * mote's own output stays clean on stdout. Pass the message without a newline.
+ */
+void tunslip_log(const char *fmt, ...)
+__attribute__((__format__(__printf__, 1, 2)));
+
 int devopen(const char *dev, int flags);
 
 /*
