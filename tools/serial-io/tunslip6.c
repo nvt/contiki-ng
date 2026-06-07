@@ -76,6 +76,7 @@ static long delaystartmsec;
 bool timestamp = false;
 static bool flowcontrol, showprogress, flowcontrol_xonxoff;
 static bool quiet;   /* -q: suppress tunslip6's own messages */
+static bool reconnect;   /* -r: reopen the SLIP source if it closes */
 
 /* Traffic counters, dumped on SIGUSR1 and at exit. */
 static struct {
@@ -435,7 +436,7 @@ echo_received_byte(unsigned char c, unsigned char *inbuf, size_t *inbufptr)
  * Read from serial, when we have a packet write it to tun. No output
  * buffering, input buffered by stdio.
  */
-static void
+static bool
 serial_to_tun(FILE *inslip, int outfd)
 {
   static unsigned char inbuf[TUN_BUFSIZE];
@@ -453,16 +454,18 @@ serial_to_tun(FILE *inslip, int outfd)
     /*
      * serial_to_tun() runs only when select() reports the SLIP source
      * readable, so the first byte must be available: a zero-byte read on the
-     * first iteration means the source has closed (EOF), and exiting avoids
-     * spinning in the select() loop. A later zero-byte read just means stdio
-     * has drained what it buffered, so return to select().
+     * first iteration means the source has closed (EOF), reported as false so
+     * the caller can reconnect or exit rather than spin in the select() loop.
+     * A later zero-byte read just means stdio has drained what it buffered, so
+     * return true to go back to select().
      */
     if(fread(&c, 1, 1, inslip) != 1) {
       if(first) {
-        err(EXIT_FAILURE, "serial_to_tun: read");
+        inbufptr = 0;   /* drop any partial frame from the closed source */
+        return false;
       }
       clearerr(inslip);
-      return;
+      return true;
     }
     first = false;
 
@@ -491,7 +494,7 @@ serial_to_tun(FILE *inslip, int outfd)
         clearerr(inslip);
         /* Put ESC back and give up! */
         ungetc(SLIP_ESC, inslip);
-        return;
+        return true;
       }
 
       switch(c) {
@@ -754,6 +757,7 @@ print_usage(const char *prog)
   fprintf(stderr, " -C when        Color own messages: auto (default), always, never\n");
   fprintf(stderr, " -q             Quiet: suppress tunslip6's own messages\n");
   fprintf(stderr, " -w pcapfile    Capture tunnel packets to pcapfile (libpcap; FIFO for live)\n");
+  fprintf(stderr, " -r             Reconnect (with backoff) if the SLIP source closes\n");
   fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
   fprintf(stderr, " -M             Interface MTU (default and min: 1500)\n");
 #ifdef __APPLE__
@@ -808,7 +812,7 @@ parse_args(int argc, char **argv, struct options *opt)
   opt->port = NULL;
   opt->pcap_path = NULL;
 
-  while((c = getopt(argc, argv, "B:C:HLPqhXM:s:t:v::d::a:p:w:")) != -1) {
+  while((c = getopt(argc, argv, "B:C:HLPqrhXM:s:t:v::d::a:p:w:")) != -1) {
     switch(c) {
     case 'B':
       baudrate = atoi(optarg);
@@ -852,6 +856,10 @@ parse_args(int argc, char **argv, struct options *opt)
 
     case 'q':
       quiet = true;
+      break;
+
+    case 'r':
+      reconnect = true;
       break;
 
     case 's':
@@ -907,7 +915,7 @@ parse_args(int argc, char **argv, struct options *opt)
   argv += optind - 1;
 
   if(argc != 2 && argc != 3) {
-    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-q] [-H] [-X] [-L] [-C when] [-s siodev] [-M] [-t tundev] "
+    errx(EXIT_FAILURE, "usage: %s [-B baudrate] [-P] [-q] [-r] [-H] [-X] [-L] [-C when] [-s siodev] [-M] [-t tundev] "
 #ifdef __APPLE__
          "[-v level] [-d basedelay] "
 #else
@@ -947,7 +955,8 @@ connect_to_server(const char *host, const char *port)
   hints.ai_socktype = SOCK_STREAM;
 
   if((rv = getaddrinfo(host, port, &hints, &servinfo)) != 0) {
-    errx(EXIT_FAILURE, "getaddrinfo: %s", gai_strerror(rv));
+    tunslip_log("getaddrinfo: %s", gai_strerror(rv));
+    return -1;
   }
 
   /* loop through all the results and connect to the first we can */
@@ -966,11 +975,16 @@ connect_to_server(const char *host, const char *port)
   }
 
   if(p == NULL) {
-    errx(EXIT_FAILURE, "can't connect to ``%s:%s''", host, port);
+    tunslip_log("can't connect to %s:%s", host, port);
+    freeaddrinfo(servinfo);
+    return -1;
   }
 
   if(fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
-    err(EXIT_FAILURE, "fcntl(F_SETFL, O_NONBLOCK)");
+    tunslip_log("fcntl(F_SETFL, O_NONBLOCK): %s", strerror(errno));
+    close(fd);
+    freeaddrinfo(servinfo);
+    return -1;
   }
 
   char s[INET6_ADDRSTRLEN];
@@ -991,7 +1005,8 @@ open_serial(const char *siodev)
   if(siodev != NULL) {
     fd = devopen(siodev, O_RDWR | O_NONBLOCK);
     if(fd == -1) {
-      err(EXIT_FAILURE, "can't open siodev ``/dev/%s''", siodev);
+      tunslip_log("can't open /dev/%s: %s", siodev, strerror(errno));
+      return -1;
     }
   } else {
     static const char *siodevs[] = {
@@ -1006,12 +1021,68 @@ open_serial(const char *siodev)
       }
     }
     if(fd == -1) {
-      err(EXIT_FAILURE, "can't open siodev");
+      tunslip_log("can't open a default serial device");
+      return -1;
     }
   }
   tunslip_log("SLIP started on /dev/%s", siodev);
   configure_tty(fd);
   return fd;
+}
+/*---------------------------------------------------------------------------*/
+/* Open the configured SLIP source (TCP server or serial); -1 on failure. */
+static int
+open_source(const struct options *opt)
+{
+  if(opt->host != NULL) {
+    return connect_to_server(opt->host, opt->port);
+  }
+  return open_serial(opt->siodev);
+}
+/*---------------------------------------------------------------------------*/
+/* Retry open_source() with capped exponential backoff until it succeeds. */
+static int
+reopen_source(const struct options *opt)
+{
+  unsigned backoff_ms = 250;
+
+  for(;;) {
+    if(should_exit) {
+      exit(EXIT_SUCCESS);   /* honor a pending signal during reconnect */
+    }
+    int fd = open_source(opt);
+    if(fd != -1) {
+      return fd;
+    }
+    usleep(backoff_ms * 1000);
+    if(backoff_ms < 4000) {
+      backoff_ms *= 2;
+    }
+  }
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Handle a closed SLIP source. Without -r this is fatal; with -r, reopen the
+ * source (keeping the tun up) and nudge the node to re-send its prefix request.
+ * Returns the new stdio stream for the reopened descriptor.
+ */
+static FILE *
+reconnect_source(FILE *inslip, const struct options *opt)
+{
+  if(!reconnect) {
+    errx(EXIT_FAILURE, "SLIP connection closed");
+  }
+  tunslip_log("SLIP connection lost; reconnecting...");
+  fclose(inslip);              /* closes the dead descriptor (slipfd) */
+  slipfd = reopen_source(opt);
+  slip_begin = slip_end = 0;   /* discard any half-built output frame */
+  slip_send(SLIP_END);         /* nudge the node to re-send its prefix request */
+
+  FILE *fp = fdopen(slipfd, "r");
+  if(fp == NULL) {
+    err(EXIT_FAILURE, "fdopen after reconnect");
+  }
+  return fp;
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -1060,7 +1131,7 @@ forward_tun_to_serial(int tunfd)
 }
 /*---------------------------------------------------------------------------*/
 static void
-event_loop(FILE *inslip, int tunfd)
+event_loop(FILE *inslip, int tunfd, const struct options *opt)
 {
   fd_set rset, wset;
 
@@ -1101,7 +1172,10 @@ event_loop(FILE *inslip, int tunfd)
       err(EXIT_FAILURE, "select");
     } else if(ret > 0) {
       if(FD_ISSET(slipfd, &rset)) {
-        serial_to_tun(inslip, tunfd);
+        if(!serial_to_tun(inslip, tunfd)) {
+          inslip = reconnect_source(inslip, opt);
+          continue;   /* slipfd changed; rebuild the fd sets */
+        }
       }
 
       if(FD_ISSET(slipfd, &wset)) {
@@ -1158,10 +1232,9 @@ main(int argc, char **argv)
     open_pcap(opt.pcap_path);
   }
 
-  if(opt.host != NULL) {
-    slipfd = connect_to_server(opt.host, opt.port);
-  } else {
-    slipfd = open_serial(opt.siodev);
+  slipfd = open_source(&opt);
+  if(slipfd == -1) {
+    errx(EXIT_FAILURE, "could not open the SLIP source");
   }
 
   slip_send(SLIP_END);
@@ -1181,7 +1254,7 @@ main(int argc, char **argv)
   setup_signal_handlers();
   tunslip_ifconf(tundev, ipaddr);
 
-  event_loop(inslip, tunfd);
+  event_loop(inslip, tunfd, &opt);
   return 0;
 }
 /*---------------------------------------------------------------------------*/
