@@ -37,6 +37,7 @@
 #define TUNSLIP6_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /*
  * Shared state and helpers defined in tunslip6.c and used by the
@@ -55,8 +56,12 @@ int devopen(const char *dev, int flags);
 /*
  * Per-platform implementations, selected at build time in the Makefile and
  * defined in tunslip6-linux.c, tunslip6-macos.c, or tunslip6-bsd.c.
+ *
+ * dev names the interface to open and, on platforms that resolve a final
+ * name (e.g. Linux turns "tun%d" into a concrete name), receives that name
+ * back. devsize is the capacity of the dev buffer, used to bound that copy.
  */
-int tunslip_open_tun(char *dev);
+int tunslip_open_tun(char *dev, size_t devsize);
 
 /*
  * Read one packet from / write one packet to the tun device, handling any

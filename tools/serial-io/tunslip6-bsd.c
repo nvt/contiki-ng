@@ -53,8 +53,9 @@
 
 /*---------------------------------------------------------------------------*/
 int
-tunslip_open_tun(char *dev)
+tunslip_open_tun(char *dev, size_t devsize)
 {
+  (void)devsize; /* dev is input only on BSD; name is not resolved back */
   return devopen(dev, O_RDWR);
 }
 /*---------------------------------------------------------------------------*/

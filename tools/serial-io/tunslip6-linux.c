@@ -51,7 +51,7 @@
 
 /*---------------------------------------------------------------------------*/
 int
-tunslip_open_tun(char *dev)
+tunslip_open_tun(char *dev, size_t devsize)
 {
   struct ifreq ifr;
   int fd, ret;
@@ -79,9 +79,8 @@ tunslip_open_tun(char *dev)
     return ret;
   }
 
-  /* get resulting tunnel name */
-  strncpy(dev, ifr.ifr_name, sizeof(ifr.ifr_name));
-  dev[sizeof(ifr.ifr_name) - 1] = '\0';
+  /* get resulting tunnel name (kernel NUL-terminates ifr_name) */
+  snprintf(dev, devsize, "%s", ifr.ifr_name);
   return fd;
 }
 /*---------------------------------------------------------------------------*/

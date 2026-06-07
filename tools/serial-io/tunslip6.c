@@ -965,7 +965,7 @@ main(int argc, char **argv)
     err(EXIT_FAILURE, "main: fdopen");
   }
 
-  tunfd = tunslip_open_tun(tundev);
+  tunfd = tunslip_open_tun(tundev, sizeof(tundev));
   if(tunfd == -1) {
     err(EXIT_FAILURE, "main: open /dev/tun");
   }

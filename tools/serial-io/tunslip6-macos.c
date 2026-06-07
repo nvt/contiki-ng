@@ -58,8 +58,10 @@
  */
 /*---------------------------------------------------------------------------*/
 int
-tunslip_open_tun(char *dev)
+tunslip_open_tun(char *dev, size_t devsize)
 {
+  (void)devsize; /* dev is input only on macOS; name is not resolved back */
+
   struct sockaddr_ctl sc;
   struct ctl_info ctlInfo;
   int fd;
