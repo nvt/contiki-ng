@@ -43,6 +43,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <netinet/in.h>   /* before <linux/if.h>: avoids struct in6_addr clash */
+#include <arpa/inet.h>
 #include <linux/if.h>
 #include <linux/if_tun.h>
 
@@ -105,49 +107,30 @@ tunslip_ifconf(const char *tundev, const char *ipaddr)
   run_command("ifconfig %s inet `hostname` mtu %d up", tundev, devmtu);
   run_command("ifconfig %s add %s", tundev, ipaddr);
 
-  /* radvd needs a link local address for routing. Generate one a la
-     sixxs/aiccu: a full parse, stripping off the prefix length. */
-  {
-    char lladdr[40];
-    char c, *ptr = (char *)ipaddr;
-    uint16_t digit, ai, a[8], colon_seen, double_colon_pos, n_elided;
-    for(ai = 0; ai < 8; ai++) {
-      a[ai] = 0;
+  /*
+   * radvd needs a link-local address for routing. Derive one (a la
+   * sixxs/aiccu) from the configured global address: parse it with
+   * inet_pton() and build fe80:: from selected 16-bit groups.
+   */
+  char addr_str[INET6_ADDRSTRLEN];
+  size_t addr_len = strcspn(ipaddr, "/");   /* copy the address, dropping any /prefix */
+  if(addr_len >= sizeof(addr_str)) {
+    addr_len = sizeof(addr_str) - 1;
+  }
+  memcpy(addr_str, ipaddr, addr_len);
+  addr_str[addr_len] = '\0';
+
+  struct in6_addr global_addr;
+  if(inet_pton(AF_INET6, addr_str, &global_addr) != 1) {
+    tunslip_log("can't derive a link-local address from '%s'", ipaddr);
+  } else {
+    uint16_t group[8];
+    for(int i = 0; i < 8; i++) {
+      group[i] = (global_addr.s6_addr[2 * i] << 8) | global_addr.s6_addr[2 * i + 1];
     }
-    ai = 0;
-    colon_seen = double_colon_pos = 0;
-    while((c = *ptr++) != 0) {
-      if(c == '/') {
-        break;
-      }
-      if(c == ':') {
-        if(colon_seen) {
-          double_colon_pos = ai;
-        }
-        colon_seen = 1;
-        if(++ai > 7) {
-          break;
-        }
-      } else {
-        colon_seen = 0;
-        digit = c - '0';
-        if(digit > 9) {
-          digit = 10 + (c & 0xdf) - 'A';
-        }
-        a[ai] = (a[ai] << 4) + digit;
-      }
-    }
-    /* Get # elided and shift what's after to the end */
-    n_elided = 8 - ai;
-    for(uint16_t i = 0; i < n_elided; i++) {
-      if(8 - i - n_elided <= double_colon_pos) {
-        a[7 - i] = 0;
-      } else {
-        a[7 - i] = a[8 - i - n_elided];
-        a[8 - i - n_elided] = 0;
-      }
-    }
-    snprintf(lladdr, sizeof(lladdr), "fe80::%x:%x:%x:%x", a[1] & 0xfefd, a[2], a[3], a[7]);
+    char lladdr[INET6_ADDRSTRLEN];
+    snprintf(lladdr, sizeof(lladdr), "fe80::%x:%x:%x:%x",
+             group[1] & 0xfefd, group[2], group[3], group[7]);
     run_command("ifconfig %s add %s/64", tundev, lladdr);
   }
 
