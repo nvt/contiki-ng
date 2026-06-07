@@ -322,12 +322,85 @@ handle_prefix_request(const unsigned char *inbuf, size_t len)
   slip_send(SLIP_END);
 }
 /*---------------------------------------------------------------------------*/
+/*
+ * Optional capture of tunnel traffic to a libpcap file (-w). The captured
+ * packets are the raw IP datagrams crossing the tunnel, so the link type is
+ * LINKTYPE_RAW. Use a FIFO as the target for live Wireshark.
+ */
+#define PCAP_MAGIC      0xa1b2c3d4
+#define PCAP_SNAPLEN    65535
+#define LINKTYPE_RAW    101
+
+struct pcap_file_header {
+  uint32_t magic;
+  uint16_t version_major;
+  uint16_t version_minor;
+  int32_t  thiszone;
+  uint32_t sigfigs;
+  uint32_t snaplen;
+  uint32_t network;
+};
+
+struct pcap_packet_header {
+  uint32_t ts_sec;
+  uint32_t ts_usec;
+  uint32_t incl_len;
+  uint32_t orig_len;
+};
+
+static FILE *pcap_file;
+
+/* Open the capture file and write the libpcap global header. */
+static void
+open_pcap(const char *path)
+{
+  pcap_file = fopen(path, "wb");
+  if(pcap_file == NULL) {
+    err(EXIT_FAILURE, "can't open pcap file ``%s''", path);
+  }
+  struct pcap_file_header h = {
+    .magic = PCAP_MAGIC,
+    .version_major = 2,
+    .version_minor = 4,
+    .snaplen = PCAP_SNAPLEN,
+    .network = LINKTYPE_RAW,
+  };
+  if(fwrite(&h, sizeof(h), 1, pcap_file) != 1) {
+    err(EXIT_FAILURE, "pcap header write");
+  }
+  fflush(pcap_file);
+}
+/*---------------------------------------------------------------------------*/
+/* Append one raw IP packet to the capture file, if capturing. */
+static void
+pcap_capture(const unsigned char *buf, size_t len)
+{
+  struct timeval tv;
+
+  if(pcap_file == NULL) {
+    return;
+  }
+  if(gettimeofday(&tv, NULL) == -1) {
+    return;   /* best-effort: skip this packet's capture */
+  }
+  struct pcap_packet_header h = {
+    .ts_sec = (uint32_t)tv.tv_sec,
+    .ts_usec = (uint32_t)tv.tv_usec,
+    .incl_len = (uint32_t)len,
+    .orig_len = (uint32_t)len,
+  };
+  fwrite(&h, sizeof(h), 1, pcap_file);
+  fwrite(buf, 1, len, pcap_file);
+  fflush(pcap_file);   /* flush so a FIFO reader (live Wireshark) sees it now */
+}
+/*---------------------------------------------------------------------------*/
 /* Write a received SLIP packet out to the tun interface. */
 static void
 deliver_packet(int outfd, const unsigned char *inbuf, size_t len)
 {
   stats.rx_packets++;
   stats.rx_bytes += len;
+  pcap_capture(inbuf, len);
   if(verbose > 2) {
     tunslip_log("packet from SLIP of length %zu - write TUN", len);
     if(verbose > 4) {
@@ -531,6 +604,7 @@ write_to_serial(const void *inbuf, size_t len)
 
   stats.tx_packets++;
   stats.tx_bytes += len;
+  pcap_capture(p, len);
 
   if(verbose > 2) {
     tunslip_log("packet from TUN of length %zu - write SLIP", len);
@@ -679,6 +753,7 @@ print_usage(const char *prog)
   fprintf(stderr, " -L             Log output format (adds time stamps)\n");
   fprintf(stderr, " -C when        Color own messages: auto (default), always, never\n");
   fprintf(stderr, " -q             Quiet: suppress tunslip6's own messages\n");
+  fprintf(stderr, " -w pcapfile    Capture tunnel packets to pcapfile (libpcap; FIFO for live)\n");
   fprintf(stderr, " -s siodev      Serial device (default /dev/ttyUSB0)\n");
   fprintf(stderr, " -M             Interface MTU (default and min: 1500)\n");
 #ifdef __APPLE__
@@ -718,6 +793,7 @@ struct options {
   const char *siodev;   /* serial device, or NULL to probe defaults */
   const char *host;     /* TCP server host, or NULL to use a serial device */
   const char *port;     /* TCP server port */
+  const char *pcap_path; /* -w capture file, or NULL */
 };
 /*---------------------------------------------------------------------------*/
 static void
@@ -730,8 +806,9 @@ parse_args(int argc, char **argv, struct options *opt)
   opt->siodev = NULL;
   opt->host = NULL;
   opt->port = NULL;
+  opt->pcap_path = NULL;
 
-  while((c = getopt(argc, argv, "B:C:HLPqhXM:s:t:v::d::a:p:")) != -1) {
+  while((c = getopt(argc, argv, "B:C:HLPqhXM:s:t:v::d::a:p:w:")) != -1) {
     switch(c) {
     case 'B':
       baudrate = atoi(optarg);
@@ -801,6 +878,10 @@ parse_args(int argc, char **argv, struct options *opt)
       opt->port = optarg;
       break;
 
+    case 'w':
+      opt->pcap_path = optarg;
+      break;
+
     case 'd':
       basedelay = 10;
       if(optarg) {
@@ -832,7 +913,7 @@ parse_args(int argc, char **argv, struct options *opt)
 #else
          "[-v [level]] [-d [basedelay]] "
 #endif
-         "[-a serveraddr] [-p serverport] ipaddress", prog);
+         "[-w pcapfile] [-a serveraddr] [-p serverport] ipaddress", prog);
   }
   ipaddr = argv[1];
 
@@ -1072,6 +1153,10 @@ main(int argc, char **argv)
 
   parse_args(argc, argv, &opt);
   init_log_style();
+
+  if(opt.pcap_path != NULL) {
+    open_pcap(opt.pcap_path);
+  }
 
   if(opt.host != NULL) {
     slipfd = connect_to_server(opt.host, opt.port);
