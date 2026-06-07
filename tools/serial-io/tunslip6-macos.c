@@ -60,7 +60,7 @@ tunslip_open_tun(char *dev, size_t devsize)
   (void)devsize; /* dev is input only on macOS; name is not resolved back */
 
   struct sockaddr_ctl sc;
-  struct ctl_info ctlInfo;
+  struct ctl_info ctl_info;
   int fd;
   unsigned int tunif;
 
@@ -69,9 +69,9 @@ tunslip_open_tun(char *dev, size_t devsize)
     return -1;
   }
 
-  memset(&ctlInfo, 0, sizeof(ctlInfo));
-  if(strlcpy(ctlInfo.ctl_name, UTUN_CONTROL_NAME, sizeof(ctlInfo.ctl_name)) >=
-     sizeof(ctlInfo.ctl_name)) {
+  memset(&ctl_info, 0, sizeof(ctl_info));
+  if(strlcpy(ctl_info.ctl_name, UTUN_CONTROL_NAME, sizeof(ctl_info.ctl_name)) >=
+     sizeof(ctl_info.ctl_name)) {
     tunslip_log("UTUN_CONTROL_NAME too long");
     return -1;
   }
@@ -83,13 +83,13 @@ tunslip_open_tun(char *dev, size_t devsize)
     return -1;
   }
 
-  if(ioctl(fd, CTLIOCGINFO, &ctlInfo) == -1) {
+  if(ioctl(fd, CTLIOCGINFO, &ctl_info) == -1) {
     perror("ioctl(CTLIOCGINFO)");
     close(fd);
     return -1;
   }
 
-  sc.sc_id = ctlInfo.ctl_id;
+  sc.sc_id = ctl_info.ctl_id;
   sc.sc_len = sizeof(sc);
   sc.sc_family = AF_SYSTEM;
   sc.ss_sysaddr = AF_SYS_CONTROL;
