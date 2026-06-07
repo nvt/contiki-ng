@@ -71,16 +71,22 @@ static int verbose = 2;
 const char *ipaddr;
 static int slipfd;
 static uint16_t basedelay, delaymsec;
-static uint32_t delaystartsec, delaystartmsec;
+static time_t delaystartsec;
+static long delaystartmsec;
 bool timestamp = false;
 static bool flowcontrol, showprogress, flowcontrol_xonxoff;
 
-static void write_to_serial(const void *inbuf, int len);
+static void write_to_serial(const void *inbuf, size_t len);
 
 static void slip_send(unsigned char c);
 static void slip_send_char(unsigned char c);
 
-char tundev[1024] = { "" };
+/*
+ * Interface name buffer. Interface names are short (IFNAMSIZ is 16 on Linux);
+ * 32 leaves headroom for platform variants such as macOS "utunN".
+ */
+#define TUNDEV_SIZE 32
+char tundev[TUNDEV_SIZE] = { "" };
 
 /* IPv6 required minimum MTU */
 #define MIN_DEVMTU 1500
@@ -97,11 +103,13 @@ progress(const char *s)
   }
 }
 /*---------------------------------------------------------------------------*/
+/* Shell commands embed an interface name and IPv6 addresses; size generously. */
+#define SHELL_CMD_SIZE 256
 /* Run a printf-formatted shell command, reporting any failure on stderr. */
 int
 run_command(const char *fmt, ...)
 {
-  char cmd[128];
+  char cmd[SHELL_CMD_SIZE];
   va_list ap;
 
   va_start(ap, fmt);
@@ -176,7 +184,7 @@ stamptime(void)
     startmsecs = msecs;
     time_t t = time(NULL);
     struct tm *tmp = localtime(&t);
-    char timec[20];
+    char timec[sizeof("HH:MM:SS")];
     if(tmp != NULL && strftime(timec, sizeof(timec), "%T", tmp) > 0) {
       fprintf(stderr, "\n%s ", timec);
     } else {
@@ -186,9 +194,9 @@ stamptime(void)
 }
 /*---------------------------------------------------------------------------*/
 static bool
-is_sensible_string(const unsigned char *s, int len)
+is_sensible_string(const unsigned char *s, size_t len)
 {
-  for(int i = 1; i < len; i++) {
+  for(size_t i = 1; i < len; i++) {
     if(s[i] == 0 || s[i] == '\r' || s[i] == '\n' || s[i] == '\t') {
       continue;
     } else if(s[i] < ' ' || '~' < s[i]) {
@@ -206,16 +214,16 @@ is_sensible_string(const unsigned char *s, int len)
 }
 /*---------------------------------------------------------------------------*/
 static void
-print_packet_hex(const unsigned char *buf, int len)
+print_packet_hex(const unsigned char *buf, size_t len)
 {
 #if WIRESHARK_IMPORT_FORMAT
   printf("0000");
-  for(int i = 0; i < len; i++) {
+  for(size_t i = 0; i < len; i++) {
     printf(" %02x", buf[i]);
   }
 #else
   printf("         ");
-  for(int i = 0; i < len; i++) {
+  for(size_t i = 0; i < len; i++) {
     printf("%02x", buf[i]);
     if((i & 3) == 3) {
       printf(" ");
@@ -230,7 +238,7 @@ print_packet_hex(const unsigned char *buf, int len)
 /*---------------------------------------------------------------------------*/
 /* Handle a "?P" command: reply with the configured IPv6 prefix. */
 static void
-handle_prefix_request(const unsigned char *inbuf, int len)
+handle_prefix_request(const unsigned char *inbuf, size_t len)
 {
   if(len < 2 || inbuf[1] != 'P') {
     return;
@@ -263,11 +271,11 @@ handle_prefix_request(const unsigned char *inbuf, int len)
 /*---------------------------------------------------------------------------*/
 /* Write a received SLIP packet out to the tun interface. */
 static void
-deliver_packet(int outfd, const unsigned char *inbuf, int len)
+deliver_packet(int outfd, const unsigned char *inbuf, size_t len)
 {
   if(verbose > 2) {
     stamptime();
-    printf("Packet from SLIP of length %d - write TUN\n", len);
+    printf("Packet from SLIP of length %zu - write TUN\n", len);
     if(verbose > 4) {
       print_packet_hex(inbuf, len);
     }
@@ -277,7 +285,7 @@ deliver_packet(int outfd, const unsigned char *inbuf, int len)
 /*---------------------------------------------------------------------------*/
 /* Echo received serial bytes to stdout according to the verbosity level. */
 static void
-echo_received_byte(unsigned char c, unsigned char *inbuf, int *inbufptr)
+echo_received_byte(unsigned char c, unsigned char *inbuf, size_t *inbufptr)
 {
   /* Echo whole lines for verbose 2, 3, and 5+; echo printable chars for 4. */
   if(verbose == 2 || verbose == 3 || verbose > 4) {
@@ -304,14 +312,14 @@ static void
 serial_to_tun(FILE *inslip, int outfd)
 {
   static unsigned char inbuf[TUN_BUFSIZE];
-  static int inbufptr;
+  static size_t inbufptr;
   unsigned char c;
   bool first = true;
 
   while(1) {
-    if(inbufptr >= (int)sizeof(inbuf)) {
+    if(inbufptr >= sizeof(inbuf)) {
       stamptime();
-      fprintf(stderr, "*** dropping large %d byte packet\n", inbufptr);
+      fprintf(stderr, "*** dropping large %zu byte packet\n", inbufptr);
       inbufptr = 0;
     }
 
@@ -388,7 +396,7 @@ serial_to_tun(FILE *inslip, int outfd)
  * trailing SLIP_END delimiter.
  */
 static unsigned char slip_buf[2 * TUN_BUFSIZE + 1];
-static unsigned int slip_end, slip_begin;
+static size_t slip_end, slip_begin;
 /*---------------------------------------------------------------------------*/
 static void
 slip_send_char(unsigned char c)
@@ -447,7 +455,7 @@ slip_flushbuf(int fd)
     return;
   }
 
-  int n = write(fd, slip_buf + slip_begin, slip_end - slip_begin);
+  ssize_t n = write(fd, slip_buf + slip_begin, slip_end - slip_begin);
 
   if(n == -1 && errno != EAGAIN) {
     err(EXIT_FAILURE, "slip_flushbuf write failed");
@@ -462,13 +470,13 @@ slip_flushbuf(int fd)
 }
 /*---------------------------------------------------------------------------*/
 static void
-write_to_serial(const void *inbuf, int len)
+write_to_serial(const void *inbuf, size_t len)
 {
   const uint8_t *p = inbuf;
 
   if(verbose > 2) {
     stamptime();
-    printf("Packet from TUN of length %d - write SLIP\n", len);
+    printf("Packet from TUN of length %zu - write SLIP\n", len);
     if(verbose > 4) {
       print_packet_hex(p, len);
     }
@@ -478,7 +486,7 @@ write_to_serial(const void *inbuf, int len)
    * really necessary.
    */
 
-  for(int i = 0; i < len; i++) {
+  for(size_t i = 0; i < len; i++) {
     slip_send_char(p[i]);
   }
   slip_send(SLIP_END);
@@ -488,11 +496,11 @@ write_to_serial(const void *inbuf, int len)
 /*
  * Read from tun, write to slip.
  */
-static int
+static size_t
 tun_to_serial(int infd)
 {
   unsigned char inbuf[TUN_BUFSIZE];
-  int size = tunslip_read_packet(infd, inbuf, sizeof(inbuf));
+  size_t size = tunslip_read_packet(infd, inbuf, sizeof(inbuf));
 
   write_to_serial(inbuf, size);
   return size;
@@ -559,7 +567,8 @@ configure_tty(int fd)
 int
 devopen(const char *dev, int flags)
 {
-  char t[1024];
+  /* "/dev/" plus a device name no longer than an interface name. */
+  char t[sizeof("/dev/") + TUNDEV_SIZE];
   snprintf(t, sizeof(t), "/dev/%s", dev);
   return open(t, flags);
 }
@@ -851,7 +860,7 @@ update_delay(void)
   if(gettimeofday(&tv, NULL) == -1) {
     err(EXIT_FAILURE, "gettimeofday");
   }
-  int dmsec = (tv.tv_sec - delaystartsec) * 1000 + tv.tv_usec / 1000 - delaystartmsec;
+  int dmsec = (int)((tv.tv_sec - delaystartsec) * 1000 + tv.tv_usec / 1000 - delaystartmsec);
   if(dmsec < 0 || dmsec > delaymsec) {
     delaymsec = 0;
   }

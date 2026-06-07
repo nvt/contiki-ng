@@ -81,10 +81,10 @@ tunslip_open_tun(char *dev, size_t devsize)
   return fd;
 }
 /*---------------------------------------------------------------------------*/
-int
-tunslip_read_packet(int fd, unsigned char *buf, int size)
+size_t
+tunslip_read_packet(int fd, unsigned char *buf, size_t size)
 {
-  int n = read(fd, buf, size);
+  ssize_t n = read(fd, buf, size);
   if(n == -1) {
     err(EXIT_FAILURE, "tunslip_read_packet");
   }
@@ -92,9 +92,9 @@ tunslip_read_packet(int fd, unsigned char *buf, int size)
 }
 /*---------------------------------------------------------------------------*/
 void
-tunslip_write_packet(int fd, const unsigned char *buf, int len)
+tunslip_write_packet(int fd, const unsigned char *buf, size_t len)
 {
-  if(write(fd, buf, len) != len) {
+  if(write(fd, buf, len) != (ssize_t)len) {
     err(EXIT_FAILURE, "tunslip_write_packet");
   }
 }

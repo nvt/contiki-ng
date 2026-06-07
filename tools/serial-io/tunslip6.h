@@ -65,8 +65,8 @@ int tunslip_open_tun(char *dev, size_t devsize);
  * platform-specific framing (e.g. the 4-byte macOS utun protocol header).
  * tunslip_read_packet() returns the payload length; both abort on I/O error.
  */
-int tunslip_read_packet(int fd, unsigned char *buf, int size);
-void tunslip_write_packet(int fd, const unsigned char *buf, int len);
+size_t tunslip_read_packet(int fd, unsigned char *buf, size_t size);
+void tunslip_write_packet(int fd, const unsigned char *buf, size_t len);
 
 void tunslip_ifconf(const char *tundev, const char *ipaddr);
 

@@ -109,8 +109,8 @@ tunslip_open_tun(char *dev, size_t devsize)
   return fd;
 }
 /*---------------------------------------------------------------------------*/
-int
-tunslip_read_packet(int fd, unsigned char *buf, int size)
+size_t
+tunslip_read_packet(int fd, unsigned char *buf, size_t size)
 {
   /* utun prepends a 4-byte protocol header; read it into a throwaway via
      readv so the payload lands at the start of buf. */
@@ -130,11 +130,11 @@ tunslip_read_packet(int fd, unsigned char *buf, int size)
   if(n <= (ssize_t)sizeof(type)) {
     errx(EXIT_FAILURE, "tunslip_read_packet: packet too small");
   }
-  return (int)(n - sizeof(type));
+  return (size_t)(n - sizeof(type));
 }
 /*---------------------------------------------------------------------------*/
 void
-tunslip_write_packet(int fd, const unsigned char *buf, int len)
+tunslip_write_packet(int fd, const unsigned char *buf, size_t len)
 {
   /* Fake IFF_NO_PI by prepending a 4-byte header containing AF_INET6. */
   uint32_t type = htonl(AF_INET6);
