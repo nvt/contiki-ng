@@ -77,6 +77,15 @@ bool timestamp = false;
 static bool flowcontrol, showprogress, flowcontrol_xonxoff;
 static bool quiet;   /* -q: suppress tunslip6's own messages */
 
+/* Traffic counters, dumped on SIGUSR1 and at exit. */
+static struct {
+  unsigned long long rx_packets, rx_bytes;   /* SLIP -> tun */
+  unsigned long long tx_packets, tx_bytes;   /* tun -> SLIP */
+  unsigned long long dropped_oversize;       /* packets too big for the input buffer */
+  unsigned long long queue_full;             /* serial output queue was full */
+} stats;
+static volatile sig_atomic_t want_stats;     /* set by SIGUSR1, served by the main loop */
+
 /* ANSI styling for tunslip6's own log lines; resolved from color_mode at startup. */
 static const char *log_style = "";
 static const char *log_style_reset = "";
@@ -317,6 +326,8 @@ handle_prefix_request(const unsigned char *inbuf, size_t len)
 static void
 deliver_packet(int outfd, const unsigned char *inbuf, size_t len)
 {
+  stats.rx_packets++;
+  stats.rx_bytes += len;
   if(verbose > 2) {
     tunslip_log("packet from SLIP of length %zu - write TUN", len);
     if(verbose > 4) {
@@ -361,6 +372,7 @@ serial_to_tun(FILE *inslip, int outfd)
 
   while(1) {
     if(inbufptr >= sizeof(inbuf)) {
+      stats.dropped_oversize++;
       tunslip_log("dropping large %zu byte packet", inbufptr);
       inbufptr = 0;
     }
@@ -502,6 +514,7 @@ slip_flushbuf(int fd)
   if(n == -1 && errno != EAGAIN) {
     err(EXIT_FAILURE, "slip_flushbuf write failed");
   } else if(n == -1) {
+    stats.queue_full++;
     progress("Q");    /* Outqueue is full! */
   } else {
     slip_begin += n;
@@ -515,6 +528,9 @@ static void
 write_to_serial(const void *inbuf, size_t len)
 {
   const uint8_t *p = inbuf;
+
+  stats.tx_packets++;
+  stats.tx_bytes += len;
 
   if(verbose > 2) {
     tunslip_log("packet from TUN of length %zu - write SLIP", len);
@@ -625,6 +641,25 @@ sigcleanup(int signo)
    * to the main loop.
    */
   should_exit = signo;
+}
+/*---------------------------------------------------------------------------*/
+/* Dump accumulated traffic statistics through the tunslip6 message channel. */
+static void
+print_stats(void)
+{
+  tunslip_log("stats: SLIP->tun %llu packets, %llu bytes",
+              stats.rx_packets, stats.rx_bytes);
+  tunslip_log("stats: tun->SLIP %llu packets, %llu bytes",
+              stats.tx_packets, stats.tx_bytes);
+  tunslip_log("stats: %llu oversize drops, %llu output-queue-full events",
+              stats.dropped_oversize, stats.queue_full);
+}
+/*---------------------------------------------------------------------------*/
+static void
+sigstats(int signo)
+{
+  (void)signo;   /* defer the dump to the main loop; just record the request */
+  want_stats = 1;
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -905,6 +940,7 @@ setup_signal_handlers(void)
   signal(SIGHUP, sigcleanup);
   signal(SIGTERM, sigcleanup);
   signal(SIGINT, sigcleanup);
+  signal(SIGUSR1, sigstats);
 }
 /*---------------------------------------------------------------------------*/
 /* Clear the inter-packet delay once its configured interval has elapsed. */
@@ -951,6 +987,11 @@ event_loop(FILE *inslip, int tunfd)
     if(should_exit) {
       tunslip_log("caught signal %d, exiting", (int)should_exit);
       exit(EXIT_SUCCESS);      /* will call tunslip_cleanup() via atexit() */
+    }
+
+    if(want_stats) {           /* SIGUSR1 requested a stats dump */
+      want_stats = 0;
+      print_stats();
     }
 
     int maxfd = 0;
@@ -1050,6 +1091,8 @@ main(int argc, char **argv)
   }
   tunslip_log("opened tun device /dev/%s", tundev);
 
+  /* Registered before tunslip_cleanup so the stats line prints last at exit. */
+  atexit(print_stats);
   setup_signal_handlers();
   tunslip_ifconf(tundev, ipaddr);
 
