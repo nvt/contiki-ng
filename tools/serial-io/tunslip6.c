@@ -1093,6 +1093,13 @@ setup_signal_handlers(void)
   signal(SIGTERM, sigcleanup);
   signal(SIGINT, sigcleanup);
   signal(SIGUSR1, sigstats);
+  /*
+   * Don't let a write to a closed output reader (a dead `| tee`/`| head`, or a
+   * TCP peer that hung up) kill us via SIGPIPE: the default action terminates
+   * the process without running the atexit cleanup, leaving tun configured.
+   * Ignoring it makes such writes fail with EPIPE instead.
+   */
+  signal(SIGPIPE, SIG_IGN);
 }
 /*---------------------------------------------------------------------------*/
 /* Clear the inter-packet delay once its configured interval has elapsed. */
