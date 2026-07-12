@@ -14,5 +14,6 @@
 
 #define NRF_HAS_UARTE   1
 #define NRF_HAS_USB     0
+#define NRF_HAS_CRACEN_RNG 1
 
 #endif /* NRF54L15_DEF_H_ */

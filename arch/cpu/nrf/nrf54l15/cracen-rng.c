@@ -1,15 +1,18 @@
 /*
- * Copyright (C) 2021 Yago Fontoura do Rosario <yago.rosario@hotmail.com.br>
+ * Copyright (c) 2026, RISE Research Institutes of Sweden AB
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
+ *
  * 1. Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
+ *
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
+ *
  * 3. Neither the name of the copyright holder nor the names of its
  *    contributors may be used to endorse or promote products derived
  *    from this software without specific prior written permission.
@@ -27,30 +30,41 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-/*---------------------------------------------------------------------------*/
 /**
- * \addtogroup nrf
- * @{
- *
- * \addtogroup nrf-52840 nRF52840
- * @{
- *
  * \file
- *      Header with configuration defines to nrf 52840
+ *         Hardware random number generation via the nRF54L15 CRACEN
+ *         cryptographic accelerator (CTR-DRBG).
+ *
+ *         The vendored nrfx CRACEN driver only exposes a CTR-DRBG random
+ *         generator (no AES/hash/PKE), which is exactly what we need to feed
+ *         the Contiki-NG CSPRNG with hardware entropy on the nRF54L15, since
+ *         this SoC has no standalone RNG peripheral.
  * \author
- *      Yago Fontoura do Rosario <yago.rosario@hotmail.com.br>
+ *         Nicolas Tsiftes <nicolas.tsiftes@ri.se>
  */
 /*---------------------------------------------------------------------------*/
-#ifndef NRF52840_DEF_H_
-#define NRF52840_DEF_H_
+#include "cracen-rng.h"
+
+#include <nrfx.h>
+#include <nrfx_cracen.h>
 /*---------------------------------------------------------------------------*/
-#define NRF_HAS_USB     1
-#define NRF_HAS_UARTE   1
-#define NRF_HAS_CRACEN_RNG 0
+bool
+cracen_rng_get(uint8_t *buf, size_t len)
+{
+  bool ok;
+
+  if(buf == NULL || len == 0) {
+    return false;
+  }
+
+  if(nrfx_cracen_ctr_drbg_init() != NRFX_SUCCESS) {
+    return false;
+  }
+
+  ok = nrfx_cracen_ctr_drbg_random_get(buf, len) == NRFX_SUCCESS;
+
+  nrfx_cracen_ctr_drbg_uninit();
+
+  return ok;
+}
 /*---------------------------------------------------------------------------*/
-#endif /* NRF52840_DEF_H_ */
-/*---------------------------------------------------------------------------*/
-/** 
- * @} 
- * @} 
- */
