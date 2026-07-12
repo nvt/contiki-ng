@@ -45,25 +45,35 @@
 /*---------------------------------------------------------------------------*/
 #include "cracen-rng.h"
 
+#include "sys/critical.h"
+
 #include <nrfx.h>
 #include <nrfx_cracen.h>
 /*---------------------------------------------------------------------------*/
 bool
 cracen_rng_get(uint8_t *buf, size_t len)
 {
+  int_master_status_t lock;
   bool ok;
 
   if(buf == NULL || len == 0) {
     return false;
   }
 
+  /* The CryptoMaster is shared with the AES driver; mask interrupts for the
+   * whole operation so an interrupt-context AES user cannot drive it midway. */
+  lock = critical_enter();
+
   if(nrfx_cracen_ctr_drbg_init() != NRFX_SUCCESS) {
+    critical_exit(lock);
     return false;
   }
 
   ok = nrfx_cracen_ctr_drbg_random_get(buf, len) == NRFX_SUCCESS;
 
   nrfx_cracen_ctr_drbg_uninit();
+
+  critical_exit(lock);
 
   return ok;
 }

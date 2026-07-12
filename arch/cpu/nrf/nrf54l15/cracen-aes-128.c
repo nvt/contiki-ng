@@ -51,6 +51,8 @@
 #include "contiki.h"
 #include "cracen-aes-128.h"
 
+#include "sys/critical.h"
+
 #include <nrfx.h>
 #include <hal/nrf_cracen.h>
 #include <hal/nrf_cracen_cm.h>
@@ -79,6 +81,7 @@ aes_ecb_block(const uint8_t *key, const uint8_t *input, uint8_t *output)
 
   struct nrf_cracen_cm_dma_desc in_descs[3];
   struct nrf_cracen_cm_dma_desc out_desc;
+  int_master_status_t lock;
   uint32_t pending;
   uint32_t busy;
 
@@ -104,6 +107,13 @@ aes_ecb_block(const uint8_t *key, const uint8_t *input, uint8_t *output)
   out_desc.length = AES_128_BLOCK_SIZE | NRF_CRACEN_CM_DMA_DESC_LENGTH_REALIGN;
   out_desc.dmatag = NRF_CRACEN_CM_DMA_TAG_LAST;
   out_desc.p_next = NRF_CRACEN_CM_DMA_DESC_STOP;
+
+  /* The CryptoMaster is a single shared engine. Mask interrupts for the whole
+   * operation so no other context -- the CTR-DRBG RNG, or a TSCH rtimer
+   * callback running AES for link-layer security -- can drive it concurrently.
+   * A spinlock would be wrong here: it cannot be waited on safely from an
+   * interrupt. The block completes in a few microseconds. */
+  lock = critical_enter();
 
   nrf_cracen_module_enable(NRF_CRACEN, NRF_CRACEN_MODULE_CRYPTOMASTER_MASK);
 
@@ -136,6 +146,8 @@ aes_ecb_block(const uint8_t *key, const uint8_t *input, uint8_t *output)
 
   nrf_cracen_cm_softreset(NRF_CRACENCORE);
   nrf_cracen_module_disable(NRF_CRACEN, NRF_CRACEN_MODULE_CRYPTOMASTER_MASK);
+
+  critical_exit(lock);
 
   return (pending & (NRF_CRACEN_CM_INT_FETCH_ERROR_MASK |
                      NRF_CRACEN_CM_INT_PUSH_ERROR_MASK)) == 0;
