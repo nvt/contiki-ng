@@ -48,4 +48,10 @@
 #define NRF_CONF_HARDFAULT_HANDLER_EXTENDED 1
 #endif
 
+/* Use the CRACEN hardware accelerator for AES-128 (backs CCM* link-layer
+ * security and any other AES_128 user). */
+#ifndef AES_128_CONF
+#define AES_128_CONF cracen_aes_128_driver
+#endif
+
 #endif /* NRF54L15_CONF_H_ */

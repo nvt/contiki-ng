@@ -148,7 +148,7 @@ CFLAGS += -DNRFX_GRTC_ENABLED=1
 # ==========================================================================
 # CRACEN CTR-DRBG hardware RNG
 # ==========================================================================
-# The nRF54L15 has no legacy RNG peripheral; the CRACEN cryptographic
+# The nRF54L15 has no standalone RNG peripheral; the CRACEN cryptographic
 # accelerator provides a CTR-DRBG random generator. cracen-rng.c wraps it and
 # arch/platform/nrf/platform.c uses it to seed the Contiki-NG CSPRNG.
 CFLAGS += -DNRFX_CRACEN_ENABLED=1
@@ -156,6 +156,15 @@ NRFX_C_SRCS += $(NRFX_ROOT)/drivers/src/nrfx_cracen.c
 CONTIKI_SOURCEFILES += nrfx_cracen.c
 CONTIKI_CPU_SOURCEFILES += cracen-rng.c
 CONTIKI_SOURCEFILES += cracen-rng.c
+
+# ==========================================================================
+# CRACEN AES-128 driver
+# ==========================================================================
+# AES-128 (ECB) on the CRACEN CryptoMaster, backing the Contiki-NG aes_128
+# interface (and thus CCM* link-layer security). Uses only the nrfx CRACEN
+# HALs, so no nrfx CRACEN driver object is needed.
+CONTIKI_CPU_SOURCEFILES += cracen-aes-128.c
+CONTIKI_SOURCEFILES += cracen-aes-128.c
 
 # ==========================================================================
 # nrf_802154 Radio Driver Integration
