@@ -56,6 +56,10 @@
 #include "nrfx_config.h"
 #include "usb.h"
 
+#if NRF_HAS_CRACEN_RNG
+#include "cracen-rng.h"
+#endif
+
 /*---------------------------------------------------------------------------*/
 /* Log configuration */
 #include "sys/log.h"
@@ -87,9 +91,11 @@ platform_init_stage_one(void)
 static void
 feed_csprng(void)
 {
-#if defined(NRF_RNG) && CSPRNG_ENABLED
+#if CSPRNG_ENABLED
   struct csprng_seed seed;
 
+#if defined(NRF_RNG)
+  /* nRF52/nRF53: dedicated RNG peripheral. */
   NRF_RNG->TASKS_START = 1;
   for(size_t i = 0; i < sizeof(seed); i++) {
     NRF_RNG->EVENTS_VALRDY = 0;
@@ -98,7 +104,15 @@ feed_csprng(void)
   }
   NRF_RNG->TASKS_STOP = 1;
   csprng_feed(&seed);
-#endif /* defined(NRF_RNG) && CSPRNG_ENABLED */
+#elif NRF_HAS_CRACEN_RNG
+  /* nRF54L: no standalone RNG peripheral; use the CRACEN CTR-DRBG instead. */
+  if(cracen_rng_get(seed.u8, sizeof(seed.u8))) {
+    csprng_feed(&seed);
+  }
+#else
+  (void)seed;
+#endif
+#endif /* CSPRNG_ENABLED */
 }
 /*---------------------------------------------------------------------------*/
 void

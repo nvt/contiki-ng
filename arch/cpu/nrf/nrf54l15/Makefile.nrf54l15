@@ -146,6 +146,18 @@ CFLAGS := $(filter-out -DNRFX_RTC0_ENABLED,$(CFLAGS))
 CFLAGS += -DNRFX_GRTC_ENABLED=1
 
 # ==========================================================================
+# CRACEN CTR-DRBG hardware RNG
+# ==========================================================================
+# The nRF54L15 has no legacy RNG peripheral; the CRACEN cryptographic
+# accelerator provides a CTR-DRBG random generator. cracen-rng.c wraps it and
+# arch/platform/nrf/platform.c uses it to seed the Contiki-NG CSPRNG.
+CFLAGS += -DNRFX_CRACEN_ENABLED=1
+NRFX_C_SRCS += $(NRFX_ROOT)/drivers/src/nrfx_cracen.c
+CONTIKI_SOURCEFILES += nrfx_cracen.c
+CONTIKI_CPU_SOURCEFILES += cracen-rng.c
+CONTIKI_SOURCEFILES += cracen-rng.c
+
+# ==========================================================================
 # nrf_802154 Radio Driver Integration
 # ==========================================================================
 # Replace the generic nrf radio driver (nrf52/53) and the stub with
