@@ -167,7 +167,6 @@ platform-specific/nrf/start-network-core/nrf:BOARD=nrf5340/dk/network \
 platform-specific/nrf/trustzone/nrf:BOARD=nrf5340/dk/application \
 platform-specific/zoul/at-test/zoul \
 platform-specific/zoul/orion/client/zoul:BOARD=orion \
-platform-specific/zoul/orion/ip64-router/zoul:BOARD=orion \
 platform-specific/zoul/rev-b/zoul:BOARD=remote-revb  \
 platform-specific/zoul/rtcc/zoul \
 platform-specific/zoul/zoul \

@@ -36,7 +36,7 @@
  * \defgroup zolertia-orion-ethernet-router Zolertia IoT Orion Ethernet Router
  *
  * The Zolertia Orion Router includes an Ethernet ENC28J60 controller with
- * active POE (power over ethernet), operating over IPv4/IP64.  It features a
+ * active POE (power over ethernet).  It features a
  * dual RF interface (2.4GHz and 863-950MHz) with external antenna connectors,
  * a power on/off switch and programable user button.
  *

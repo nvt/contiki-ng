@@ -3,8 +3,6 @@ all: $(CONTIKI_PROJECT)
 
 BOARD = orion
 
-WITH_IP64 = 1
-
 PLATFORMS_ONLY = zoul
 BOARDS_ONLY = orion
 

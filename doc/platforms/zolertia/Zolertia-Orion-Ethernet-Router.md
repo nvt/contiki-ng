@@ -16,7 +16,7 @@ In a nutshell the Orion Router packs the following features:
 * RP-SMA connector for a 2.4GHz external antenna
 * SMA connector for a 868/915MHz external antenna
 * RJ45 ethernet connector
-* Ethernet 10BASE-T IPv4/IP64
+* Ethernet 10BASE-T
 * AES-128/256, SHA2 Hardware Encryption Engine.
 * ECC-128/256, RSA Hardware Acceleration Engine for Secure Key Exchange.
 * On-board CP2104/PIC to flash over its micro-USB connector
@@ -26,7 +26,7 @@ In a nutshell the Orion Router packs the following features:
 * Indoor enclosure
 * Layout 40.29 x 73.75 mm
 
-There are ready-to-use examples at `examples/zolertia/zoul/orion`, showing how to deploy an IP64 border router, and connect to services such as [IFTTT (If This Then That)](https://ifttt.com).
+There are ready-to-use examples at `examples/platform-specific/zoul/orion`, showing how to connect to services such as [IFTTT (If This Then That)](https://ifttt.com).
 
 ## Orion Technical documentation
 
