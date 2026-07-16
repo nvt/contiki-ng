@@ -208,6 +208,13 @@ uint16_t coap_get_mid(void);
 void coap_init_message(coap_message_t *message, coap_message_type_t type,
                        uint8_t code, uint16_t mid);
 size_t coap_serialize_message(coap_message_t *message, uint8_t *buffer);
+
+/*
+ * Parses a message from data, which is parsed in place: the resulting
+ * coap_message_t points into the supplied buffer rather than copying
+ * from it. The parser does not write to the buffer, and does not
+ * null-terminate the payload; see coap_get_payload().
+ */
 coap_status_t coap_parse_message(coap_message_t *request, uint8_t *data,
                                  uint16_t data_len);
 
@@ -315,6 +322,13 @@ int coap_set_header_size2(coap_message_t *message, uint32_t size);
 int coap_get_header_size1(const coap_message_t *message, uint32_t *size);
 int coap_set_header_size1(coap_message_t *message, uint32_t size);
 
+/*
+ * Returns the length of the payload and sets payload to point at it.
+ * The payload is binary data and is NOT null-terminated: callers must
+ * use the returned length to delimit it, and must not pass it to
+ * string functions such as strlen() or the "%s" printf conversion.
+ * Use "%.*s" with the returned length to print it.
+ */
 int coap_get_payload(const coap_message_t *message, const uint8_t **payload);
 int coap_set_payload(coap_message_t *message, const void *payload,
                      size_t length);
