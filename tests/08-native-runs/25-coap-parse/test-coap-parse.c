@@ -123,10 +123,10 @@ UNIT_TEST(test_parse_max_payload_keeps_canary)
   UNIT_TEST_END();
 }
 /*---------------------------------------------------------------------------*/
-/* An oversized payload is truncated, and the message is left intact. */
-UNIT_TEST_REGISTER(test_parse_oversized_payload_is_truncated,
-                   "an oversized payload is truncated without being modified");
-UNIT_TEST(test_parse_oversized_payload_is_truncated)
+/* An oversized payload is rejected rather than truncated. */
+UNIT_TEST_REGISTER(test_parse_oversized_payload_is_rejected,
+                   "an oversized payload is rejected rather than truncated");
+UNIT_TEST(test_parse_oversized_payload_is_rejected)
 {
   coap_message_t message;
   uint16_t len;
@@ -135,12 +135,8 @@ UNIT_TEST(test_parse_oversized_payload_is_truncated)
 
   len = build_message(COAP_MAX_CHUNK_SIZE + 8);
 
-  UNIT_TEST_ASSERT(coap_parse_message(&message, buffer, len) == NO_ERROR);
-  UNIT_TEST_ASSERT(message.payload_len == COAP_MAX_CHUNK_SIZE);
-  /* The byte after the truncation point belongs to the message, and used
-     to be overwritten with a null terminator. */
-  UNIT_TEST_ASSERT(message.payload[COAP_MAX_CHUNK_SIZE] ==
-                   'a' + (COAP_MAX_CHUNK_SIZE % 26));
+  UNIT_TEST_ASSERT(coap_parse_message(&message, buffer, len) ==
+                   REQUEST_ENTITY_TOO_LARGE_4_13);
   UNIT_TEST_ASSERT(buffer[len] == CANARY);
 
   UNIT_TEST_END();
@@ -178,12 +174,12 @@ PROCESS_THREAD(run_tests, ev, data)
 
   UNIT_TEST_RUN(test_parse_payload_keeps_canary);
   UNIT_TEST_RUN(test_parse_max_payload_keeps_canary);
-  UNIT_TEST_RUN(test_parse_oversized_payload_is_truncated);
+  UNIT_TEST_RUN(test_parse_oversized_payload_is_rejected);
   UNIT_TEST_RUN(test_parse_payload_with_null_bytes);
 
   if(!UNIT_TEST_PASSED(test_parse_payload_keeps_canary) ||
      !UNIT_TEST_PASSED(test_parse_max_payload_keeps_canary) ||
-     !UNIT_TEST_PASSED(test_parse_oversized_payload_is_truncated) ||
+     !UNIT_TEST_PASSED(test_parse_oversized_payload_is_rejected) ||
      !UNIT_TEST_PASSED(test_parse_payload_with_null_bytes)) {
     printf("=check-me= FAILED\n");
   } else {

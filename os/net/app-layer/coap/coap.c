@@ -503,9 +503,18 @@ coap_parse_message(coap_message_t *coap_pkt, uint8_t *data, uint16_t data_len)
       coap_pkt->payload = current_option;
       coap_pkt->payload_len = data_len - (coap_pkt->payload - data);
 
-      /* also for receiving, the Erbium upper bound is COAP_MAX_CHUNK_SIZE */
+      /* A payload that we cannot deliver in full is rejected rather than
+         truncated, so that the receiver is never handed a partial payload
+         that looks complete. Senders are told the limit through the Size1
+         option in the error response, and can retry using block-wise
+         transfers. */
       if(coap_pkt->payload_len > COAP_MAX_CHUNK_SIZE) {
-        coap_pkt->payload_len = COAP_MAX_CHUNK_SIZE;
+        LOG_WARN("Payload of %u bytes exceeds the %u-byte limit\n",
+                 coap_pkt->payload_len, (unsigned)COAP_MAX_CHUNK_SIZE);
+#if COAP_MESSAGE_ON_ERROR
+        coap_error_message = "PayloadTooLarge";
+#endif
+        return REQUEST_ENTITY_TOO_LARGE_4_13;
       }
 
       break;
