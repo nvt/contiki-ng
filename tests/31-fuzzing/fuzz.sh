@@ -66,6 +66,7 @@ fi
 FUZZ_ENTRY_POINT=
 FUZZ_PROTOCOLS=
 FUZZ_DICTIONARY=
+FUZZ_SEQUENCE=
 # shellcheck source=/dev/null
 . "$TARGET_DIR/target.conf"
 
@@ -123,7 +124,19 @@ echo "Output in $OUT_DIR."
 # bound, which covers most laptops and CI runners.
 export AFL_SKIP_CPUFREQ=1
 export AFL_NO_AFFINITY=1
+
+# macOS caps a System V shared memory segment at kern.sysv.shmmax, which is
+# four megabytes by default and less than AFL++ asks for, so the campaign
+# would fail to start. The coverage map needs a small fraction of that for
+# these targets, so ask for the customary size rather than requiring every
+# contributor to change a system limit and reboot.
+if [ "$(uname)" = "Darwin" ] && [ -z "${AFL_MAP_SIZE:-}" ]; then
+  export AFL_MAP_SIZE=65536
+fi
 export FUZZ_ENTRY_POINT
+if [ -n "$FUZZ_SEQUENCE" ]; then
+  export FUZZ_SEQUENCE
+fi
 
 afl-fuzz -i "$TARGET_DIR/seeds" -o "$OUT_DIR" -V "$DURATION" \
          "${DICTIONARY_ARG[@]}" -- "$HARNESS" @@

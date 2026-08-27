@@ -65,12 +65,15 @@
 #include "net/ipv6/sicslowpan.h"
 #include "net/netstack.h"
 #include "net/packetbuf.h"
+#include "net/linkaddr.h"
+#include "net/routing/routing.h"
 #include "sys/cc.h"
+
+#include "net/ipv6/uiplib.h"
 
 #if FUZZ_WITH_COAP
 #include "net/app-layer/coap/coap.h"
 #include "net/app-layer/coap/coap-engine.h"
-#include "net/ipv6/uiplib.h"
 #endif
 
 #if FUZZ_WITH_SNMP
@@ -84,7 +87,18 @@
 #define LOG_LEVEL LOG_LEVEL_NONE
 
 #define FUZZ_ENTRY_POINT_DEFAULT "uip"
+#define FUZZ_RPL_PREFIX "fd00::"
 #define FUZZ_BUFFER_SIZE 2000
+
+/*
+ * Largest number of messages taken from a sequence. The bound keeps a
+ * mutated input from turning into a long run that the fuzzer would report
+ * as a hang rather than as the malformed input that it is.
+ */
+#define FUZZ_MAX_MESSAGES 16
+
+/* Size of the length that precedes each message of a sequence. */
+#define FUZZ_LENGTH_PREFIX_SIZE 2
 
 extern int contiki_argc;
 extern char **contiki_argv;
@@ -143,6 +157,29 @@ read_input(const char *filename, char *buf, int max_len)
   return len;
 }
 /*---------------------------------------------------------------------------*/
+/*
+ * Give the input a link layer sender.
+ *
+ * A packet that arrives over a real link carries one, and a routing protocol
+ * uses it to create the neighbour entry that the rest of its state hangs
+ * from. Injecting above the link layer leaves no such entry behind, and a
+ * protocol that tracks its neighbours then cannot get past its first step:
+ * RPL, for one, joins with an infinite rank because it has no parent to
+ * compute a rank from, and stops there.
+ */
+static void
+set_sender_lladdr(void)
+{
+  static linkaddr_t sender;
+  int i;
+
+  for(i = 0; i < LINKADDR_SIZE; i++) {
+    sender.u8[i] = i + 1;
+  }
+
+  packetbuf_set_addr(PACKETBUF_ADDR_SENDER, &sender);
+}
+/*---------------------------------------------------------------------------*/
 static void
 set_uip_buf(const char *data, int len)
 {
@@ -152,6 +189,7 @@ set_uip_buf(const char *data, int len)
 
   uip_len = len;
   memcpy(uip_buf, data, len);
+  set_sender_lladdr();
 }
 /*---------------------------------------------------------------------------*/
 /*
@@ -195,6 +233,26 @@ inject_sicslowpan_packet(const char *data, int len)
   sicslowpan_driver.input();
 
   return true;
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Make the node the root of a DAG before any input is injected.
+ *
+ * A router that has only received packets injected above the link layer
+ * cannot compute a rank, because the objective function has no link
+ * statistics to work from, and so it joins with an infinite rank and rejects
+ * everything that follows. A root needs no parent and no statistics, and it
+ * is in any case the node that receives destination advertisements, so this
+ * is what reaches their parsing.
+ */
+static void
+setup_rpl_root(void)
+{
+  uip_ipaddr_t prefix;
+
+  uiplib_ipaddrconv(FUZZ_RPL_PREFIX, &prefix);
+  NETSTACK_ROUTING.root_set_prefix(&prefix, NULL);
+  NETSTACK_ROUTING.root_start();
 }
 /*---------------------------------------------------------------------------*/
 #if FUZZ_WITH_COAP
@@ -259,6 +317,7 @@ select_entry_point(const char *name)
     {"coap", setup_coap, inject_coap_packet},
 #endif
     {"icmpv6", NULL, inject_icmpv6_packet},
+    {"icmpv6-rpl-root", setup_rpl_root, inject_icmpv6_packet},
     {"sicslowpan", NULL, inject_sicslowpan_packet},
 #if FUZZ_WITH_SNMP
     {"snmp", setup_snmp, inject_snmp_packet},
@@ -280,6 +339,50 @@ select_entry_point(const char *name)
   return NULL;
 }
 /*---------------------------------------------------------------------------*/
+/*
+ * Deliver a sequence of messages to one entry point, in order.
+ *
+ * An input is otherwise a single message, which is what a parser that holds
+ * no state needs, and which lets a corpus be taken unchanged from a capture
+ * or from another test. A sequence is for a protocol whose parser only
+ * becomes meaningful once a session exists: the messages that precede the
+ * last one establish that session, so that the harness never has to assemble
+ * the state of the protocol itself.
+ *
+ * Each message is preceded by its length, in two bytes, most significant
+ * first. Almost every mutated input is malformed at this framing rather than
+ * at the protocol, so a length that overruns the input is clamped and a
+ * truncated record ends the sequence. Rejecting such an input outright would
+ * discard the mutation without ever reaching a parser.
+ */
+static bool
+inject_sequence(const struct entry_point *entry_point,
+                const char *data, int len)
+{
+  int pos = 0;
+  int messages = 0;
+
+  while(pos + FUZZ_LENGTH_PREFIX_SIZE <= len &&
+        messages < FUZZ_MAX_MESSAGES) {
+    int message_len = ((unsigned char)data[pos] << 8) |
+                      (unsigned char)data[pos + 1];
+
+    pos += FUZZ_LENGTH_PREFIX_SIZE;
+    if(message_len > len - pos) {
+      message_len = len - pos;
+    }
+
+    if(entry_point->inject(data + pos, message_len) == false) {
+      return false;
+    }
+
+    pos += message_len;
+    messages++;
+  }
+
+  return true;
+}
+/*---------------------------------------------------------------------------*/
 PROCESS_THREAD(fuzz_harness_process, ev, data)
 {
   static char input_buf[FUZZ_BUFFER_SIZE];
@@ -287,6 +390,7 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
   static const char *filename;
   static const char *entry_point_name;
   static const struct entry_point *entry_point;
+  static bool sequence;
 
   PROCESS_BEGIN();
 
@@ -294,6 +398,8 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
   if(entry_point_name == NULL) {
     entry_point_name = FUZZ_ENTRY_POINT_DEFAULT;
   }
+
+  sequence = getenv("FUZZ_SEQUENCE") != NULL;
 
   entry_point = select_entry_point(entry_point_name);
   if(entry_point == NULL) {
@@ -328,7 +434,11 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
     exit(EXIT_FAILURE);
   }
 
-  if(entry_point->inject(input_buf, len) == false) {
+  if(sequence) {
+    if(inject_sequence(entry_point, input_buf, len) == false) {
+      exit(EXIT_FAILURE);
+    }
+  } else if(entry_point->inject(input_buf, len) == false) {
     exit(EXIT_FAILURE);
   }
 

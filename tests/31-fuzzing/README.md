@@ -44,9 +44,33 @@ The current targets are:
 | Target | Entry point | Reaches |
 | --- | --- | --- |
 | `rpl-icmpv6` | ICMPv6 | the RPL control message parsers |
+| `rpl-icmpv6-seq` | ICMPv6 | the same, after joining a DAG, from a sequence |
+| `rpl-dao` | ICMPv6, as a root | destination advertisement parsing and route installation |
 | `uip` | IPv6 | the IPv6 input path, including extension headers |
 | `snmp` | SNMP | the SNMP engine and its BER decoder |
 | `coap` | CoAP | the CoAP message parser |
+
+## Sequences
+
+An input is normally a single message, which is what a parser that holds no
+state needs, and which lets a corpus be taken unchanged from a capture or from
+another test.
+
+A target that sets `FUZZ_SEQUENCE=1` takes a sequence instead: each message is
+preceded by its length, in two bytes, most significant first, and the messages
+are delivered in order to the same entry point. This is how a protocol whose
+parser only becomes meaningful once a session exists is reached. The session is
+established by the messages that precede the one under test, so the harness
+never has to assemble the state of the protocol itself.
+
+Framing is not applied to every target, because on a stateless parser it would
+only spend mutations on length fields that carry no protocol meaning.
+
+Almost every mutated input is malformed at the framing rather than at the
+protocol, so a length that overruns the input is clamped and a truncated record
+ends the sequence. At most sixteen messages are taken from one input, which
+keeps a mutated input from becoming a long run that the fuzzer would report as
+a hang.
 
 ## Adding a target
 
@@ -79,9 +103,14 @@ interface, or not at all. Protocols fall into three groups:
 - **No state.** The parser takes a buffer. The IPv6, ICMPv6 and adaptation
   layer entry points are here, as are SNMP and CoAP.
 - **Local state, no peer.** The setup function uses the protocol's own
-  interface. The DNS resolver is the example: `resolv_query()` leaves an entry
-  in `STATE_ASKING`, and a response is only processed against such an entry.
-  That the query itself goes nowhere does not matter.
+  interface. The `icmpv6-rpl-root` entry point is the example: it makes the
+  node a root through `NETSTACK_ROUTING`, which is what reaches the parsing of
+  destination advertisements. A node that is not a root cannot get there from
+  injected packets at all, because the objective function has no link
+  statistics to compute a rank from, so it joins with an infinite rank and
+  rejects what follows. The DNS resolver belongs here too: `resolv_query()`
+  leaves an entry in `STATE_ASKING`, and a response is only processed against
+  such an entry. That the query itself goes nowhere does not matter.
 - **A peer or a live session is required.** An MQTT client parsing broker
   replies, the TCP data path, and EDHOC. These do not get a setup function.
   Their state comes from the input instead, as a recorded session that the
@@ -110,6 +139,12 @@ it look like a timeout. Unload the reporter once per boot:
     SL=/System/Library; PL=com.apple.ReportCrash
     launchctl unload -w ${SL}/LaunchAgents/${PL}.plist
     sudo launchctl unload -w ${SL}/LaunchDaemons/${PL}.Root.plist
+
+A System V shared memory segment is limited to `kern.sysv.shmmax`, four
+megabytes by default, which is less than AFL++ asks for, so a campaign would
+fail to start with `shmget() failed`. The script asks for a coverage map of the
+customary size, which fits and is far more than these targets use, so no system
+limit has to be changed. Set `AFL_MAP_SIZE` to override it.
 
 Note also that the fork server is slower on macOS than on Linux, which matters
 more for the ten minute default than for a long campaign.
