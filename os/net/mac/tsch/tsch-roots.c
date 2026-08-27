@@ -50,8 +50,21 @@
 #if BUILD_WITH_ORCHESTRA
 /*---------------------------------------------------------------------------*/
 #define TSCH_MAX_ROOT_NODES 5
-#define ROOT_ALIVE_TIME_SECONDS     (2 * 60 * 60) /* 2h timeout */
 #define PERIODIC_PROCESSING_TICKS   (60 * CLOCK_SECOND)
+
+/*
+ * How long a root stays in the table after it was last heard from, expressed
+ * in EB periods rather than as an absolute time. A root that is still there is
+ * heard once per EB period, so this leaves a wide margin for lost beacons
+ * while keeping an address we can no longer hear from out of the few table
+ * slots. Deriving it from the EB period rather than fixing it in seconds means
+ * a deployment that slows its beacons down does not have its root cells torn
+ * down and rebuilt under it. The EB period is clamped to at least a second
+ * first, since it is configurable down to zero.
+ */
+#define ROOT_ALIVE_EB_PERIODS 40
+#define ROOT_ALIVE_TIME_SECONDS \
+  (ROOT_ALIVE_EB_PERIODS * MAX(1, (unsigned)(TSCH_MAX_EB_PERIOD / CLOCK_SECOND)))
 
 /*---------------------------------------------------------------------------*/
 /* TSCH roots data structure */
