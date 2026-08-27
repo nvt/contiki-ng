@@ -452,6 +452,7 @@ eb_input(struct input_packet *current_input)
         /* We disagree with our time source's ASN -- leave the network */
         LOG_WARN("! ASN drifted by %"PRId32", leaving the network\n", asn_diff);
         tsch_disassociate();
+        return;
       }
 
       if(eb_ies.ie_join_priority >= TSCH_MAX_JOIN_PRIORITY) {
@@ -459,6 +460,7 @@ eb_input(struct input_packet *current_input)
         LOG_WARN("! EB JP too high %u, leaving the network\n",
                eb_ies.ie_join_priority);
         tsch_disassociate();
+        return;
       } else {
 #if TSCH_AUTOSELECT_TIME_SOURCE
         /* Update join priority */
