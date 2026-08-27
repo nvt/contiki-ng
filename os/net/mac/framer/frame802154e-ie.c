@@ -427,14 +427,21 @@ frame802154e_parse_mlme_short_ie(const uint8_t *buf, int len,
 {
   switch(sub_id) {
     case MLME_SHORT_IE_TSCH_SLOFTRAME_AND_LINK:
-      if(len >= 1) {
+      /*
+       * Two valid encodings: a single octet holding a slotframe count of
+       * zero, or a count of one followed by the four-octet slotframe
+       * descriptor and its links. Read the link count in buf[4] only once
+       * the descriptor is known to be present, rather than inspecting it
+       * before the length of the IE has been established.
+       */
+      if(len == 1 && buf[0] == 0) {
+        return len;
+      }
+      if(len >= 5) {
         int i;
         int num_slotframes = buf[0];
         int num_links = buf[4];
-        if(num_slotframes == 0) {
-          return len;
-        }
-        if(num_slotframes <= 1 && num_links <= FRAME802154E_IE_MAX_LINKS
+        if(num_slotframes == 1 && num_links <= FRAME802154E_IE_MAX_LINKS
             && len == 1 + num_slotframes * (4 + 5 * num_links)) {
           if(ies != NULL) {
             /* We support only 0 or 1 slotframe in this IE and a predefined maximum number of links */
