@@ -476,14 +476,15 @@ eb_input(struct input_packet *current_input)
       if(eb_ies.ie_channel_hopping_sequence_id != 0) {
         if(eb_ies.ie_hopping_sequence_len != tsch_hopping_sequence_length.val
             || memcmp((uint8_t *)tsch_hopping_sequence, eb_ies.ie_hopping_sequence_list, tsch_hopping_sequence_length.val)) {
-          if(eb_ies.ie_hopping_sequence_len <= sizeof(tsch_hopping_sequence)) {
+          if(eb_ies.ie_hopping_sequence_len >= 1
+             && eb_ies.ie_hopping_sequence_len <= sizeof(tsch_hopping_sequence)) {
             memcpy((uint8_t *)tsch_hopping_sequence, eb_ies.ie_hopping_sequence_list,
                    eb_ies.ie_hopping_sequence_len);
             TSCH_ASN_DIVISOR_INIT(tsch_hopping_sequence_length, eb_ies.ie_hopping_sequence_len);
 
             LOG_WARN("Updating TSCH hopping sequence from EB\n");
           } else {
-            LOG_WARN("parse_eb: Hopping sequence too long (%u)\n",
+            LOG_WARN("parse_eb: invalid hopping sequence length (%u)\n",
                      eb_ies.ie_hopping_sequence_len);
           }
         }
@@ -664,11 +665,19 @@ tsch_associate(const struct input_packet *input_eb, rtimer_clock_t timestamp)
     memcpy(tsch_hopping_sequence, TSCH_DEFAULT_HOPPING_SEQUENCE, sizeof(TSCH_DEFAULT_HOPPING_SEQUENCE));
     TSCH_ASN_DIVISOR_INIT(tsch_hopping_sequence_length, sizeof(TSCH_DEFAULT_HOPPING_SEQUENCE));
   } else {
-    if(ies.ie_hopping_sequence_len <= sizeof(tsch_hopping_sequence)) {
+    /*
+     * A nonzero sequence ID names a sequence that the EB has to carry as
+     * well, as there is no table of predefined sequences to resolve the ID
+     * against. Reject an ID that arrives without a sequence instead of
+     * installing a length of zero, which the ASN modulo then divides by.
+     */
+    if(ies.ie_hopping_sequence_len >= 1
+       && ies.ie_hopping_sequence_len <= sizeof(tsch_hopping_sequence)) {
       memcpy(tsch_hopping_sequence, ies.ie_hopping_sequence_list, ies.ie_hopping_sequence_len);
       TSCH_ASN_DIVISOR_INIT(tsch_hopping_sequence_length, ies.ie_hopping_sequence_len);
     } else {
-      LOG_ERR("! parse_eb: hopping sequence too long (%u)\n", ies.ie_hopping_sequence_len);
+      LOG_ERR("! parse_eb: invalid hopping sequence length (%u)\n",
+              ies.ie_hopping_sequence_len);
       return 0;
     }
   }
