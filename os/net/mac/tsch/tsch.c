@@ -595,6 +595,39 @@ tsch_disassociate(void)
   }
 }
 /*---------------------------------------------------------------------------*/
+/*
+ * Check that an advertised timeslot template can drive the slot operation.
+ * The template becomes the timing source of the live slot engine, where a
+ * zero timeslot length is divided by when converting clock time to slots, and
+ * where the offsets are subtracted from in unsigned arithmetic that derives
+ * the radio wake-up times. Require the length to be nonzero, and require a
+ * transmission with its acknowledgment, and a reception starting as late as
+ * the guard time allows, to fit within the slot.
+ */
+static int
+timeslot_timing_is_valid(const uint16_t *timing)
+{
+  uint32_t slot_len = timing[tsch_ts_timeslot_length];
+
+  if(slot_len == 0
+     || timing[tsch_ts_tx_offset] == 0
+     || timing[tsch_ts_rx_offset] == 0) {
+    return 0;
+  }
+
+  if((uint32_t)timing[tsch_ts_tx_offset] + timing[tsch_ts_max_tx]
+     + timing[tsch_ts_tx_ack_delay] + timing[tsch_ts_max_ack] > slot_len) {
+    return 0;
+  }
+
+  if((uint32_t)timing[tsch_ts_rx_offset] + timing[tsch_ts_rx_wait]
+     + timing[tsch_ts_max_tx] > slot_len) {
+    return 0;
+  }
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
 /* Attempt to associate to a network form an incoming EB */
 static int
 tsch_associate(const struct input_packet *input_eb, rtimer_clock_t timestamp)
@@ -651,12 +684,27 @@ tsch_associate(const struct input_packet *input_eb, rtimer_clock_t timestamp)
   }
 
   /* TSCH timeslot timing */
-  for(i = 0; i < tsch_ts_elements_count; i++) {
-    if(ies.ie_tsch_timeslot_id == 0) {
+  if(ies.ie_tsch_timeslot_id == 0) {
+    for(i = 0; i < tsch_ts_elements_count; i++) {
       tsch_timing_us[i] = tsch_default_timing_us[i];
-    } else {
+    }
+  } else {
+    /*
+     * A nonzero template ID names a template that the EB has to carry as
+     * well, as there is no table of predefined templates to resolve the ID
+     * against. The one-octet form of the IE leaves every value at zero, so
+     * validating the template also rejects an ID that arrives without one.
+     */
+    if(!timeslot_timing_is_valid(ies.ie_tsch_timeslot)) {
+      LOG_ERR("! parse_eb: invalid timeslot template %u\n",
+              ies.ie_tsch_timeslot_id);
+      return 0;
+    }
+    for(i = 0; i < tsch_ts_elements_count; i++) {
       tsch_timing_us[i] = ies.ie_tsch_timeslot[i];
     }
+  }
+  for(i = 0; i < tsch_ts_elements_count; i++) {
     tsch_timing[i] = US_TO_RTIMERTICKS(tsch_timing_us[i]);
   }
 
