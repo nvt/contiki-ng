@@ -38,7 +38,13 @@
  *
  *   This harness derives from the packet injector in
  *   tests/20-packet-parsing, and from the fuzzing harness developed in the
- *   aSSIsT project.
+ *   aSSIsT project, funded by the Swedish Foundation for Strategic Research.
+ *   That work evaluated eight fuzzers against the Contiki-NG network stack,
+ *   and is described in "So Many Fuzzers, So Little Time: Experience from
+ *   Evaluating Fuzzers on the Contiki-NG Network (Hay)Stack", ASE 2022,
+ *   https://doi.org/10.1145/3551349.3556946. Its artifact, which contains
+ *   the original harness, is at
+ *   https://github.com/assist-project/so-many-fuzzers-artifact
  * \author
  *   Nicolas Tsiftes <nicolas.tsiftes@ri.se>
  */
