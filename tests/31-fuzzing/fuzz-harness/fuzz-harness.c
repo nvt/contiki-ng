@@ -61,6 +61,17 @@
 #include "net/packetbuf.h"
 #include "sys/cc.h"
 
+#if FUZZ_WITH_COAP
+#include "net/app-layer/coap/coap.h"
+#include "net/app-layer/coap/coap-engine.h"
+#include "net/ipv6/uiplib.h"
+#endif
+
+#if FUZZ_WITH_SNMP
+#include "net/app-layer/snmp/snmp.h"
+#include "net/app-layer/snmp/snmp-engine.h"
+#endif
+
 /* Log configuration. */
 #include "sys/log.h"
 #define LOG_MODULE "Fuzzer"
@@ -72,7 +83,32 @@
 extern int contiki_argc;
 extern char **contiki_argv;
 
-typedef bool (*entry_point_function_t)(const char *, int);
+#if FUZZ_WITH_COAP
+#define FUZZ_COAP_ENDPOINT "fdfd::100"
+#define FUZZ_COAP_PORT 8293
+#endif
+
+/*
+ * An entry point injects one input into a particular part of the stack.
+ *
+ * The optional setup function puts the stack in the state that the entry
+ * point needs, and is run once before the fork server starts, so that every
+ * input is processed against the same prepared state at no per-input cost.
+ * A protocol that only becomes meaningful once a session exists, such as a
+ * resolver with an outstanding query, belongs here.
+ *
+ * An injection function returns false only when the harness itself could not
+ * proceed. A parser that rejects malformed input has behaved correctly, and
+ * must not be reported as a failure.
+ */
+typedef bool (*inject_function_t)(const char *, int);
+typedef void (*setup_function_t)(void);
+
+struct entry_point {
+  const char *name;
+  setup_function_t setup;
+  inject_function_t inject;
+};
 
 /*---------------------------------------------------------------------------*/
 PROCESS(fuzz_harness_process, "Fuzzing harness process");
@@ -155,17 +191,73 @@ inject_sicslowpan_packet(const char *data, int len)
   return true;
 }
 /*---------------------------------------------------------------------------*/
-static entry_point_function_t
+#if FUZZ_WITH_COAP
+static void
+setup_coap(void)
+{
+  coap_engine_init();
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Inject a CoAP message, bypassing the layers below it.
+ */
+static bool
+inject_coap_packet(const char *data, int len)
+{
+  static coap_endpoint_t endpoint;
+
+  memset(&endpoint, 0, sizeof(endpoint));
+  uiplib_ipaddrconv(FUZZ_COAP_ENDPOINT, &endpoint.ipaddr);
+  endpoint.port = UIP_HTONS(FUZZ_COAP_PORT);
+
+  coap_receive(&endpoint, (uint8_t *)data, len);
+
+  return true;
+}
+#endif /* FUZZ_WITH_COAP */
+/*---------------------------------------------------------------------------*/
+#if FUZZ_WITH_SNMP
+static void
+setup_snmp(void)
+{
+  snmp_init();
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Inject an SNMP message, bypassing the layers below it. The engine returns
+ * an indication of whether it produced a response, which is not a measure of
+ * whether the harness succeeded.
+ */
+static bool
+inject_snmp_packet(const char *data, int len)
+{
+  static uint8_t out_buf[UIP_BUFSIZE];
+  snmp_packet_t snmp_packet;
+
+  snmp_packet.in = (uint8_t *)data;
+  snmp_packet.used = len;
+  snmp_packet.max = UIP_BUFSIZE - UIP_IPUDPH_LEN;
+  snmp_packet.out = out_buf + snmp_packet.max;
+
+  snmp_engine(&snmp_packet);
+
+  return true;
+}
+#endif /* FUZZ_WITH_SNMP */
+/*---------------------------------------------------------------------------*/
+static const struct entry_point *
 select_entry_point(const char *name)
 {
-  struct entry_point_mapper {
-    const char *name;
-    entry_point_function_t function;
-  };
-  static const struct entry_point_mapper map[] = {
-    {"icmpv6", inject_icmpv6_packet},
-    {"sicslowpan", inject_sicslowpan_packet},
-    {"uip", inject_uip_packet}
+  static const struct entry_point entry_points[] = {
+#if FUZZ_WITH_COAP
+    {"coap", setup_coap, inject_coap_packet},
+#endif
+    {"icmpv6", NULL, inject_icmpv6_packet},
+    {"sicslowpan", NULL, inject_sicslowpan_packet},
+#if FUZZ_WITH_SNMP
+    {"snmp", setup_snmp, inject_snmp_packet},
+#endif
+    {"uip", NULL, inject_uip_packet}
   };
   int i;
 
@@ -173,9 +265,9 @@ select_entry_point(const char *name)
     return NULL;
   }
 
-  for(i = 0; i < CC_ARRAY_LENGTH(map); i++) {
-    if(strcasecmp(name, map[i].name) == 0) {
-      return map[i].function;
+  for(i = 0; i < CC_ARRAY_LENGTH(entry_points); i++) {
+    if(strcasecmp(name, entry_points[i].name) == 0) {
+      return &entry_points[i];
     }
   }
 
@@ -188,7 +280,7 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
   static int len;
   static const char *filename;
   static const char *entry_point_name;
-  static entry_point_function_t entry_point;
+  static const struct entry_point *entry_point;
 
   PROCESS_BEGIN();
 
@@ -209,9 +301,13 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
   }
   filename = contiki_argv[1];
 
+  if(entry_point->setup != NULL) {
+    entry_point->setup();
+  }
+
   /*
-   * Start the fork server here, after the network stack has been
-   * initialized but before the input is read. Every input is then processed
+   * Start the fork server here, after the network stack and the entry point
+   * have been initialized but before the input is read. Every input is then processed
    * by a fresh copy of the same initialized state, which keeps a failing
    * input reproducible on its own. Persistent mode is deliberately not used,
    * because the stack keeps global state that would carry over between
@@ -226,7 +322,7 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
     exit(EXIT_FAILURE);
   }
 
-  if(entry_point(input_buf, len) == false) {
+  if(entry_point->inject(input_buf, len) == false) {
     exit(EXIT_FAILURE);
   }
 
