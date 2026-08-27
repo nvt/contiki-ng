@@ -752,24 +752,59 @@ tsch_associate(const struct input_packet *input_eb, rtimer_clock_t timestamp)
     LOG_INFO("parse_eb: no schedule\n");
 #endif
   } else {
-    /* First, empty current schedule */
-    tsch_schedule_remove_all_slotframes();
     /* We support only 0 or 1 slotframe in this IE */
     int num_links = ies.ie_tsch_slotframe_and_link.num_links;
-    if(num_links <= FRAME802154E_IE_MAX_LINKS) {
-      int i;
-      struct tsch_slotframe *sf = tsch_schedule_add_slotframe(
-          ies.ie_tsch_slotframe_and_link.slotframe_handle,
-          ies.ie_tsch_slotframe_and_link.slotframe_size);
-      for(i = 0; i < num_links; i++) {
-        tsch_schedule_add_link(sf,
-            ies.ie_tsch_slotframe_and_link.links[i].link_options,
-            LINK_TYPE_ADVERTISING, &tsch_broadcast_address,
-            ies.ie_tsch_slotframe_and_link.links[i].timeslot,
-            ies.ie_tsch_slotframe_and_link.links[i].channel_offset, 1);
-      }
-    } else {
+    uint16_t slotframe_size = ies.ie_tsch_slotframe_and_link.slotframe_size;
+    struct tsch_slotframe *sf;
+
+    /*
+     * Establish that the advertised schedule is installable before the
+     * current one is removed, so that an EB we cannot honour leaves the node
+     * with the schedule it already had rather than with no usable cell.
+     */
+    if(num_links > FRAME802154E_IE_MAX_LINKS) {
       LOG_ERR("! parse_eb: too many links in schedule (%u)\n", num_links);
+      return 0;
+    }
+    if(slotframe_size == 0) {
+      LOG_ERR("! parse_eb: advertised slotframe is empty\n");
+      return 0;
+    }
+    for(i = 0; i < num_links; i++) {
+      uint16_t timeslot = ies.ie_tsch_slotframe_and_link.links[i].timeslot;
+      if(timeslot >= slotframe_size) {
+        LOG_ERR("! parse_eb: link timeslot %u outside slotframe of size %u\n",
+                timeslot, slotframe_size);
+        return 0;
+      }
+    }
+
+    /* Replace the current schedule with the advertised one */
+    tsch_schedule_remove_all_slotframes();
+    sf = tsch_schedule_add_slotframe(
+        ies.ie_tsch_slotframe_and_link.slotframe_handle, slotframe_size);
+    for(i = 0; sf != NULL && i < num_links; i++) {
+      if(tsch_schedule_add_link(sf,
+             ies.ie_tsch_slotframe_and_link.links[i].link_options,
+             LINK_TYPE_ADVERTISING, &tsch_broadcast_address,
+             ies.ie_tsch_slotframe_and_link.links[i].timeslot,
+             ies.ie_tsch_slotframe_and_link.links[i].channel_offset,
+             1) == NULL) {
+        sf = NULL;
+      }
+    }
+    if(sf == NULL) {
+      /*
+       * The schedule could not be installed although it was validated, so
+       * the slotframe or link memory ran out, or the schedule was locked.
+       * The previous schedule is already gone at this point, so fall back to
+       * one the node can communicate on instead of a partial one.
+       */
+      LOG_ERR("! parse_eb: failed to install the advertised schedule\n");
+      tsch_schedule_remove_all_slotframes();
+#if TSCH_SCHEDULE_WITH_6TISCH_MINIMAL
+      tsch_schedule_create_minimal();
+#endif
       return 0;
     }
   }
