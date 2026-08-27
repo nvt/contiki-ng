@@ -323,13 +323,38 @@
 #define TSCH_SCHEDULE_WITH_6TISCH_MINIMAL (!(BUILD_WITH_ORCHESTRA))
 #endif
 
-/* Set an upper bound on burst length. Set to 0 to never set the frame pending
- * bit, i.e., never trigger a burst. Note that receiver-side support for burst
- * is always enabled, as it is part of IEEE 802.1.5.4-2015 (Section 7.2.1.3)*/
+/*
+ * Set an upper bound on the length of a burst this node starts. Set to 0 to
+ * never set the frame pending bit, i.e., never trigger a burst. Receiver-side
+ * support for burst is always enabled, as it is part of IEEE 802.15.4-2015
+ * (Section 7.2.1.3); the length this node follows is bounded separately by
+ * TSCH_BURST_MAX_RX_LEN.
+ */
 #ifdef TSCH_CONF_BURST_MAX_LEN
 #define TSCH_BURST_MAX_LEN TSCH_CONF_BURST_MAX_LEN
 #else
 #define TSCH_BURST_MAX_LEN 0
+#endif
+
+/*
+ * Set an upper bound on the length of a burst this node follows when a peer
+ * asks for one with the frame pending bit. This is not TSCH_BURST_MAX_LEN,
+ * which bounds only the bursts we start: honoring the frame pending bit is
+ * required of a receiver, so the bound here has to leave room for any burst a
+ * peer legitimately sends. A sender cannot burst past the packets it has
+ * queued for us, and TSCH_QUEUE_NUM_PER_NEIGHBOR is 8 or 16 in most
+ * configurations, so the default sits well above that while still keeping the
+ * burst finite. The bound matters because a burst replays the same link in
+ * every following timeslot, without channel hopping and without serving the
+ * rest of the schedule, so an endless one would hold this node on a single
+ * link and channel for as long as the peer kept feeding it. Set to 0 to never
+ * follow a burst, at the cost of losing the follow-on frames of a peer that
+ * sends one.
+ */
+#ifdef TSCH_CONF_BURST_MAX_RX_LEN
+#define TSCH_BURST_MAX_RX_LEN TSCH_CONF_BURST_MAX_RX_LEN
+#else
+#define TSCH_BURST_MAX_RX_LEN 32
 #endif
 
 /* 6TiSCH Minimal schedule slotframe length */

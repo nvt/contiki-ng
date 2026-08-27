@@ -967,8 +967,18 @@ PT_THREAD(tsch_rx_slot(struct pt *pt, struct rtimer *t))
                 NETSTACK_RADIO.transmit(ack_len);
                 tsch_radio_off(TSCH_RADIO_CMD_OFF_WITHIN_TIMESLOT);
 
-                /* Schedule a burst link iff the frame pending bit was set */
-                burst_link_scheduled = tsch_packet_get_frame_pending(current_input->payload, current_input->len);
+                /*
+                 * Schedule a burst link iff the frame pending bit was set and
+                 * the burst is still shorter than we are willing to follow.
+                 * The sender bounds the bursts it starts, but nothing bounds
+                 * what a peer can ask of us, and a burst replays this link in
+                 * every following timeslot without channel hopping and
+                 * without serving the rest of the schedule.
+                 */
+                burst_link_scheduled =
+                  tsch_current_burst_count + 1 < TSCH_BURST_MAX_RX_LEN
+                  && tsch_packet_get_frame_pending(current_input->payload,
+                                                   current_input->len);
               }
             }
 
