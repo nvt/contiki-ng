@@ -1,0 +1,13 @@
+# BER tags and SNMP structures.
+ber_sequence="\x30"
+ber_integer="\x02"
+ber_octet_string="\x04"
+ber_null="\x05\x00"
+ber_oid="\x06"
+pdu_get_request="\xa0"
+pdu_get_next_request="\xa1"
+pdu_get_response="\xa2"
+pdu_set_request="\xa3"
+pdu_get_bulk_request="\xa5"
+community_public="\x04\x06public"
+oid_internet="\x06\x05\x2b\x06\x01\x02\x01"
