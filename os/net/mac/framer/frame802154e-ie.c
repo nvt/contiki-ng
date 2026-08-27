@@ -498,6 +498,9 @@ frame802154e_parse_mlme_long_ie(const uint8_t *buf, int len,
        * only once the full fixed header is known to be present, and reject any
        * other length rather than over-reading a short IE or leaving
        * ie_hopping_sequence_len set from an IE we did not actually copy.
+       * An advertised sequence must name at least one channel, since a length
+       * of zero would become the divisor of the ASN modulo used to pick the
+       * channel of every slot.
        */
       if(len == 1) {
         if(ies != NULL) {
@@ -508,7 +511,7 @@ frame802154e_parse_mlme_long_ie(const uint8_t *buf, int len,
       if(len >= 12) {
         uint16_t seq_len;
         READ16(buf + 8, seq_len); /* sequence len */
-        if(seq_len <= sizeof(ies->ie_hopping_sequence_list)
+        if(seq_len >= 1 && seq_len <= sizeof(ies->ie_hopping_sequence_list)
             && len == 12 + seq_len) {
           if(ies != NULL) {
             ies->ie_channel_hopping_sequence_id = buf[0];
