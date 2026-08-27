@@ -60,6 +60,14 @@ void tsch_roots_set_self_to_root(uint8_t is_root);
 int tsch_roots_is_root(const linkaddr_t *address);
 
 /**
+ * Forget all known RPL network roots, removing the links scheduled for them.
+ *
+ * Called when the node leaves the network, so that roots learned in one
+ * network, and the cells installed for them, are not carried into the next.
+ */
+void tsch_roots_reset(void);
+
+/**
  * Initialize the list of RPL network roots.
  */
 void tsch_roots_init(void);

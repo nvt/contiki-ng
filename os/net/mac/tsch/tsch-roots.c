@@ -78,6 +78,21 @@ MEMB(tsch_root_memb, struct tsch_root_info, TSCH_MAX_ROOT_NODES);
 LIST(tsch_roots);
 static struct ctimer periodic_timer;
 /*---------------------------------------------------------------------------*/
+/*
+ * Drop a root from the table and remove the link that was scheduled for it.
+ * Used both when an entry ages out and when the node leaves the network.
+ */
+static void
+remove_root(struct tsch_root_info *root)
+{
+  LOG_INFO("remove root address ");
+  LOG_INFO_LLADDR(&root->address);
+  LOG_INFO_("\n");
+  TSCH_CALLBACK_ROOT_NODE_UPDATED(&root->address, 0);
+  list_remove(tsch_roots, root);
+  memb_free(&tsch_root_memb, root);
+}
+/*---------------------------------------------------------------------------*/
 void
 tsch_roots_add_address(const linkaddr_t *new_root_address)
 {
@@ -151,20 +166,28 @@ periodic(void *ptr)
   while(root != NULL) {
     next = root->next;
     if((int32_t)(root->last_seen_seconds + ROOT_ALIVE_TIME_SECONDS - now) < 0) {
-      /* the root info has become obsolete; remove its scheduled link */
-      LOG_INFO("remove root address ");
-      LOG_INFO_LLADDR(&root->address);
-      LOG_INFO_("\n");
-      TSCH_CALLBACK_ROOT_NODE_UPDATED(&root->address, 0);
-      /* remove itself from the table */
-      list_remove(tsch_roots, root);
-      memb_free(&tsch_root_memb, root);
+      /* the root info has become obsolete */
+      remove_root(root);
     }
     root = next;
   }
 
   /* schedule the next time */
   ctimer_set(&periodic_timer, PERIODIC_PROCESSING_TICKS, periodic, NULL);
+}
+/*---------------------------------------------------------------------------*/
+void
+tsch_roots_reset(void)
+{
+  struct tsch_root_info *root;
+  struct tsch_root_info *next;
+
+  root = list_head(tsch_roots);
+  while(root != NULL) {
+    next = root->next;
+    remove_root(root);
+    root = next;
+  }
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -189,6 +212,10 @@ int
 tsch_roots_is_root(const linkaddr_t *address)
 {
   return 0;
+}
+void
+tsch_roots_reset(void)
+{
 }
 void
 tsch_roots_init(void)

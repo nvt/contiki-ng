@@ -225,6 +225,8 @@ tsch_reset(void)
   TSCH_CALLBACK_LEAVING_NETWORK();
 #endif
   linkaddr_copy(&last_eb_nbr_addr, &linkaddr_null);
+  /* Forget the roots of the network we are leaving, and their links */
+  tsch_roots_reset();
 #if TSCH_AUTOSELECT_TIME_SOURCE
   struct eb_stat *stat;
   best_neighbor_eb_count = 0;
