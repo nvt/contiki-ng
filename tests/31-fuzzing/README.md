@@ -24,6 +24,32 @@ written to `out/<target>`.
 Ten minutes is the default because it is short enough to run without planning
 for it. It is not long enough to conclude anything from finding nothing.
 
+## Examining what a campaign produced
+
+A campaign runs without sanitizers and without coverage instrumentation,
+because both cost throughput that would otherwise go into finding inputs.
+Everything the campaign kept is examined afterwards, through builds that have
+them.
+
+    ./replay.sh <target>
+
+replays every input the campaign kept through a build with the address and
+undefined behaviour sanitizers, and fails if any of them does. This is where a
+memory error is detected that the campaign itself would not have noticed, since
+a crash is only reported to the fuzzer when the process actually dies.
+
+    ./coverage.sh <target> [source directory ...]
+
+replays the same inputs through a build instrumented for coverage, and reports
+the proportion of each source file that was executed, under `os/net` by
+default. The fuzzer reports whether it is still finding new execution paths,
+which is not the same as which code it has reached. A parser that stays at
+nothing is one that the seeds or the entry point are not reaching, and that is
+a better thing to act on than a longer campaign.
+
+Both replay one input to a process, which is why the harness processes one
+input per process to begin with.
+
 ## Targets
 
 A target is one campaign: one entry point of the stack, one seed corpus, one

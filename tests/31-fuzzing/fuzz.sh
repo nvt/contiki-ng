@@ -15,21 +15,7 @@
 
 set -e
 
-FUZZ_DIR="$(cd "$(dirname "$0")" && pwd)"
-HARNESS_DIR="$FUZZ_DIR/fuzz-harness"
-HARNESS="$HARNESS_DIR/build/native/fuzz-harness.native"
-
-usage()
-{
-  echo "usage: $0 <target> [duration]" >&2
-  echo >&2
-  echo "available targets:" >&2
-  for conf in "$FUZZ_DIR"/targets/*/target.conf; do
-    [ -e "$conf" ] || continue
-    echo "  $(basename "$(dirname "$conf")")" >&2
-  done
-  exit 1
-}
+. "$(dirname "$0")/target-lib.sh"
 
 # Convert a duration such as 10m or 24h into seconds.
 duration_to_seconds()
@@ -55,25 +41,9 @@ duration_to_seconds()
 [ $# -ge 1 ] || usage
 
 TARGET="$1"
-TARGET_DIR="$FUZZ_DIR/targets/$TARGET"
 DURATION="$(duration_to_seconds "${2:-10m}")"
 
-if [ ! -f "$TARGET_DIR/target.conf" ]; then
-  echo "no such target: $TARGET" >&2
-  usage
-fi
-
-FUZZ_ENTRY_POINT=
-FUZZ_PROTOCOLS=
-FUZZ_DICTIONARY=
-FUZZ_SEQUENCE=
-# shellcheck source=/dev/null
-. "$TARGET_DIR/target.conf"
-
-if [ -z "$FUZZ_ENTRY_POINT" ]; then
-  echo "$TARGET/target.conf does not set FUZZ_ENTRY_POINT" >&2
-  exit 1
-fi
+load_target "$TARGET"
 
 if ! command -v afl-fuzz > /dev/null; then
   echo "afl-fuzz not found. Install AFL++ to run a campaign." >&2
@@ -91,22 +61,11 @@ else
   echo "warning: the deferred fork server may be unavailable." >&2
 fi
 
-# The build system does not rebuild when only the protocol set changes, so
-# compare it against the set that produced the existing binary.
-PROTOCOL_STAMP="$HARNESS_DIR/build/native/.fuzz-protocols"
-if [ ! -f "$PROTOCOL_STAMP" ] || \
-   [ "$(cat "$PROTOCOL_STAMP")" != "$FUZZ_PROTOCOLS" ]; then
-  make -C "$HARNESS_DIR" distclean > /dev/null 2>&1 || true
-fi
-
 echo "Building the harness for target $TARGET."
 # The native platform sets its own linker, and only LD_OVERRIDE displaces it.
 # Linking through the AFL compiler is what pulls in the instrumentation
 # runtime that the compiled objects refer to.
-make -C "$HARNESS_DIR" TARGET=native CC="$FUZZ_CC" LD_OVERRIDE="$FUZZ_CC" \
-     FUZZ_PROTOCOLS="$FUZZ_PROTOCOLS" > /dev/null
-mkdir -p "$(dirname "$PROTOCOL_STAMP")"
-echo "$FUZZ_PROTOCOLS" > "$PROTOCOL_STAMP"
+build_harness afl CC="$FUZZ_CC" LD_OVERRIDE="$FUZZ_CC"
 
 DICTIONARY_ARG=()
 if [ -n "$FUZZ_DICTIONARY" ] && [ -f "$TARGET_DIR/$FUZZ_DICTIONARY" ]; then
@@ -132,10 +91,6 @@ export AFL_NO_AFFINITY=1
 # contributor to change a system limit and reboot.
 if [ "$(uname)" = "Darwin" ] && [ -z "${AFL_MAP_SIZE:-}" ]; then
   export AFL_MAP_SIZE=65536
-fi
-export FUZZ_ENTRY_POINT
-if [ -n "$FUZZ_SEQUENCE" ]; then
-  export FUZZ_SEQUENCE
 fi
 
 afl-fuzz -i "$TARGET_DIR/seeds" -o "$OUT_DIR" -V "$DURATION" \

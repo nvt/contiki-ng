@@ -31,5 +31,21 @@ ifneq ($(filter snmp,$(FUZZ_PROTOCOLS)),)
   CFLAGS += -DFUZZ_WITH_SNMP=1
 endif
 
+# Build for replaying the output of a campaign rather than for running one.
+#
+# A campaign runs without either of these, because both cost throughput. The
+# fuzzer's output is replayed afterwards through a build that has them, which
+# is where a memory error or an undefined operation is detected, and where the
+# reach of the campaign is measured.
+ifeq ($(FUZZ_SANITIZE),1)
+  CFLAGS  += -fsanitize=address,undefined -fno-omit-frame-pointer -g
+  LDFLAGS += -fsanitize=address,undefined
+endif
+
+ifeq ($(FUZZ_COVERAGE),1)
+  CFLAGS  += --coverage -g
+  LDFLAGS += --coverage
+endif
+
 CONTIKI = ../../../
 include $(CONTIKI)/Makefile.include
