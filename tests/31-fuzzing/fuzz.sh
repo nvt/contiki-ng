@@ -100,7 +100,15 @@ if [ "$(uname)" = "Darwin" ] && [ -z "${AFL_MAP_SIZE:-}" ]; then
   export AFL_MAP_SIZE=65536
 fi
 
+# An injection takes single-digit milliseconds, so the timeout that AFL++
+# derives from a calibration run lands close enough to that to be crossed by
+# scheduling jitter alone, which fills the campaign with timeouts that no
+# input reproduces. A fixed timeout well above the worst injection observed
+# still catches a parser that does not terminate, and costs no throughput.
+FUZZ_TIMEOUT_MS=500
+
 afl-fuzz -i "$TARGET_DIR/seeds" -o "$OUT_DIR" -V "$DURATION" \
+         -t "$FUZZ_TIMEOUT_MS" \
          "${DICTIONARY_ARG[@]}" -- "$HARNESS" @@
 
 echo

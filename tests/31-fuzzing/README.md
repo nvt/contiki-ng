@@ -172,8 +172,18 @@ fail to start with `shmget() failed`. The script asks for a coverage map of the
 customary size, which fits and is far more than these targets use, so no system
 limit has to be changed. Set `AFL_MAP_SIZE` to override it.
 
-Note also that the fork server is slower on macOS than on Linux, which matters
-more for the ten minute default than for a long campaign.
+The fork server is far slower on macOS than on Linux. Every target here runs at
+roughly 150 to 200 executions per second regardless of what it does, because
+Darwin's per-`fork` cost dominates everything else: a program that does nothing
+at all measures the same. Linux is typically two orders of magnitude faster on
+the same harness, so a campaign that is meant to find something is worth running
+there. The durations suggested above are written for Linux.
+
+The timeout is fixed rather than derived from a calibration run. An injection
+takes single-digit milliseconds, so a derived timeout sits close enough to that
+for scheduling jitter alone to cross it, which fills the campaign with timeouts
+that no input reproduces. A fixed timeout well above the slowest injection
+observed still catches a parser that does not terminate.
 
 ## Background
 
