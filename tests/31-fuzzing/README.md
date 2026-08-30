@@ -78,6 +78,8 @@ The current targets are:
 | `mqtt` | MQTT | the MQTT engine, from a sequence a broker could send |
 | `nat64-dns64-4to6` | DNS64 | the translation of a response from the IPv4 side |
 | `nat64-dns64-6to4` | DNS64 | the translation of a query on its way out |
+| `ip64-4to6` | IP64 | the translation of a packet from the IPv4 side |
+| `ip64-6to4` | IP64 | the translation of a packet leaving the network |
 
 ## Sequences
 
@@ -151,6 +153,12 @@ interface, or not at all. Protocols fall into three groups:
   rejects what follows. The DNS resolver belongs here too: `resolv_query()`
   leaves an entry in `STATE_ASKING`, and a response is only processed against
   such an entry. That the query itself goes nowhere does not matter.
+
+  A gateway belongs here too. `ip64` translates against a map of the
+  connections it has seen, and will not translate at all until it has been
+  given the addresses it translates with, so the setup function configures it
+  through `ip64_set_hostaddr()` and the calls beside it. The map itself is
+  left to fill from the packets a campaign injects.
 
   A client of a server that is not there can belong here as well, if what it
   needs from the connection is only that it was attempted. `mqtt` is the

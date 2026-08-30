@@ -51,6 +51,17 @@ ifneq ($(filter nat64-dns64,$(FUZZ_PROTOCOLS)),)
   CFLAGS += -DFUZZ_WITH_NAT64_DNS64=1
 endif
 
+# The IP64 gateway. Its own configuration header is in this directory, and
+# names what the module refuses to build without.
+ifneq ($(filter ip64,$(FUZZ_PROTOCOLS)),)
+  MODULES += os/services/ip64
+  # The DHCP client leases an IPv4 address from a host that a campaign does
+  # not have, and IP64_CONF_DHCP turns it off, so what is left of it is code
+  # that links without ever being reached.
+  MODULES_SOURCES_EXCLUDES += ip64-dhcpc.c ip64-ipv4-dhcp.c
+  CFLAGS += -DFUZZ_WITH_IP64=1
+endif
+
 # Build for replaying the output of a campaign rather than for running one.
 #
 # A campaign runs without either of these, because both cost throughput. The

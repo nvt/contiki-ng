@@ -90,6 +90,11 @@
 #include "nat64-dns64.h"
 #endif
 
+#if FUZZ_WITH_IP64
+#include "ip64.h"
+#include "ip64-eth.h"
+#endif
+
 /* Log configuration. */
 #include "sys/log.h"
 #define LOG_MODULE "Fuzzer"
@@ -483,6 +488,76 @@ inject_nat64_dns64_4to6(const char *data, int len)
 }
 #endif /* FUZZ_WITH_NAT64_DNS64 */
 /*---------------------------------------------------------------------------*/
+#if FUZZ_WITH_IP64
+/*
+ * Give the gateway the addresses it translates with.
+ *
+ * A gateway that has no address of its own maps no connection, so the
+ * translation stops before the part of it a campaign is for. The addresses
+ * are set through the interface the module offers for it, and are otherwise
+ * of no consequence: what a campaign varies is the packet, not the network
+ * the gateway sits on.
+ */
+static void
+setup_ip64(void)
+{
+  uip_ip4addr_t hostaddr, netmask, draddr;
+
+  ip64_init();
+
+  uip_ipaddr(&hostaddr, 192, 168, 1, 200);
+  uip_ipaddr(&netmask, 255, 255, 255, 0);
+  uip_ipaddr(&draddr, 192, 168, 1, 1);
+
+  ip64_set_hostaddr(&hostaddr);
+  ip64_set_netmask(&netmask);
+  ip64_set_draddr(&draddr);
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Translate a packet on its way out of the IPv6 network.
+ *
+ * The result is written after the room an Ethernet header takes, because
+ * that is where the interface that a configuration normally names puts it,
+ * and it is the tighter of the two placements the module is called with.
+ * Neither translation is told how much room it has, so what it is given here
+ * is what the gateway gives it and no more.
+ */
+static bool
+inject_ip64_6to4(const char *data, int len)
+{
+  static uip_buf_t out;
+
+  if(len > UIP_BUFSIZE) {
+    len = UIP_BUFSIZE;
+  }
+
+  ip64_6to4((const uint8_t *)data, len,
+            &out.u8[sizeof(struct ip64_eth_hdr)]);
+
+  return true;
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Translate a packet arriving from the IPv4 side, which is the direction
+ * that reads what an address beyond the gateway sent. The result goes to the
+ * packet buffer, as it does when a frame arrives on the interface.
+ */
+static bool
+inject_ip64_4to6(const char *data, int len)
+{
+  static uip_buf_t out;
+
+  if(len > UIP_BUFSIZE) {
+    len = UIP_BUFSIZE;
+  }
+
+  ip64_4to6((const uint8_t *)data, len, out.u8);
+
+  return true;
+}
+#endif /* FUZZ_WITH_IP64 */
+/*---------------------------------------------------------------------------*/
 static const struct entry_point *
 select_entry_point(const char *name)
 {
@@ -492,6 +567,10 @@ select_entry_point(const char *name)
 #endif
     {"icmpv6", NULL, inject_icmpv6_packet},
     {"icmpv6-rpl-root", setup_rpl_root, inject_icmpv6_packet},
+#if FUZZ_WITH_IP64
+    {"ip64-4to6", setup_ip64, inject_ip64_4to6},
+    {"ip64-6to4", setup_ip64, inject_ip64_6to4},
+#endif
 #if FUZZ_WITH_MQTT
     {"mqtt", setup_mqtt, inject_mqtt_packet},
 #endif

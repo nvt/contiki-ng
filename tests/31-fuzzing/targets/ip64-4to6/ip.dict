@@ -1,0 +1,38 @@
+# Version and header length of the two protocols.
+ipv4_vhl="\x45"
+ipv4_vhl_with_options="\x46"
+ipv6_vtc="\x60"
+
+# Next header and protocol numbers the translation branches on.
+proto_icmpv4="\x01"
+proto_tcp="\x06"
+proto_udp="\x11"
+proto_icmpv6="\x3a"
+proto_fragment="\x2c"
+proto_hopbyhop="\x00"
+
+# Lengths at the edges of what either header can carry.
+len_zero="\x00\x00"
+len_hdr_only_v4="\x00\x14"
+len_hdr_only_v6="\x00\x28"
+len_max="\xff\xff"
+
+# The prefix an IPv4 address is carried in, and an address inside it.
+prefix_wellknown="\x00\x64\xff\x9b"
+addr_in_prefix="\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00\x5d\xb8\xd8\x22"
+addr_broadcast="\xff\xff\xff\xff"
+addr_host="\xc0\xa8\x01\xc8"
+
+# Ports: the range a mapping is allocated from, and where it starts.
+port_mapped_first="\x27\x10"
+port_mapped_last="\x4e\x20"
+port_dns="\x00\x35"
+port_ephemeral="\x9c\x40"
+
+# ICMP types the translation rewrites between the two protocols.
+icmp_echo_request_v4="\x08\x00"
+icmp_echo_reply_v4="\x00\x00"
+icmp_echo_request_v6="\x80\x00"
+icmp_echo_reply_v6="\x81\x00"
+icmp_unreachable="\x03"
+icmp_time_exceeded="\x0b"
