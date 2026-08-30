@@ -168,6 +168,14 @@ Useful sources are the corpora in `tests/20-packet-parsing`, and captures taken
 from the Cooja simulations elsewhere under `tests/`, which are the natural way
 to obtain the recorded sessions that a stateful protocol needs.
 
+An input that once found something is worth committing alongside the valid
+ones. It reaches the code that the fix touched, so a campaign that starts from
+it covers that code from the first execution rather than having to find its way
+back. The `mqtt` corpus keeps one: `publish-overlong-length` is a PUBLISH whose
+remaining length is far past the bytes that follow it, which is how the
+properties of a message were once decoded from a variable header that had not
+been parsed.
+
 ## Running on macOS
 
 AFL++ refuses to start while crashes are forwarded to the system crash
