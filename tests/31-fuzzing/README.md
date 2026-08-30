@@ -76,6 +76,8 @@ The current targets are:
 | `snmp` | SNMP | the SNMP engine and its BER decoder |
 | `coap` | CoAP | the CoAP message parser |
 | `mqtt` | MQTT | the MQTT engine, from a sequence a broker could send |
+| `nat64-dns64-4to6` | DNS64 | the translation of a response from the IPv4 side |
+| `nat64-dns64-6to4` | DNS64 | the translation of a query on its way out |
 
 ## Sequences
 
@@ -131,7 +133,15 @@ produces findings that are not real. Prepare state through the protocol's own
 interface, or not at all. Protocols fall into three groups:
 
 - **No state.** The parser takes a buffer. The IPv6, ICMPv6 and adaptation
-  layer entry points are here, as are SNMP and CoAP.
+  layer entry points are here, as are SNMP, CoAP and the DNS64 translation of
+  the NAT64 gateway.
+
+  A translation that writes its result somewhere is still in this group, but
+  what it is given has to be what its caller gives it. The `nat64-dns64-4to6`
+  entry point presents the response, a buffer that already holds a copy of it,
+  and the size of that buffer, because that is what the gateway presents. A
+  translation handed a buffer smaller than its caller would ever hand it can be
+  made to write past the end of one, which says nothing about the gateway.
 - **Local state, no peer.** The setup function uses the protocol's own
   interface. The `icmpv6-rpl-root` entry point is the example: it makes the
   node a root through `NETSTACK_ROUTING`, which is what reaches the parsing of

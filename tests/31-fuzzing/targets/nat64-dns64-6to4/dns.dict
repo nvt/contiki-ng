@@ -1,0 +1,28 @@
+# Header fields.
+hdr_flags_query="\x01\x00"
+hdr_flags_response="\x81\x80"
+hdr_flags_nxdomain="\x81\x83"
+hdr_one="\x00\x01"
+hdr_two="\x00\x02"
+hdr_zero="\x00\x00"
+
+# Record types and the class that the translation looks for.
+type_a="\x00\x01"
+type_ns="\x00\x02"
+type_cname="\x00\x05"
+type_aaaa="\x00\x1c"
+type_txt="\x00\x10"
+class_in="\x00\x01"
+
+# Name encoding: a root label, a compression pointer, and a label.
+name_root="\x00"
+name_pointer="\xc0\x0c"
+name_pointer_self="\xc0\x00"
+name_label_max="\x3f"
+name_example_com="\x07example\x03com\x00"
+
+# Record tails: a TTL followed by the length of the data.
+rdlength_4="\x00\x04"
+rdlength_16="\x00\x10"
+rdlength_max="\xff\xff"
+ttl_and_rdlength_4="\x00\x00\x01\x2c\x00\x04"

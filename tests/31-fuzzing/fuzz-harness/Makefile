@@ -42,6 +42,15 @@ ifneq ($(filter mqtt,$(FUZZ_PROTOCOLS)),)
   CFLAGS += -DMQTT_CONF_VERSION=5
 endif
 
+# Only the DNS64 translation of the NAT64 gateway is built. The rest of the
+# module reaches the network through a platform layer that a campaign has no
+# use for, and would need one written for it before it linked at all.
+ifneq ($(filter nat64-dns64,$(FUZZ_PROTOCOLS)),)
+  MODULES += os/services/nat64
+  MODULES_SOURCES_EXCLUDES += nat64.c nat64-tcp.c
+  CFLAGS += -DFUZZ_WITH_NAT64_DNS64=1
+endif
+
 # Build for replaying the output of a campaign rather than for running one.
 #
 # A campaign runs without either of these, because both cost throughput. The

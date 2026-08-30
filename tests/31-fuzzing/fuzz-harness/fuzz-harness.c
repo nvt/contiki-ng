@@ -86,6 +86,10 @@
 #include "net/app-layer/mqtt/mqtt-prop.h"
 #endif
 
+#if FUZZ_WITH_NAT64_DNS64
+#include "nat64-dns64.h"
+#endif
+
 /* Log configuration. */
 #include "sys/log.h"
 #define LOG_MODULE "Fuzzer"
@@ -117,6 +121,21 @@ extern char **contiki_argv;
 #if FUZZ_WITH_COAP
 #define FUZZ_COAP_ENDPOINT "fdfd::100"
 #define FUZZ_COAP_PORT 8293
+#endif
+
+#if FUZZ_WITH_NAT64_DNS64
+/*
+ * The gateway rewrites a query in a buffer of its own, and refuses to rewrite
+ * one that does not fit. This is the size of that buffer.
+ */
+#define FUZZ_NAT64_DNS_BUF_SIZE 1500
+
+/*
+ * A response is rewritten into the packet buffer, after the headers that the
+ * gateway puts in front of it, and this is what is left for it there. The
+ * translation grows a record, so this bound is what stops it.
+ */
+#define FUZZ_NAT64_DNS_OUT_SIZE (UIP_BUFSIZE - UIP_IPH_LEN - UIP_UDPH_LEN)
 #endif
 
 #if FUZZ_WITH_MQTT
@@ -409,6 +428,61 @@ inject_mqtt_packet(const char *data, int len)
 }
 #endif /* FUZZ_WITH_MQTT */
 /*---------------------------------------------------------------------------*/
+#if FUZZ_WITH_NAT64_DNS64
+/*
+ * Rewrite a query on its way out, from AAAA to A.
+ *
+ * The gateway rewrites in place, in a copy it made of the payload, so the
+ * input is copied into a buffer of the size that copy has rather than being
+ * translated where it was read.
+ */
+static bool
+inject_nat64_dns64_6to4(const char *data, int len)
+{
+  static uint8_t query[FUZZ_NAT64_DNS_BUF_SIZE];
+
+  if(len > sizeof(query)) {
+    /*
+     * The gateway forwards a query this large without rewriting it, so there
+     * is nothing to reach past this point.
+     */
+    len = sizeof(query);
+  }
+
+  memcpy(query, data, len);
+  nat64_dns64_6to4(query, len);
+
+  return true;
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Rewrite a response on its way in, from A to AAAA.
+ *
+ * This is the direction that reads what an address on the IPv4 side sent. The
+ * gateway copies the response into the packet buffer before translating it,
+ * and tells the translation how much of the buffer holds that copy and how
+ * much of it there is in total, so the harness presents the same three
+ * things. Handing it anything else would be asking for a translation that the
+ * gateway never asks for.
+ */
+static bool
+inject_nat64_dns64_4to6(const char *data, int len)
+{
+  static uint8_t response[FUZZ_NAT64_DNS_OUT_SIZE];
+
+  if(len > sizeof(response)) {
+    /* The gateway drops a response that does not fit before translating it. */
+    len = sizeof(response);
+  }
+
+  memcpy(response, data, len);
+  nat64_dns64_4to6((const uint8_t *)data, len, response, len,
+                   sizeof(response));
+
+  return true;
+}
+#endif /* FUZZ_WITH_NAT64_DNS64 */
+/*---------------------------------------------------------------------------*/
 static const struct entry_point *
 select_entry_point(const char *name)
 {
@@ -420,6 +494,10 @@ select_entry_point(const char *name)
     {"icmpv6-rpl-root", setup_rpl_root, inject_icmpv6_packet},
 #if FUZZ_WITH_MQTT
     {"mqtt", setup_mqtt, inject_mqtt_packet},
+#endif
+#if FUZZ_WITH_NAT64_DNS64
+    {"nat64-dns64-4to6", NULL, inject_nat64_dns64_4to6},
+    {"nat64-dns64-6to4", NULL, inject_nat64_dns64_6to4},
 #endif
     {"sicslowpan", NULL, inject_sicslowpan_packet},
 #if FUZZ_WITH_SNMP
