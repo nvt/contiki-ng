@@ -31,6 +31,17 @@ ifneq ($(filter snmp,$(FUZZ_PROTOCOLS)),)
   CFLAGS += -DFUZZ_WITH_SNMP=1
 endif
 
+# MQTT runs over TCP, which uipopt.h leaves out by default, and the module is
+# built at the newest version of the protocol. Version 5 keeps the message
+# parsing of the older versions and adds the properties that mqtt-prop.c
+# decodes, so it is the version that reaches all of what the module links.
+ifneq ($(filter mqtt,$(FUZZ_PROTOCOLS)),)
+  MODULES += os/net/app-layer/mqtt
+  CFLAGS += -DFUZZ_WITH_MQTT=1
+  CFLAGS += -DUIP_CONF_TCP=1
+  CFLAGS += -DMQTT_CONF_VERSION=5
+endif
+
 # Build for replaying the output of a campaign rather than for running one.
 #
 # A campaign runs without either of these, because both cost throughput. The

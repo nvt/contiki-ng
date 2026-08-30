@@ -1,0 +1,42 @@
+# Fixed header message types. A broker only sends some of these, but the
+# others reach the branch of the dispatch that rejects them.
+fhdr_connack="\x20"
+fhdr_publish="\x30"
+fhdr_puback="\x40"
+fhdr_pubrec="\x50"
+fhdr_pubrel="\x60"
+fhdr_pubcomp="\x70"
+fhdr_suback="\x90"
+fhdr_unsuback="\xb0"
+fhdr_pingresp="\xd0"
+fhdr_disconnect="\xe0"
+fhdr_auth="\xf0"
+
+# Property identifiers of the variable header.
+prop_payload_format="\x01"
+prop_msg_expiry="\x02"
+prop_content_type="\x03"
+prop_resp_topic="\x08"
+prop_correlation_data="\x09"
+prop_sub_id="\x0b"
+prop_session_expiry="\x11"
+prop_assigned_client_id="\x12"
+prop_server_keep_alive="\x13"
+prop_auth_method="\x15"
+prop_auth_data="\x16"
+prop_reason_string="\x1f"
+prop_receive_max="\x21"
+prop_topic_alias_max="\x22"
+prop_topic_alias="\x23"
+prop_max_qos="\x24"
+prop_user_prop="\x26"
+prop_max_pkt_size="\x27"
+
+# Whole messages, as a broker sends them.
+msg_connack="\x20\x03\x00\x00\x00"
+msg_pingresp="\xd0\x00"
+msg_suback="\x90\x04\x00\x01\x00\x00"
+
+# Framing of a sequence: the length that precedes each message.
+seq_len_connack="\x00\x05"
+seq_len_pingresp="\x00\x02"

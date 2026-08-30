@@ -81,6 +81,11 @@
 #include "net/app-layer/snmp/snmp-engine.h"
 #endif
 
+#if FUZZ_WITH_MQTT
+#include "net/app-layer/mqtt/mqtt.h"
+#include "net/app-layer/mqtt/mqtt-prop.h"
+#endif
+
 /* Log configuration. */
 #include "sys/log.h"
 #define LOG_MODULE "Fuzzer"
@@ -100,12 +105,26 @@
 /* Size of the length that precedes each message of a sequence. */
 #define FUZZ_LENGTH_PREFIX_SIZE 2
 
+/*
+ * Number of times the event loop is handed back after the setup function has
+ * run, so that a protocol whose own process completes the setup gets to.
+ */
+#define FUZZ_SETUP_ROUNDS 4
+
 extern int contiki_argc;
 extern char **contiki_argv;
 
 #if FUZZ_WITH_COAP
 #define FUZZ_COAP_ENDPOINT "fdfd::100"
 #define FUZZ_COAP_PORT 8293
+#endif
+
+#if FUZZ_WITH_MQTT
+#define FUZZ_MQTT_BROKER "fd00::1"
+#define FUZZ_MQTT_PORT 1883
+#define FUZZ_MQTT_CLIENT_ID "fuzz"
+#define FUZZ_MQTT_KEEP_ALIVE 60
+#define FUZZ_MQTT_SEGMENT_SIZE 32
 #endif
 
 /*
@@ -309,6 +328,87 @@ inject_snmp_packet(const char *data, int len)
 }
 #endif /* FUZZ_WITH_SNMP */
 /*---------------------------------------------------------------------------*/
+#if FUZZ_WITH_MQTT
+static struct mqtt_connection mqtt_conn;
+
+/*---------------------------------------------------------------------------*/
+static void
+mqtt_event(struct mqtt_connection *conn, mqtt_event_t event, void *data)
+{
+  /*
+   * An application would act on the message here. The harness only needs the
+   * callback to exist, because the engine calls it while parsing.
+   */
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Bring up an MQTT connection as far as it goes without a broker.
+ *
+ * The parser is reached through the socket that MQTT registers for itself,
+ * so the connection has to be taken through MQTT's own interface rather than
+ * filled in here. Registering allocates the events and starts the MQTT
+ * process, and connecting posts a request that the process turns into the
+ * socket registration. The address is a literal, so no name has to resolve
+ * for that to happen.
+ *
+ * The connection stops at MQTT_CONN_STATE_TCP_CONNECTING, because the SYN
+ * that follows has no broker to reach. That is far enough: the message
+ * dispatch in the engine is not conditional on the connection state, and only
+ * refuses to keep parsing a connection that a handler has already torn down.
+ * A campaign that wants the states beyond this one reaches them the same way a
+ * broker would, by leading with a CONNACK in a sequence.
+ */
+static void
+setup_mqtt(void)
+{
+  mqtt_register(&mqtt_conn, PROCESS_CURRENT(), FUZZ_MQTT_CLIENT_ID,
+                mqtt_event, FUZZ_MQTT_SEGMENT_SIZE);
+
+  mqtt_connect(&mqtt_conn, FUZZ_MQTT_BROKER, FUZZ_MQTT_PORT,
+               FUZZ_MQTT_KEEP_ALIVE, MQTT_CLEAN_SESSION_ON
+#if MQTT_5
+               , MQTT_PROP_LIST_NONE
+#endif
+               );
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Inject a message from the broker, as the socket would deliver it.
+ *
+ * The engine parses what arrives on the socket in a callback that MQTT keeps
+ * to itself, so the harness calls the one that MQTT registered rather than
+ * naming it.
+ */
+static bool
+inject_mqtt_packet(const char *data, int len)
+{
+  static bool started;
+
+  if(mqtt_conn.socket.input_callback == NULL) {
+    if(started) {
+      /*
+       * A handler tore the connection down over an earlier message of the
+       * sequence, and unregistered the socket on the way out. Refusing a
+       * message that the engine has no connection left to parse it against is
+       * the engine behaving correctly, so the rest of the sequence is dropped
+       * rather than reported.
+       */
+      return true;
+    }
+
+    fprintf(stderr, "mqtt: the connection did not start\n");
+    return false;
+  }
+
+  started = true;
+
+  mqtt_conn.socket.input_callback(&mqtt_conn.socket, &mqtt_conn,
+                                  (const uint8_t *)data, len);
+
+  return true;
+}
+#endif /* FUZZ_WITH_MQTT */
+/*---------------------------------------------------------------------------*/
 static const struct entry_point *
 select_entry_point(const char *name)
 {
@@ -318,6 +418,9 @@ select_entry_point(const char *name)
 #endif
     {"icmpv6", NULL, inject_icmpv6_packet},
     {"icmpv6-rpl-root", setup_rpl_root, inject_icmpv6_packet},
+#if FUZZ_WITH_MQTT
+    {"mqtt", setup_mqtt, inject_mqtt_packet},
+#endif
     {"sicslowpan", NULL, inject_sicslowpan_packet},
 #if FUZZ_WITH_SNMP
     {"snmp", setup_snmp, inject_snmp_packet},
@@ -391,6 +494,7 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
   static const char *entry_point_name;
   static const struct entry_point *entry_point;
   static bool sequence;
+  static int rounds;
 
   PROCESS_BEGIN();
 
@@ -415,6 +519,20 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
 
   if(entry_point->setup != NULL) {
     entry_point->setup();
+  }
+
+  /*
+   * Let the protocols run before the fork server starts.
+   *
+   * A setup function prepares state through the interface of the protocol it
+   * belongs to, and that interface is not always synchronous: MQTT, for one,
+   * posts a request that its own process turns into the socket registration
+   * that the entry point then injects through. Pausing hands the event loop
+   * back for long enough to deliver what the setup posted, and costs nothing
+   * per input, because it happens once and before the fork.
+   */
+  for(rounds = 0; rounds < FUZZ_SETUP_ROUNDS; rounds++) {
+    PROCESS_PAUSE();
   }
 
   /*

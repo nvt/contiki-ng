@@ -75,6 +75,7 @@ The current targets are:
 | `uip` | IPv6 | the IPv6 input path, including extension headers |
 | `snmp` | SNMP | the SNMP engine and its BER decoder |
 | `coap` | CoAP | the CoAP message parser |
+| `mqtt` | MQTT | the MQTT engine, from a sequence a broker could send |
 
 ## Sequences
 
@@ -118,7 +119,10 @@ function:
 
 The setup function prepares whatever state the entry point needs. It runs once,
 before the fork server starts, so it costs nothing per input, and every input is
-processed against the same prepared state.
+processed against the same prepared state. The harness hands the event loop back
+a few times afterwards, still before the fork, because an interface that a setup
+function drives is not always synchronous: MQTT posts a request that its own
+process turns into the socket registration that the entry point injects through.
 
 **Do not build a protocol's state structures by hand.** State that is assembled
 in the harness stops matching the implementation as soon as the implementation
@@ -137,10 +141,18 @@ interface, or not at all. Protocols fall into three groups:
   rejects what follows. The DNS resolver belongs here too: `resolv_query()`
   leaves an entry in `STATE_ASKING`, and a response is only processed against
   such an entry. That the query itself goes nowhere does not matter.
-- **A peer or a live session is required.** An MQTT client parsing broker
-  replies, the TCP data path, and EDHOC. These do not get a setup function.
-  Their state comes from the input instead, as a recorded session that the
-  fuzzer mutates.
+
+  A client of a server that is not there can belong here as well, if what it
+  needs from the connection is only that it was attempted. `mqtt` is the
+  example: registering and connecting through the MQTT interface is what
+  registers the socket whose callback the input is then delivered to, and the
+  connection stops where the missing broker leaves it. That the engine
+  dispatches a message without consulting the connection state is what makes
+  the rest reachable, and a sequence that leads with a CONNACK takes the
+  connection the rest of the way through the engine's own code.
+- **A peer or a live session is required.** The TCP data path and EDHOC.
+  These do not get a setup function. Their state comes from the input instead,
+  as a recorded session that the fuzzer mutates.
 
 An injection function returns false only when the harness itself could not
 proceed. A parser that rejects malformed input has behaved correctly, and must
