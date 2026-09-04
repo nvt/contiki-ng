@@ -2,7 +2,7 @@
 source ../utils.sh
 
 # Contiki directory
-CONTIKI=$1
+CONTIKI=../..
 
 # Example code directory
 CODE_DIR=$CONTIKI/tests/08-native-runs/23-uiplib/
@@ -19,7 +19,11 @@ echo "Closing native node"
 sleep 2
 kill_bg $CPID
 
-if grep -q "=check-me= FAILED" $CODE.log ; then
+# A run that never reached its end reports neither, so both are checked:
+# without the second test, a node that failed to build or to start at all
+# leaves no marker and the test passes on an empty log.
+if grep -q "=check-me= FAILED" $CODE.log \
+   || ! grep -q "=check-me= DONE" $CODE.log ; then
   echo "==== make.log ====" ; cat make.log;
   echo "==== make.err ====" ; cat make.err;
   echo "==== $CODE.log ====" ; cat $CODE.log;
