@@ -8,6 +8,23 @@ BASENAME=$(basename $0 .sh)
 
 IPADDR=fd00::302:304:506:708
 
+# Distributions differ on the name: Debian and Ubuntu ship the client once per
+# TLS backend and provide no unsuffixed name, while a source build installs
+# coap-client itself.
+COAP_CLIENT=
+for CANDIDATE in coap-client coap-client-notls coap-client-openssl \
+                 coap-client-gnutls; do
+  if command -v $CANDIDATE > /dev/null; then
+    COAP_CLIENT=$CANDIDATE
+    break
+  fi
+done
+if [ -z "$COAP_CLIENT" ]; then
+  echo "No CoAP client found, install libcoap"
+  printf "%-32s TEST FAIL\n" "$BASENAME" | tee $BASENAME.testlog
+  exit 1
+fi
+
 declare -i OKCOUNT=0
 declare -i TESTCOUNT=0
 
@@ -20,10 +37,10 @@ sleep 2
 # Send CoAP requests
 echo "Sending CoAP requests"
 
-rm -f $BASENAME.log
+rm -f $BASENAME.log coap.log
 for TARGET in .well-known/core test/push; do
   echo "Get $TARGET" | tee -a $BASENAME.log
-  coap-client -v6 -m get coap://[$IPADDR]/$TARGET 2>&1 | tee coap.log
+  $COAP_CLIENT -v6 -m get coap://[$IPADDR]/$TARGET 2>&1 | tee coap.log
   cat coap.log >> $BASENAME.log
   # Fetch coap status code (not $? because this is piped)
   SUCCESS=`grep -c '2.05' coap.log`
