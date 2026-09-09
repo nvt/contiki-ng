@@ -140,6 +140,67 @@ extern coap_resource_t res_well_known_core;
 #endif
 
 /*---------------------------------------------------------------------------*/
+/*
+ * Tell whether this endpoint has the context needed to process a message.
+ * RFC 7252, Section 4.2 and 4.3, have every other message rejected, and
+ * Table 1 in Section 4.3 gives the message types in which a request, a
+ * response, and an empty message can be carried.
+ */
+static bool
+can_be_processed(const coap_message_t *message)
+{
+  uint8_t code_class = message->code >> 5;
+
+  if(message->code == 0) {
+    /* An empty message is a ping, an acknowledgement, or a reset. */
+    return message->type != COAP_TYPE_NON;
+  }
+
+  if(code_class == 1 || code_class > 5) {
+    /* The classes 1, 6 and 7 are reserved. */
+    return false;
+  }
+
+  if(code_class == 0) {
+    /* A request carries one of the four methods and is not a reply. */
+    return message->code <= COAP_DELETE
+      && message->type != COAP_TYPE_ACK
+      && message->type != COAP_TYPE_RST;
+  }
+
+  /* A response is carried in any type of message but a reset. */
+  return message->type != COAP_TYPE_RST;
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Reject a message, which RFC 7252, Section 4.2, does with a matching reset
+ * when the message is confirmable. Any other message is rejected by
+ * ignoring it: a reset may answer an unreliable message as well, but this
+ * implementation cannot tell whether one arrived over multicast, where
+ * Section 8.1 has no reset sent, and an acknowledgement or a reset is never
+ * answered at all.
+ */
+static void
+reject_message(const coap_endpoint_t *src, coap_message_t *message,
+               uint8_t *buffer)
+{
+  uint16_t mid = message->mid;
+  size_t len;
+
+  if(message->type != COAP_TYPE_CON) {
+    LOG_WARN("Ignoring a message that cannot be processed\n");
+    return;
+  }
+
+  LOG_WARN("Rejecting a message that cannot be processed\n");
+
+  coap_init_message(message, COAP_TYPE_RST, 0, mid);
+  len = coap_serialize_message(message, buffer);
+  if(len > 0) {
+    coap_sendto(src, buffer, len);
+  }
+}
+/*---------------------------------------------------------------------------*/
 /*- Internal API ------------------------------------------------------------*/
 /*---------------------------------------------------------------------------*/
 int
@@ -155,7 +216,26 @@ coap_receive(const coap_endpoint_t *src,
   coap_status_code = coap_parse_message(message, payload, payload_length);
   coap_set_src_endpoint(message, src);
 
+  if(coap_status_code != NO_ERROR) {
+    /*
+     * RFC 7252, Section 4.2, allows a confirmable message that could not be
+     * parsed to be acknowledged with the error response built below, but an
+     * unreliable message has to be rejected instead (Section 4.3), and an
+     * acknowledgement or a reset is never answered at all. A message too
+     * short to hold a header carries no message ID that anything sent in
+     * reply could be matched with.
+     */
+    if(payload_length < COAP_HEADER_LEN || message->type != COAP_TYPE_CON) {
+      LOG_WARN("Ignoring a message that could not be parsed\n");
+      return coap_status_code;
+    }
+  }
+
   if(coap_status_code == NO_ERROR) {
+    if(!can_be_processed(message)) {
+      reject_message(src, message, payload);
+      return BAD_REQUEST_4_00;
+    }
 
     /*TODO duplicates suppression, if required by application */
 
