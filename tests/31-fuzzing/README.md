@@ -73,6 +73,9 @@ The current targets are:
 | `rpl-icmpv6-seq` | ICMPv6 | the same, after joining a DAG, from a sequence |
 | `rpl-dao` | ICMPv6, as a root | destination advertisement parsing and route installation |
 | `uip` | IPv6 | the IPv6 input path, including extension headers |
+| `sicslowpan` | 6LoWPAN | header decompression, and the IPv6 input path behind it |
+| `sicslowpan-frag` | 6LoWPAN | the same, from a sequence of fragments to reassemble |
+| `sicslowpan-802154` | 802.15.4 | the frame header parser, and the adaptation layer behind it |
 | `snmp` | SNMP | the SNMP engine and its BER decoder |
 | `coap` | CoAP | the CoAP message parser |
 | `mqtt` | MQTT | the MQTT engine, from a sequence a broker could send |
@@ -137,6 +140,18 @@ interface, or not at all. Protocols fall into three groups:
 - **No state.** The parser takes a buffer. The IPv6, ICMPv6 and adaptation
   layer entry points are here, as are SNMP, CoAP and the DNS64 translation of
   the NAT64 gateway.
+
+  A parser in this group can still need initializing. The native platform
+  sends packets through a tun interface rather than through the adaptation
+  layer, so nothing initializes that layer, and a packet that compresses its
+  addresses against a context would be rejected for want of one. The
+  `sicslowpan` entry points initialize it through its driver, which is what a
+  platform with a radio does at startup.
+
+  Stateless address compression derives an address from the link layer, so
+  what the adaptation layer is given has to include link layer addresses. The
+  `sicslowpan` entry point gives each packet those of a neighbour sending to
+  the node, and `sicslowpan-802154` takes them from the frame header it parses.
 
   A translation that writes its result somewhere is still in this group, but
   what it is given has to be what its caller gives it. The `nat64-dns64-4to6`

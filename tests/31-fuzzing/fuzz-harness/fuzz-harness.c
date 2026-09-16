@@ -262,16 +262,61 @@ inject_icmpv6_packet(const char *data, int len)
 }
 /*---------------------------------------------------------------------------*/
 /*
- * Inject at the adaptation layer. The input is a 6LoWPAN frame that is
- * decompressed before the resulting IPv6 packet is parsed.
+ * Initialize the adaptation layer.
+ *
+ * The native platform uses a tun interface as its network driver, so the
+ * adaptation layer is linked but never initialized, and address context 0 is
+ * left unset. Every packet that uses a context would then be rejected before
+ * its addresses were decompressed, whatever the fuzzer did to it.
+ */
+static void
+setup_sicslowpan(void)
+{
+  sicslowpan_driver.init();
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Inject at the adaptation layer. The input is the payload of an 802.15.4
+ * frame: a 6LoWPAN packet, or a fragment of one, that is decompressed and
+ * reassembled before the resulting IPv6 packet is parsed.
+ *
+ * Stateless address compression takes addresses from the link layer, so the
+ * frame is given the addresses of a neighbour sending to this node. The
+ * sender is not the address that set_sender_lladdr() uses, because that is
+ * the address the native platform gives the node itself, and a packet that
+ * elides its source would then appear to come from the node.
  */
 static bool
 inject_sicslowpan_packet(const char *data, int len)
 {
+  linkaddr_t sender;
+
+  linkaddr_copy(&sender, &linkaddr_node_addr);
+  sender.u8[LINKADDR_SIZE - 1] ^= 0xff;
+
+  packetbuf_copyfrom(data, len);
+  packetbuf_set_addr(PACKETBUF_ADDR_SENDER, &sender);
+  packetbuf_set_addr(PACKETBUF_ADDR_RECEIVER, &linkaddr_node_addr);
+
+  sicslowpan_driver.input();
+
+  return true;
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Inject a complete 802.15.4 frame, without its checksum, which the radio
+ * strips. The framer parses the header and sets the link layer addresses that
+ * the adaptation layer then decompresses against, so both the header parser
+ * and the adaptation layer are reached from the same input.
+ */
+static bool
+inject_802154_frame(const char *data, int len)
+{
   packetbuf_copyfrom(data, len);
 
-  NETSTACK_NETWORK.input();
-  NETSTACK_FRAMER.parse();
+  if(NETSTACK_FRAMER.parse() < 0) {
+    return true;
+  }
 
   sicslowpan_driver.input();
 
@@ -578,7 +623,8 @@ select_entry_point(const char *name)
     {"nat64-dns64-4to6", NULL, inject_nat64_dns64_4to6},
     {"nat64-dns64-6to4", NULL, inject_nat64_dns64_6to4},
 #endif
-    {"sicslowpan", NULL, inject_sicslowpan_packet},
+    {"sicslowpan", setup_sicslowpan, inject_sicslowpan_packet},
+    {"sicslowpan-802154", setup_sicslowpan, inject_802154_frame},
 #if FUZZ_WITH_SNMP
     {"snmp", setup_snmp, inject_snmp_packet},
 #endif
