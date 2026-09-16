@@ -54,6 +54,28 @@ a better thing to act on than a longer campaign.
 Both replay one input to a process, which is why the harness processes one
 input per process to begin with.
 
+## Oracles
+
+A crash is not the only way to mishandle input, and a sanitizer does not
+report every other way. A layer that decompresses or reassembles a packet into
+a buffer that the stack reuses, and leaves part of it unwritten, delivers what
+the previous packet left there. That memory is valid, so nothing reports it,
+and the packet is processed as if the input had said what the buffer held.
+
+A target that sets `FUZZ_ORACLE=1` checks for this. Each message is delivered
+twice, with the IP buffer filled with a different byte each time, and the
+packets that reach the IP layer must be identical, or both be absent. The
+first delivery runs in a child process, so that the second is made to the
+same state, and a fragment is not rejected the second time for being a
+duplicate. An input that fails the check aborts, and so is kept by the
+campaign and reported by `./replay.sh` like any other failure.
+
+The check costs a process per message, which is why a target opts in to it.
+It applies to the entry points that deliver a packet to the IP layer, which
+are the adaptation layer entry points. It can also notice a result that
+depends on uninitialized stack memory, because the two deliveries do not reach
+the parser with the same stack contents, but it does not look for one.
+
 ## Targets
 
 A target is one campaign: one entry point of the stack, one seed corpus, one
@@ -205,10 +227,13 @@ Useful sources are the corpora in `tests/20-packet-parsing`, and captures taken
 from the Cooja simulations elsewhere under `tests/`, which are the natural way
 to obtain the recorded sessions that a stateful protocol needs.
 
+A seed must pass the oracle of its target, since AFL++ will not start a
+campaign from a seed that fails.
+
 An input that once found something is worth committing alongside the valid
-ones. It reaches the code that the fix touched, so a campaign that starts from
-it covers that code from the first execution rather than having to find its way
-back. The `mqtt` corpus keeps one: `publish-overlong-length` is a PUBLISH whose
+ones, once what it found has been fixed. It reaches the code that the fix
+touched, so a campaign that starts from it covers that code from the first
+execution rather than having to find its way back. The `mqtt` corpus keeps one: `publish-overlong-length` is a PUBLISH whose
 remaining length is far past the bytes that follow it, which is how the
 properties of a message were once decoded from a variable header that had not
 been parsed.

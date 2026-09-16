@@ -57,7 +57,10 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <unistd.h>
+#include <sys/mman.h>
+#include <sys/wait.h>
 
 /* Contiki-NG headers. */
 #include "net/ipv6/uip.h"
@@ -119,6 +122,21 @@
  * run, so that a protocol whose own process completes the setup gets to.
  */
 #define FUZZ_SETUP_ROUNDS 4
+
+/*
+ * The bytes that the IP buffer is filled with before each of the two passes
+ * of the oracle. They differ in every bit, so that a byte of the delivered
+ * packet that neither pass wrote differs between them.
+ */
+#define FUZZ_ORACLE_POISON_FIRST  0x55
+#define FUZZ_ORACLE_POISON_SECOND 0xaa
+
+/*
+ * Seconds that the first pass of the oracle may run. A campaign stops an
+ * input long before this, so it only keeps a first pass from outliving the
+ * process that the fuzzer stopped.
+ */
+#define FUZZ_ORACLE_TIMEOUT 2
 
 extern int contiki_argc;
 extern char **contiki_argv;
@@ -603,6 +621,168 @@ inject_ip64_4to6(const char *data, int len)
 }
 #endif /* FUZZ_WITH_IP64 */
 /*---------------------------------------------------------------------------*/
+/*
+ * An oracle for input that the stack delivers to the IP layer.
+ *
+ * A crash is not the only way to mishandle input. A layer that decompresses
+ * or reassembles a packet into a buffer that the stack reuses, and leaves
+ * part of it unwritten, delivers whatever the previous packet left there.
+ * That memory is valid, so no sanitizer reports it, and the packet goes on to
+ * be processed as if the input had said what the buffer happened to hold.
+ *
+ * A packet that depends only on the input is the same whatever the buffer
+ * held before it, so each message is delivered twice, with the IP buffer
+ * filled with a different byte each time, and the packets that reach the IP
+ * layer are compared. They must match, and either both passes deliver a
+ * packet or neither does.
+ *
+ * The first pass runs in a child process, so that nothing it does is seen by
+ * the second: a fragment delivered twice to the same process would be a
+ * duplicate the second time, and be rejected for being one. The child
+ * records the packet in memory shared with the parent, and stops it there.
+ */
+struct oracle_capture {
+  bool delivered;
+  uint16_t len;
+  uint8_t packet[sizeof(uip_buf)];
+};
+
+static struct oracle_capture *oracle_capture;
+static bool oracle_first_pass;
+static bool oracle_delivered;
+/*---------------------------------------------------------------------------*/
+static void
+oracle_fail(const char *reason)
+{
+  fprintf(stderr, "oracle: %s\n", reason);
+  abort();
+}
+/*---------------------------------------------------------------------------*/
+static enum netstack_ip_action
+oracle_input(void)
+{
+  uint16_t len;
+  int i;
+
+  /* Only the packet that the input itself produced is compared. */
+  if(oracle_delivered) {
+    return NETSTACK_IP_PROCESS;
+  }
+  oracle_delivered = true;
+
+  len = MIN(uip_len, sizeof(uip_buf));
+
+  if(oracle_first_pass) {
+    oracle_capture->delivered = true;
+    oracle_capture->len = len;
+    memcpy(oracle_capture->packet, uip_buf, len);
+    return NETSTACK_IP_DROP;
+  }
+
+  if(!oracle_capture->delivered) {
+    oracle_fail("a packet was delivered in the second pass only");
+  }
+
+  if(len != oracle_capture->len) {
+    fprintf(stderr, "oracle: length %u in the first pass, %u in the second\n",
+            oracle_capture->len, len);
+    oracle_fail("the delivered packet depends on the previous buffer");
+  }
+
+  for(i = 0; i < len; i++) {
+    if(uip_buf[i] != oracle_capture->packet[i]) {
+      fprintf(stderr, "oracle: byte %d is 0x%02x in the first pass, "
+              "0x%02x in the second\n", i, oracle_capture->packet[i],
+              uip_buf[i]);
+      oracle_fail("the delivered packet depends on the previous buffer");
+    }
+  }
+
+  return NETSTACK_IP_PROCESS;
+}
+/*---------------------------------------------------------------------------*/
+static enum netstack_ip_action
+oracle_output(const linkaddr_t *localdest)
+{
+  return NETSTACK_IP_PROCESS;
+}
+/*---------------------------------------------------------------------------*/
+static struct netstack_ip_packet_processor oracle_processor = {
+  .process_input = oracle_input,
+  .process_output = oracle_output
+};
+/*---------------------------------------------------------------------------*/
+static bool
+oracle_setup(void)
+{
+  oracle_capture = mmap(NULL, sizeof(*oracle_capture),
+                        PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+  if(oracle_capture == MAP_FAILED) {
+    perror("mmap");
+    return false;
+  }
+
+  netstack_ip_packet_processor_add(&oracle_processor);
+  return true;
+}
+/*---------------------------------------------------------------------------*/
+static bool
+oracle_inject(const struct entry_point *entry_point, const char *data, int len)
+{
+  pid_t pid;
+  int status;
+  bool first_pass_crashed;
+  bool result;
+
+  oracle_capture->delivered = false;
+
+  pid = fork();
+  if(pid < 0) {
+    perror("fork");
+    return false;
+  }
+
+  if(pid == 0) {
+    alarm(FUZZ_ORACLE_TIMEOUT);
+    oracle_first_pass = true;
+    oracle_delivered = false;
+    memset(uip_buf, FUZZ_ORACLE_POISON_FIRST, sizeof(uip_buf));
+    entry_point->inject(data, len);
+    /* Leave without flushing what the second pass will print again. */
+    _exit(EXIT_SUCCESS);
+  }
+
+  if(waitpid(pid, &status, 0) < 0) {
+    perror("waitpid");
+    return false;
+  }
+
+  /*
+   * A first pass that did not finish has nothing to compare against. If it
+   * ran out of time, the second pass will too, and the fuzzer reports that.
+   * If it crashed, the second pass is expected to crash in the same way.
+   */
+  first_pass_crashed = WIFSIGNALED(status) && WTERMSIG(status) != SIGALRM;
+  if(!WIFEXITED(status)) {
+    oracle_capture->delivered = false;
+  }
+
+  oracle_first_pass = false;
+  oracle_delivered = false;
+  memset(uip_buf, FUZZ_ORACLE_POISON_SECOND, sizeof(uip_buf));
+  result = entry_point->inject(data, len);
+
+  if(first_pass_crashed) {
+    oracle_fail("the first pass crashed, and the second did not");
+  }
+
+  if(oracle_capture->delivered && !oracle_delivered) {
+    oracle_fail("a packet was delivered in the first pass only");
+  }
+
+  return result;
+}
+/*---------------------------------------------------------------------------*/
 static const struct entry_point *
 select_entry_point(const char *name)
 {
@@ -645,6 +825,17 @@ select_entry_point(const char *name)
   return NULL;
 }
 /*---------------------------------------------------------------------------*/
+static bool
+inject_message(const struct entry_point *entry_point,
+               const char *data, int len)
+{
+  if(oracle_capture != NULL) {
+    return oracle_inject(entry_point, data, len);
+  }
+
+  return entry_point->inject(data, len);
+}
+/*---------------------------------------------------------------------------*/
 /*
  * Deliver a sequence of messages to one entry point, in order.
  *
@@ -678,7 +869,7 @@ inject_sequence(const struct entry_point *entry_point,
       message_len = len - pos;
     }
 
-    if(entry_point->inject(data + pos, message_len) == false) {
+    if(inject_message(entry_point, data + pos, message_len) == false) {
       return false;
     }
 
@@ -724,6 +915,10 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
     entry_point->setup();
   }
 
+  if(getenv("FUZZ_ORACLE") != NULL && !oracle_setup()) {
+    exit(EXIT_FAILURE);
+  }
+
   /*
    * Let the protocols run before the fork server starts.
    *
@@ -759,7 +954,7 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
     if(inject_sequence(entry_point, input_buf, len) == false) {
       exit(EXIT_FAILURE);
     }
-  } else if(entry_point->inject(input_buf, len) == false) {
+  } else if(inject_message(entry_point, input_buf, len) == false) {
     exit(EXIT_FAILURE);
   }
 

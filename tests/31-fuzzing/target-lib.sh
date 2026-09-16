@@ -37,6 +37,7 @@ load_target()
   FUZZ_PROTOCOLS=
   FUZZ_DICTIONARY=
   FUZZ_SEQUENCE=
+  FUZZ_ORACLE=
   # shellcheck source=/dev/null
   . "$TARGET_DIR/target.conf"
 
@@ -50,6 +51,11 @@ load_target()
     export FUZZ_SEQUENCE
   else
     unset FUZZ_SEQUENCE
+  fi
+  if [ -n "$FUZZ_ORACLE" ]; then
+    export FUZZ_ORACLE
+  else
+    unset FUZZ_ORACLE
   fi
 }
 

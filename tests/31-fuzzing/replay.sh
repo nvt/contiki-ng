@@ -48,7 +48,7 @@ while IFS= read -r input; do
     FAILED_INPUTS="$FAILED_INPUTS $input"
     echo
     echo "FAIL $input"
-    echo "$output" | grep -aE "ERROR|runtime error|SUMMARY" | head -5
+    echo "$output" | grep -aE "ERROR|runtime error|SUMMARY|^oracle:" | head -5
   fi
 done <<< "$(campaign_inputs "$TARGET")"
 
