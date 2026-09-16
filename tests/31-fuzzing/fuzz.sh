@@ -82,8 +82,17 @@ fi
 OUT_DIR="$FUZZ_DIR/out/$TARGET"
 mkdir -p "$OUT_DIR"
 
+if [ -d "$OUT_DIR/default/queue" ]; then
+  echo "Resuming the campaign in $OUT_DIR."
+fi
 echo "Fuzzing $TARGET at entry point $FUZZ_ENTRY_POINT for $DURATION seconds."
 echo "Output in $OUT_DIR."
+
+# A campaign that has run before continues from what it had found, rather
+# than starting over from the seeds. AFL++ otherwise deletes the output of a
+# short campaign without asking, and refuses to start over a long one.
+# Remove the output directory to start over.
+export AFL_AUTORESUME=1
 
 # AFL_SKIP_CPUFREQ and AFL_NO_AFFINITY keep the campaign from refusing to
 # start on machines where the governor cannot be read or cores cannot be

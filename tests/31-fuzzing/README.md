@@ -24,6 +24,10 @@ written to `out/<target>`.
 Ten minutes is the default because it is short enough to run without planning
 for it. It is not long enough to conclude anything from finding nothing.
 
+Running a target again continues its campaign from what it had found, rather
+than starting over from the seeds. Remove `out/<target>` to start over, which
+is also what a campaign needs in order to pick up seeds added since it began.
+
 ## Examining what a campaign produced
 
 A campaign runs without sanitizers and without source-coverage instrumentation,
