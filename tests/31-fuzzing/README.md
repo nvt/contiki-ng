@@ -63,18 +63,26 @@ the previous packet left there. That memory is valid, so nothing reports it,
 and the packet is processed as if the input had said what the buffer held.
 
 A target that sets `FUZZ_ORACLE=1` checks for this. Each message is delivered
-twice, with the IP buffer filled with a different byte each time, and the
-packets that reach the IP layer must be identical, or both be absent. The
-first delivery runs in a child process, so that the second is made to the
-same state, and a fragment is not rejected the second time for being a
-duplicate. An input that fails the check aborts, and so is kept by the
-campaign and reported by `./replay.sh` like any other failure.
+twice, with the IP buffer filled with a different byte each time. The packets
+that reach the IP layer, and the packets that the IP layer sends, must be
+identical between the two, and there must be as many of them. The first
+delivery runs in a child process, so that the second is made to the same
+state, and a fragment is not rejected the second time for being a duplicate.
+An input that fails the check aborts, and so is kept by the campaign and
+reported by `./replay.sh` like any other failure.
+
+What a packet is compared against matters as much as the comparison itself. A
+packet that the stack sends is where a header built for forwarding is
+written, which is not reached by comparing what it receives. A node sends
+only to a neighbour whose link layer address it has resolved, and holds on to
+a packet for one it has not, so the harness resolves the neighbour that every
+input arrives from before the fork server starts.
 
 The check costs a process per message, which is why a target opts in to it.
-It applies to the entry points that deliver a packet to the IP layer, which
-are the adaptation layer entry points. It can also notice a result that
-depends on uninitialized stack memory, because the two deliveries do not reach
-the parser with the same stack contents, but it does not look for one.
+It applies to every entry point that passes a packet through the IP layer. It
+can also notice a result that depends on uninitialized stack memory, because
+the two deliveries do not reach the parser with the same stack contents, but
+it does not look for one.
 
 ## Targets
 

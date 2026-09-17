@@ -64,6 +64,8 @@
 
 /* Contiki-NG headers. */
 #include "net/ipv6/uip.h"
+#include "net/ipv6/uip-ds6.h"
+#include "net/ipv6/uip-ds6-nbr.h"
 #include "net/ipv6/uip-icmp6.h"
 #include "net/ipv6/sicslowpan.h"
 #include "net/netstack.h"
@@ -219,6 +221,46 @@ read_input(const char *filename, char *buf, int max_len)
 }
 /*---------------------------------------------------------------------------*/
 /*
+ * The link layer address that every input appears to come from.
+ *
+ * It is the address of this node with its last byte inverted, so that it
+ * belongs to the same network and is not the node's own: a packet that
+ * elides its source address would otherwise appear to come from the node.
+ */
+static const linkaddr_t *
+peer_lladdr(void)
+{
+  static linkaddr_t peer;
+
+  linkaddr_copy(&peer, &linkaddr_node_addr);
+  peer.u8[LINKADDR_SIZE - 1] ^= 0xff;
+
+  return &peer;
+}
+/*---------------------------------------------------------------------------*/
+/*
+ * Resolve the neighbour that the input comes from, before any is injected.
+ *
+ * A node sends to a neighbour whose link layer address it has resolved, and
+ * holds on to a packet for one it has not, until an address resolution that
+ * a campaign has no peer to complete. Nothing the stack made of an input
+ * would then be sent, which is half of what the input produces, and is where
+ * a header built for forwarding is written. The neighbour is created through
+ * the interface that address resolution itself uses.
+ */
+static void
+setup_peer_neighbor(void)
+{
+  uip_ipaddr_t peer_ipaddr;
+
+  uip_create_linklocal_prefix(&peer_ipaddr);
+  uip_ds6_set_addr_iid(&peer_ipaddr, (uip_lladdr_t *)peer_lladdr());
+
+  uip_ds6_nbr_add(&peer_ipaddr, (uip_lladdr_t *)peer_lladdr(), 1,
+                  NBR_REACHABLE, NBR_TABLE_REASON_UNDEFINED, NULL);
+}
+/*---------------------------------------------------------------------------*/
+/*
  * Give the input a link layer sender.
  *
  * A packet that arrives over a real link carries one, and a routing protocol
@@ -231,14 +273,7 @@ read_input(const char *filename, char *buf, int max_len)
 static void
 set_sender_lladdr(void)
 {
-  static linkaddr_t sender;
-  int i;
-
-  for(i = 0; i < LINKADDR_SIZE; i++) {
-    sender.u8[i] = i + 1;
-  }
-
-  packetbuf_set_addr(PACKETBUF_ADDR_SENDER, &sender);
+  packetbuf_set_addr(PACKETBUF_ADDR_SENDER, peer_lladdr());
 }
 /*---------------------------------------------------------------------------*/
 static void
@@ -299,21 +334,13 @@ setup_sicslowpan(void)
  * reassembled before the resulting IPv6 packet is parsed.
  *
  * Stateless address compression takes addresses from the link layer, so the
- * frame is given the addresses of a neighbour sending to this node. The
- * sender is not the address that set_sender_lladdr() uses, because that is
- * the address the native platform gives the node itself, and a packet that
- * elides its source would then appear to come from the node.
+ * frame is given the addresses of a neighbour sending to this node.
  */
 static bool
 inject_sicslowpan_packet(const char *data, int len)
 {
-  linkaddr_t sender;
-
-  linkaddr_copy(&sender, &linkaddr_node_addr);
-  sender.u8[LINKADDR_SIZE - 1] ^= 0xff;
-
   packetbuf_copyfrom(data, len);
-  packetbuf_set_addr(PACKETBUF_ADDR_SENDER, &sender);
+  packetbuf_set_addr(PACKETBUF_ADDR_SENDER, peer_lladdr());
   packetbuf_set_addr(PACKETBUF_ADDR_RECEIVER, &linkaddr_node_addr);
 
   sicslowpan_driver.input();
@@ -622,34 +649,57 @@ inject_ip64_4to6(const char *data, int len)
 #endif /* FUZZ_WITH_IP64 */
 /*---------------------------------------------------------------------------*/
 /*
- * An oracle for input that the stack delivers to the IP layer.
+ * An oracle for the packets that the stack makes out of one input.
  *
- * A crash is not the only way to mishandle input. A layer that decompresses
- * or reassembles a packet into a buffer that the stack reuses, and leaves
- * part of it unwritten, delivers whatever the previous packet left there.
- * That memory is valid, so no sanitizer reports it, and the packet goes on to
- * be processed as if the input had said what the buffer happened to hold.
+ * A crash is not the only way to mishandle input. A layer that decompresses,
+ * reassembles or rewrites a packet in a buffer that the stack reuses, and
+ * leaves part of it unwritten, uses whatever the previous packet left there.
+ * That memory is valid, so no sanitizer reports it, and the packet is
+ * processed, or forwarded, as if the input had said what the buffer held.
  *
- * A packet that depends only on the input is the same whatever the buffer
- * held before it, so each message is delivered twice, with the IP buffer
- * filled with a different byte each time, and the packets that reach the IP
- * layer are compared. They must match, and either both passes deliver a
- * packet or neither does.
+ * What the stack makes of an input depends only on that input, so each
+ * message is delivered twice, with the IP buffer filled with a different byte
+ * each time. The packets that reach the IP layer, and the packets that the IP
+ * layer sends, are compared between the two passes. The packets that a pass
+ * sends are what catches a header rewritten from bytes beyond the end of the
+ * packet, as a forwarded packet is.
  *
  * The first pass runs in a child process, so that nothing it does is seen by
  * the second: a fragment delivered twice to the same process would be a
- * duplicate the second time, and be rejected for being one. The child
- * records the packet in memory shared with the parent, and stops it there.
+ * duplicate the second time, and be rejected for being one. The child records
+ * what it saw in memory shared with the parent.
  */
-struct oracle_capture {
-  bool delivered;
+
+/* The two directions that are recorded, and their names in a report. */
+enum oracle_direction {
+  ORACLE_RECEIVED,
+  ORACLE_SENT,
+  ORACLE_DIRECTIONS
+};
+
+static const char *oracle_direction_name[ORACLE_DIRECTIONS] = {
+  "received", "sent"
+};
+
+/*
+ * Packets recorded per direction. One input rarely produces more than a
+ * reply and a forwarded packet, and a bound keeps the shared memory small.
+ */
+#define FUZZ_ORACLE_MAX_PACKETS 4
+
+struct oracle_packet {
   uint16_t len;
-  uint8_t packet[sizeof(uip_buf)];
+  uint8_t data[sizeof(uip_buf)];
+};
+
+struct oracle_capture {
+  uint16_t count[ORACLE_DIRECTIONS];
+  struct oracle_packet packet[ORACLE_DIRECTIONS][FUZZ_ORACLE_MAX_PACKETS];
 };
 
 static struct oracle_capture *oracle_capture;
 static bool oracle_first_pass;
-static bool oracle_delivered;
+static uint16_t oracle_count[ORACLE_DIRECTIONS];
 /*---------------------------------------------------------------------------*/
 static void
 oracle_fail(const char *reason)
@@ -658,52 +708,70 @@ oracle_fail(const char *reason)
   abort();
 }
 /*---------------------------------------------------------------------------*/
-static enum netstack_ip_action
-oracle_input(void)
+/*
+ * Record the packet in the IP buffer, or compare it with what the first pass
+ * recorded, depending on the pass this is.
+ */
+static void
+oracle_record(enum oracle_direction direction)
 {
-  uint16_t len;
+  struct oracle_packet *recorded;
+  uint16_t index = oracle_count[direction];
+  uint16_t len = MIN(uip_len, sizeof(uip_buf));
   int i;
 
-  /* Only the packet that the input itself produced is compared. */
-  if(oracle_delivered) {
-    return NETSTACK_IP_PROCESS;
-  }
-  oracle_delivered = true;
-
-  len = MIN(uip_len, sizeof(uip_buf));
+  oracle_count[direction]++;
 
   if(oracle_first_pass) {
-    oracle_capture->delivered = true;
-    oracle_capture->len = len;
-    memcpy(oracle_capture->packet, uip_buf, len);
-    return NETSTACK_IP_DROP;
+    oracle_capture->count[direction] = oracle_count[direction];
+    if(index < FUZZ_ORACLE_MAX_PACKETS) {
+      oracle_capture->packet[direction][index].len = len;
+      memcpy(oracle_capture->packet[direction][index].data, uip_buf, len);
+    }
+    return;
   }
 
-  if(!oracle_capture->delivered) {
-    oracle_fail("a packet was delivered in the second pass only");
+  if(index >= oracle_capture->count[direction]) {
+    fprintf(stderr, "oracle: %s packet %u in the second pass only\n",
+            oracle_direction_name[direction], index + 1);
+    oracle_fail("the packets depend on what the buffer held before");
   }
 
-  if(len != oracle_capture->len) {
-    fprintf(stderr, "oracle: length %u in the first pass, %u in the second\n",
-            oracle_capture->len, len);
-    oracle_fail("the delivered packet depends on the previous buffer");
+  if(index >= FUZZ_ORACLE_MAX_PACKETS) {
+    return;
+  }
+
+  recorded = &oracle_capture->packet[direction][index];
+
+  if(len != recorded->len) {
+    fprintf(stderr, "oracle: %s packet %u is %u bytes in the first pass, "
+            "%u in the second\n", oracle_direction_name[direction],
+            index + 1, recorded->len, len);
+    oracle_fail("the packets depend on what the buffer held before");
   }
 
   for(i = 0; i < len; i++) {
-    if(uip_buf[i] != oracle_capture->packet[i]) {
-      fprintf(stderr, "oracle: byte %d is 0x%02x in the first pass, "
-              "0x%02x in the second\n", i, oracle_capture->packet[i],
-              uip_buf[i]);
-      oracle_fail("the delivered packet depends on the previous buffer");
+    if(uip_buf[i] != recorded->data[i]) {
+      fprintf(stderr, "oracle: byte %d of %s packet %u is 0x%02x in the "
+              "first pass, 0x%02x in the second\n", i,
+              oracle_direction_name[direction], index + 1,
+              recorded->data[i], uip_buf[i]);
+      oracle_fail("the packets depend on what the buffer held before");
     }
   }
-
+}
+/*---------------------------------------------------------------------------*/
+static enum netstack_ip_action
+oracle_input(void)
+{
+  oracle_record(ORACLE_RECEIVED);
   return NETSTACK_IP_PROCESS;
 }
 /*---------------------------------------------------------------------------*/
 static enum netstack_ip_action
 oracle_output(const linkaddr_t *localdest)
 {
+  oracle_record(ORACLE_SENT);
   return NETSTACK_IP_PROCESS;
 }
 /*---------------------------------------------------------------------------*/
@@ -733,8 +801,9 @@ oracle_inject(const struct entry_point *entry_point, const char *data, int len)
   int status;
   bool first_pass_crashed;
   bool result;
+  int direction;
 
-  oracle_capture->delivered = false;
+  memset(oracle_capture->count, 0, sizeof(oracle_capture->count));
 
   pid = fork();
   if(pid < 0) {
@@ -745,7 +814,7 @@ oracle_inject(const struct entry_point *entry_point, const char *data, int len)
   if(pid == 0) {
     alarm(FUZZ_ORACLE_TIMEOUT);
     oracle_first_pass = true;
-    oracle_delivered = false;
+    memset(oracle_count, 0, sizeof(oracle_count));
     memset(uip_buf, FUZZ_ORACLE_POISON_FIRST, sizeof(uip_buf));
     entry_point->inject(data, len);
     /* Leave without flushing what the second pass will print again. */
@@ -764,11 +833,12 @@ oracle_inject(const struct entry_point *entry_point, const char *data, int len)
    */
   first_pass_crashed = WIFSIGNALED(status) && WTERMSIG(status) != SIGALRM;
   if(!WIFEXITED(status)) {
-    oracle_capture->delivered = false;
+    /* There is nothing to compare against. */
+    return true;
   }
 
   oracle_first_pass = false;
-  oracle_delivered = false;
+  memset(oracle_count, 0, sizeof(oracle_count));
   memset(uip_buf, FUZZ_ORACLE_POISON_SECOND, sizeof(uip_buf));
   result = entry_point->inject(data, len);
 
@@ -776,8 +846,13 @@ oracle_inject(const struct entry_point *entry_point, const char *data, int len)
     oracle_fail("the first pass crashed, and the second did not");
   }
 
-  if(oracle_capture->delivered && !oracle_delivered) {
-    oracle_fail("a packet was delivered in the first pass only");
+  for(direction = 0; direction < ORACLE_DIRECTIONS; direction++) {
+    if(oracle_count[direction] < oracle_capture->count[direction]) {
+      fprintf(stderr, "oracle: %u %s packets in the first pass, %u in the "
+              "second\n", oracle_capture->count[direction],
+              oracle_direction_name[direction], oracle_count[direction]);
+      oracle_fail("the packets depend on what the buffer held before");
+    }
   }
 
   return result;
@@ -910,6 +985,8 @@ PROCESS_THREAD(fuzz_harness_process, ev, data)
     exit(EXIT_FAILURE);
   }
   filename = contiki_argv[1];
+
+  setup_peer_neighbor();
 
   if(entry_point->setup != NULL) {
     entry_point->setup();
