@@ -38,6 +38,7 @@ load_target()
   FUZZ_DICTIONARY=
   FUZZ_SEQUENCE=
   FUZZ_ORACLE=
+  FUZZ_DEFINES=
   # shellcheck source=/dev/null
   . "$TARGET_DIR/target.conf"
 
@@ -69,14 +70,14 @@ build_harness()
   shift
 
   local stamp="$HARNESS_DIR/build/native/.fuzz-variant"
-  local want="$variant|$FUZZ_PROTOCOLS"
+  local want="$variant|$FUZZ_PROTOCOLS|$FUZZ_DEFINES"
 
   if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$want" ]; then
     make -C "$HARNESS_DIR" distclean > /dev/null 2>&1 || true
   fi
 
   make -C "$HARNESS_DIR" TARGET=native FUZZ_PROTOCOLS="$FUZZ_PROTOCOLS" \
-       "$@" > /dev/null
+       FUZZ_DEFINES="$FUZZ_DEFINES" "$@" > /dev/null
 
   mkdir -p "$(dirname "$stamp")"
   echo "$want" > "$stamp"

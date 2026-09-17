@@ -62,6 +62,18 @@ ifneq ($(filter ip64,$(FUZZ_PROTOCOLS)),)
   CFLAGS += -DFUZZ_WITH_IP64=1
 endif
 
+# Definitions that a target needs the harness built with, as a list of
+# name=value pairs. A target that fuzzes code behind a compile time option
+# names the option here rather than needing a harness of its own.
+#
+#   make FUZZ_DEFINES="RPL_CONF_MOP=RPL_MOP_NON_STORING"
+#
+# The build system does not rebuild on a change to this variable, so the
+# scripts record it and rebuild from scratch when it changes.
+FUZZ_DEFINES ?=
+
+CFLAGS += $(addprefix -D,$(FUZZ_DEFINES))
+
 # Build for replaying the output of a campaign rather than for running one.
 #
 # A campaign runs without either of these, because both cost throughput. The

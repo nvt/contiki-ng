@@ -94,6 +94,11 @@ dictionary, and the set of protocols linked into the harness.
       seeds/          starting inputs
       rpl.dict        tokens that the fuzzer inserts into mutations
 
+A target whose code is behind a compile time option names that option in
+`FUZZ_DEFINES`, and the harness is rebuilt for it. The `rpl-srh` target does
+this: the source routing header of RPL is only compiled in non-storing mode,
+which is not the mode a network runs by default.
+
 Input is never injected at more than one entry point in the same run. The run
 is what the fuzzer accounts coverage against, so mixing formats within it would
 both confuse that accounting and spread mutation effort across unrelated
@@ -107,6 +112,7 @@ The current targets are:
 | `rpl-icmpv6-seq` | ICMPv6 | the same, after joining a DAG, from a sequence |
 | `rpl-dao` | ICMPv6, as a root | destination advertisement parsing and route installation |
 | `uip` | IPv6 | the IPv6 input path, including extension headers |
+| `rpl-srh` | IPv6, non-storing | the source routing header, and the packet forwarded from it |
 | `sicslowpan` | 6LoWPAN | header decompression, and the IPv6 input path behind it |
 | `sicslowpan-frag` | 6LoWPAN | the same, from a sequence of fragments to reassemble |
 | `sicslowpan-802154` | 802.15.4 | the frame header parser, and the adaptation layer behind it |
