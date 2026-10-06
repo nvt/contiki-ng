@@ -70,6 +70,11 @@
 #define DEFAULT_TUN "tun0"
 #endif /* __APPLE__ */
 
+#if defined(__APPLE__) || defined(__FreeBSD__)
+/* Every packet on the tun device starts with its address family. */
+#define TUN_AF_HEADER_LEN 4
+#endif
+
 #define DEFAULT_PREFIX "fd00::1/64"
 static const char *config_ipaddr = DEFAULT_PREFIX;
 static char config_tundev[IFNAMSIZ + 1] = DEFAULT_TUN;
@@ -212,7 +217,7 @@ cleanup(void)
 #define TMPBUFSIZE 128
   /* Called from signal handler, avoid unsafe functions. */
   char buf[TMPBUFSIZE];
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(__FreeBSD__)
   strcpy(buf, "ifconfig ");
   /* Will not overflow, but null-terminate to avoid spurious warnings. */
   buf[TMPBUFSIZE - 1] = '\0';
@@ -221,7 +226,7 @@ cleanup(void)
   strncat(buf, config_ipaddr, TMPBUFSIZE - strlen(buf) - 1);
   strncat(buf, " remove", TMPBUFSIZE - strlen(buf) - 1);
   system(buf);
-#endif /* __APPLE__ */
+#endif /* __APPLE__ || __FreeBSD__ */
 
   strcpy(buf, "ifconfig ");
   /* Will not overflow, but null-terminate to avoid spurious warnings. */
@@ -230,11 +235,7 @@ cleanup(void)
   strncat(buf, " down", TMPBUFSIZE - strlen(buf) - 1);
   system(buf);
 
-#ifndef __APPLE__
-#ifndef linux
-  system("sysctl -w net.ipv6.conf.all.forwarding=1");
-#endif
-
+#if !defined(__APPLE__) && !defined(__FreeBSD__)
   strcpy(buf, "netstat -nr"
          " | awk '{ if ($2 == \"");
   buf[TMPBUFSIZE - 1] = '\0';
@@ -242,7 +243,7 @@ cleanup(void)
   strncat(buf, "\") print \"route delete -net \"$1; }'"
           " | sh", TMPBUFSIZE - strlen(buf) - 1);
   system(buf);
-#endif /* !__APPLE__ */
+#endif /* !__APPLE__ && !__FreeBSD__ */
 }
 /*---------------------------------------------------------------------------*/
 static void CC_NORETURN
@@ -266,6 +267,16 @@ ifconf_setup(void)
 #elif defined(__APPLE__)
   ssystem("ifconfig %s inet6 mtu %d up", config_tundev, config_mtu);
   ssystem("ifconfig %s inet6 %s add", config_tundev, config_ipaddr );
+  ssystem("sysctl -w net.inet6.ip6.forwarding=1");
+#elif defined(__FreeBSD__)
+  /*
+   * IPv6 starts out disabled on a new interface. Duplicate address
+   * detection is pointless on a link to a single node, and would leave
+   * the address unusable for a moment after setup.
+   */
+  ssystem("ifconfig %s inet6 -ifdisabled no_dad", config_tundev);
+  ssystem("ifconfig %s inet6 %s mtu %d up", config_tundev, config_ipaddr,
+          config_mtu);
   ssystem("sysctl -w net.inet6.ip6.forwarding=1");
 #else
   ssystem("ifconfig %s inet `hostname` %s mtu %d up", config_tundev, config_ipaddr, config_mtu);
@@ -377,6 +388,12 @@ tun_alloc(void)
   return fd;
 }
 #else
+#ifdef __FreeBSD__
+#include <arpa/inet.h>
+#include <net/if_tun.h>
+#include <sys/uio.h>
+#endif /* __FreeBSD__ */
+
 static int
 tun_alloc(void)
 {
@@ -384,7 +401,16 @@ tun_alloc(void)
   strncat(t, config_tundev, sizeof(t) - 6);
   t[sizeof(t) - 1] = '\0';
   LOG_INFO("Opening tun interface %s\n", t);
-  return open(t, O_RDWR);
+  int fd = open(t, O_RDWR);
+#ifdef __FreeBSD__
+  /* Without the address family header, FreeBSD's tun only carries IPv4. */
+  int on = 1;
+  if(fd != -1 && ioctl(fd, TUNSIFHEAD, &on) == -1) {
+    close(fd);
+    return -1;
+  }
+#endif /* __FreeBSD__ */
+  return fd;
 }
 #endif
 /*---------------------------------------------------------------------------*/
@@ -425,8 +451,8 @@ tun6_net_output(uint8_t *data, int len)
     return 0;
   }
 
-#ifdef __APPLE__
-  /* Fake IFF_NO_PI on macOS by sending a 4 byte header containing AF_INET6 */
+#ifdef TUN_AF_HEADER_LEN
+  /* Prepend the address family header, as IFF_NO_PI does not exist. */
   u_int32_t type = htonl(AF_INET6);
   struct iovec iv[2];
 
@@ -461,17 +487,15 @@ tun6_net_input(uint8_t *data, int maxlen)
     err(EXIT_FAILURE, "tun6_net_input: read");
   }
 
-#ifdef __APPLE__
-#define UTUN_HEADER_LEN 4
-  /* Fake IFF_NO_PI on macOS by ignoring the first 4 bytes containing AF_INET6 */
-  if(size <= UTUN_HEADER_LEN) {
+#ifdef TUN_AF_HEADER_LEN
+  /* Strip the address family header, as IFF_NO_PI does not exist. */
+  if(size <= TUN_AF_HEADER_LEN) {
     err(EXIT_FAILURE, "tun6_net_input: read too small");
   }
 
-  size -= UTUN_HEADER_LEN;
-  memmove(data, data + UTUN_HEADER_LEN, size);
-#undef UTUN_HEADER_LEN
-#endif /* __APPLE__ */
+  size -= TUN_AF_HEADER_LEN;
+  memmove(data, data + TUN_AF_HEADER_LEN, size);
+#endif /* TUN_AF_HEADER_LEN */
 
   return size;
 }
