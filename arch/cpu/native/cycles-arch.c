@@ -47,9 +47,10 @@
 #include <stdlib.h>
 
 /* The same guard as clock_time() in arch/platform/native/clock.c. */
-#if defined(__linux__) || (defined(__MACH__) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200)
-#define CYCLES_ARCH_HAVE_CPUTIME_CLOCK 1
 #include <time.h>
+
+#ifdef CLOCK_PROCESS_CPUTIME_ID
+#define CYCLES_ARCH_HAVE_CPUTIME_CLOCK 1
 #else /* CYCLES_ARCH_HAVE_CPUTIME_CLOCK */
 #define CYCLES_ARCH_HAVE_CPUTIME_CLOCK 0
 #include <sys/resource.h>

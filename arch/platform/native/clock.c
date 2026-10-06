@@ -52,7 +52,7 @@ typedef struct clock_timespec_s {
 static void
 get_time(clock_timespec_t *spec)
 {
-#if defined(__linux__) || (defined(__MACH__) && __MAC_OS_X_VERSION_MIN_REQUIRED >= 101200)
+#ifdef CLOCK_MONOTONIC
   struct timespec ts;
 
   if(clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
