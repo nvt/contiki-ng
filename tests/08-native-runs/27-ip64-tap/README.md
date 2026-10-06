@@ -1,10 +1,10 @@
 # ip64 TAP test
 
 Runs the `os/services/ip64` NAT64 service on the native target with its IPv4
-side on a Linux TAP device, so that ordinary host software exchanges IPv4
-traffic with the node. Where `../26-ip64` asserts on the frames ip64 produces,
-this test asserts that a program that knows nothing about NAT64 can talk to
-the node.
+side on a TAP device, on Linux or FreeBSD, so that ordinary host software
+exchanges IPv4 traffic with the node. Where `../26-ip64` asserts on the frames
+ip64 produces, this test asserts that a program that knows nothing about NAT64
+can talk to the node.
 
 ## What the test checks
 
@@ -54,8 +54,9 @@ explanation, or skips if `IP64_TAP_ALLOW_SKIP=1` is set.
 Running a native node as root has a side effect that predates this test: the
 native platform opens its own tun device for IPv6, configures it, and sets
 `net.ipv6.conf.all.forwarding=1`. Every native IPv6 node run as root does
-this, `tests/17-tun-rpl-br` included. The TAP device itself is not
-persistent and disappears when the node exits.
+this, `tests/17-tun-rpl-br` included. On Linux the TAP device is not
+persistent and disappears when the node exits. On FreeBSD it outlives the
+node, so the script destroys it before and after the run.
 
 ## Running it
 

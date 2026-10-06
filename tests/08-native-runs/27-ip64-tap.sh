@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # End-to-end test of the ip64 NAT64 service against real host software, over a
-# Linux TAP device. The node runs ip64 with its IPv4 side on a TAP device that
-# it creates itself, gives the host end 192.0.2.1, and answers to 192.0.2.50,
-# so that programs on the host reach it over UDP, ICMP and DNS without knowing
-# anything about NAT64.
+# TAP device on Linux or FreeBSD. The node runs ip64 with its IPv4 side on a
+# TAP device that it creates itself, gives the host end 192.0.2.1, and answers
+# to 192.0.2.50, so that programs on the host reach it over UDP, ICMP and DNS
+# without knowing anything about NAT64.
 #
 # The suite Makefile builds the node twice: with the address compiled in, and
 # with IP64_CONF_DHCP=1, which takes it from a DHCP server on the host as the
@@ -34,7 +34,7 @@ fi
 
 # With the capability in hand, the device node still has to be there. In a
 # container that means the host's /dev, which is what --privileged gives.
-if [ ! -c /dev/net/tun ]; then
+if [ "$(uname)" = Linux ] && [ ! -c /dev/net/tun ]; then
   echo "TEST FAIL: /dev/net/tun is missing, so no TAP device can be created."
   echo "           A container needs --privileged, or at least this device."
   exit 1
@@ -67,6 +67,17 @@ ECHO_LOG=$BASENAME.echo.log
 DNS_LOG=$BASENAME.dns.log
 DHCP_LOG=$BASENAME.dhcp.log
 PING_LOG=$BASENAME.ping.log
+
+if [ "$(uname)" = FreeBSD ]; then
+  # A FreeBSD TAP device outlives the node that opened it, address and all,
+  # so remove one left by an earlier run and the one this run creates.
+  ifconfig $TAP_DEV destroy 2>/dev/null
+  trap "ifconfig $TAP_DEV destroy 2>/dev/null" EXIT
+  # FreeBSD's ping takes its reply timeout in milliseconds.
+  PING_WAIT=2000
+else
+  PING_WAIT=2
+fi
 
 test_init
 
@@ -143,6 +154,6 @@ wait_log_assert "node resolves $LOOKUP_NAME" \
 # Inbound ICMP translation, and ip64 answering the host's ARP request.
 register_logfile $PING_LOG
 assert "host pings the node at $NODE_IPV4" \
-       "ping -c 3 -W 2 $NODE_IPV4 > $PING_LOG 2>&1"
+       "ping -c 3 -W $PING_WAIT $NODE_IPV4 > $PING_LOG 2>&1"
 
 do_wrap_up

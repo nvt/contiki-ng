@@ -8,6 +8,7 @@ needed before the lease exists.
 """
 
 import argparse
+import ipaddress
 import os
 import signal
 import socket
@@ -31,8 +32,10 @@ OPT_END = 255
 MAGIC_COOKIE = bytes([99, 130, 83, 99])
 BOOTP_FIXED_LEN = 236
 
-# SO_BINDTODEVICE is not exposed by the socket module on every Python build.
+# Neither option is exposed by the socket module on every Python build. The
+# values are those of Linux and FreeBSD, the only systems that use them here.
 SO_BINDTODEVICE = getattr(socket, "SO_BINDTODEVICE", 25)
+IP_ONESBCAST = getattr(socket, "IP_ONESBCAST", 23)
 
 
 def log(fp, msg):
@@ -113,10 +116,22 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    # Bound to the TAP device, so that serving 0.0.0.0:67, which is what it
-    # takes to receive a broadcast, cannot disturb the rest of the machine.
-    sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE,
-                    args.device.encode() + b"\0")
+    if sys.platform.startswith("linux"):
+        # Bound to the TAP device, so that serving 0.0.0.0:67, which is what
+        # it takes to receive a broadcast, cannot disturb the rest of the
+        # machine.
+        sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE,
+                        args.device.encode() + b"\0")
+        reply_dest = "255.255.255.255"
+    else:
+        # FreeBSD cannot bind a socket to a device, and would send to
+        # 255.255.255.255 over the default route. Sent to the broadcast
+        # address of the TAP subnet with IP_ONESBCAST, a reply leaves through
+        # the TAP device with 255.255.255.255 as its destination.
+        sock.setsockopt(socket.IPPROTO_IP, IP_ONESBCAST, 1)
+        subnet = ipaddress.IPv4Network(
+            "{}/{}".format(args.server, args.netmask), strict=False)
+        reply_dest = str(subnet.broadcast_address)
     sock.bind(("", 67))
     log(logfp, "DHCP_LISTEN device={} offer={}".format(args.device,
                                                        args.offer))
@@ -145,14 +160,14 @@ def main():
             log(logfp, "DHCP_DISCOVER chaddr={}".format(chaddr))
             reply = build_reply(data, DHCPOFFER, args.offer, args.server,
                                 args.netmask, args.router)
-            sock.sendto(reply, ("255.255.255.255", 68))
+            sock.sendto(reply, (reply_dest, 68))
             log(logfp, "DHCP_OFFER ip={} chaddr={}".format(args.offer,
                                                            chaddr))
         elif msg_type == DHCPREQUEST:
             log(logfp, "DHCP_REQUEST chaddr={}".format(chaddr))
             reply = build_reply(data, DHCPACK, args.offer, args.server,
                                 args.netmask, args.router)
-            sock.sendto(reply, ("255.255.255.255", 68))
+            sock.sendto(reply, (reply_dest, 68))
             log(logfp, "DHCP_ACK ip={} chaddr={}".format(args.offer, chaddr))
         else:
             log(logfp, "DHCP_OTHER type={} chaddr={}".format(msg_type,

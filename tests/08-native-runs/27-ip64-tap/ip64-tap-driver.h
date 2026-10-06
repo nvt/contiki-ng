@@ -30,7 +30,7 @@
 
 /**
  * \file
- *   ip64 driver that puts the IPv4 side of the node on a Linux TAP device,
+ *   ip64 driver that puts the IPv4 side of the node on a TAP device,
  *   so that software running on the host can exchange IPv4 traffic with it.
  */
 

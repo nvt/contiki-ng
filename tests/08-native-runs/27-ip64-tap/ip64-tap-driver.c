@@ -30,14 +30,14 @@
 
 /**
  * \file
- *   ip64 driver backed by a Linux TAP device. A TAP device carries Ethernet
+ *   ip64 driver backed by a TAP device. A TAP device carries Ethernet
  *   frames, which is exactly what ip64 emits and expects, so frames pass in
  *   both directions untouched. The host end of the device is given an IPv4
  *   address, which makes the node reachable from ordinary host software.
  *
  *   Creating the device and configuring the interface both need
  *   CAP_NET_ADMIN, as they do for the tun device that the native platform
- *   opens for IPv6. Linux only.
+ *   opens for IPv6. Linux and FreeBSD.
  */
 
 #include "contiki.h"
@@ -47,8 +47,12 @@
 
 #include <ctype.h>
 #include <fcntl.h>
+#ifdef __linux__
 #include <linux/if.h>
 #include <linux/if_tun.h>
+#else /* __linux__ */
+#include <net/if.h>
+#endif /* __linux__ */
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -141,17 +145,11 @@ static const struct select_callback tap_select_callback = {
   set_fd, handle_fd
 };
 /*---------------------------------------------------------------------------*/
-static void
-init(void)
+#ifdef __linux__
+static const char *
+open_tap(const char *dev)
 {
-  struct ifreq ifr;
-  const char *dev = env_or("IP64_TAP_DEV", TAP_DEV_DEFAULT);
-  char cmd[128];
-
-  if(!dev_name_is_usable(dev)) {
-    LOG_ERR("IP64_TAP_DEV is not a usable device name\n");
-    exit(EXIT_FAILURE);
-  }
+  static struct ifreq ifr;
 
   tapfd = open("/dev/net/tun", O_RDWR);
   if(tapfd < 0) {
@@ -167,24 +165,59 @@ init(void)
     exit(EXIT_FAILURE);
   }
 
+  return ifr.ifr_name;
+}
+#else /* __linux__ */
+static const char *
+open_tap(const char *dev)
+{
+  char path[sizeof("/dev/") + IFNAMSIZ];
+
+  /*
+   * Opening the device node creates the interface, which carries bare
+   * Ethernet frames as it does on Linux with IFF_NO_PI.
+   */
+  snprintf(path, sizeof(path), "/dev/%s", dev);
+  tapfd = open(path, O_RDWR);
+  if(tapfd < 0) {
+    LOG_ERR("Cannot open %s; root is required\n", path);
+    exit(EXIT_FAILURE);
+  }
+
+  return dev;
+}
+#endif /* __linux__ */
+/*---------------------------------------------------------------------------*/
+static void
+init(void)
+{
+  const char *dev = env_or("IP64_TAP_DEV", TAP_DEV_DEFAULT);
+  const char *name;
+  char cmd[128];
+
+  if(!dev_name_is_usable(dev)) {
+    LOG_ERR("IP64_TAP_DEV is not a usable device name\n");
+    exit(EXIT_FAILURE);
+  }
+
+  name = open_tap(dev);
+
   /* ifconfig rather than ip(8), as the native tun driver does, because the
      test image is not guaranteed to carry iproute2. The name comes back from
      the kernel, which is the one the device really has. */
   if(snprintf(cmd, sizeof(cmd), "ifconfig %s %s netmask %s up",
-              ifr.ifr_name, TAP_HOST_ADDR, TAP_NETMASK) >= (int)sizeof(cmd)) {
-    LOG_ERR("The command to configure %s does not fit\n", ifr.ifr_name);
+              name, TAP_HOST_ADDR, TAP_NETMASK) >= (int)sizeof(cmd)) {
+    LOG_ERR("The command to configure %s does not fit\n", name);
     exit(EXIT_FAILURE);
   }
   if(system(cmd) != 0) {
-    LOG_ERR("Cannot configure %s with address %s\n", ifr.ifr_name,
-            TAP_HOST_ADDR);
+    LOG_ERR("Cannot configure %s with address %s\n", name, TAP_HOST_ADDR);
     exit(EXIT_FAILURE);
   }
 
   select_set_callback(tapfd, &tap_select_callback);
 
-  LOG_INFO("TAP device %s is up, host address %s\n", ifr.ifr_name,
-           TAP_HOST_ADDR);
+  LOG_INFO("TAP device %s is up, host address %s\n", name, TAP_HOST_ADDR);
 }
 /*---------------------------------------------------------------------------*/
 static int
