@@ -35,8 +35,9 @@
 #include <stdio.h>
 #include <string.h>
 /*---------------------------------------------------------------------------*/
+/* The parentheses keep a libc putchar() macro from expanding here. */
 int
-putchar(int c)
+(putchar)(int c)
 {
   return dbg_putchar(c);
 }

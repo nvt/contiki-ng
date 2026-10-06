@@ -751,7 +751,8 @@ UNIT_TEST(test_putchar_via_dbg)
   dbg_capture_reset();
   dbg_capture_enabled = 1;
 
-  ret = putchar('A');
+  /* Bypass a libc putchar() macro, which would not reach dbg-io. */
+  ret = (putchar)('A');
 
   dbg_capture_enabled = 0;
 
@@ -763,7 +764,7 @@ UNIT_TEST(test_putchar_via_dbg)
   dbg_capture_reset();
   dbg_capture_enabled = 1;
 
-  ret = putchar('\n');
+  ret = (putchar)('\n');
 
   dbg_capture_enabled = 0;
 
