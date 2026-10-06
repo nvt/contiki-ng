@@ -94,6 +94,16 @@ typedef uint64_t clock_time_t;
 
 #include "contiki.h"
 
+#ifdef __FreeBSD__
+/*
+ * FreeBSD's <time.h> defines CLOCK_SECOND as a clock ID. Include it here
+ * and drop that definition, so that the one below is the only one in every
+ * file regardless of the order of includes.
+ */
+#include <time.h>
+#undef CLOCK_SECOND
+#endif /* __FreeBSD__ */
+
 /**
  * A second, measured in system clock time.
  *
