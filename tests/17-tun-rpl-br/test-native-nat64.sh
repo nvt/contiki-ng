@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # End-to-end test for the NAT64 gateway over a multi-hop RPL network.
 #
@@ -23,6 +23,8 @@
 set -u
 
 CONTIKI=$1
+# GNU make, which the BSDs install as gmake.
+MAKE=$(command -v gmake || echo make)
 BASENAME=$2
 WAIT_TIME=${3:-180}
 shift 3 || true
@@ -81,7 +83,7 @@ echo "Starting native border-router with NAT64"
 # --no-tun lets the BR run without CAP_NET_ADMIN/sudo: NAT64 traffic is
 # served entirely from the BR's own AF_INET sockets, and any non-NAT64
 # IPv6 traffic from the motes is dropped at the fallback interface.
-make -C "$CONTIKI/examples/rpl-border-router" -B \
+$MAKE -C "$CONTIKI/examples/rpl-border-router" -B \
      border-router.native TARGET=native NAT64_ALLOW_LOOPBACK=1 \
      >"$BR_LOG" 2>&1
 "$CONTIKI/examples/rpl-border-router/build/native/border-router.native" \

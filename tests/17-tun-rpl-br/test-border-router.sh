@@ -1,7 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Contiki directory
 CONTIKI=$1
+# GNU make, which the BSDs install as gmake.
+MAKE=$(command -v gmake || echo make)
 
 # Simulation file
 BASENAME=$2
@@ -23,13 +25,13 @@ COUNT=5
 
 # Connect to the simulation
 echo "Starting tunslip6"
-make -C $CONTIKI/examples/rpl-border-router connect-router-cooja TARGET=cooja &
+$MAKE -C $CONTIKI/examples/rpl-border-router connect-router-cooja TARGET=cooja &
 MPID=$!
 printf "Waiting for network formation (%d seconds)\n" "$WAIT_TIME"
 sleep $WAIT_TIME
 
 # Do ping
-ping6 $IPADDR -c $COUNT -s $PING_SIZE -i $PING_DELAY
+ping6 -c $COUNT -s $PING_SIZE -i $PING_DELAY $IPADDR
 STATUS=$?
 
 echo "Closing tunslip6"

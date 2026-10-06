@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 FAILS=`grep -c  'TEST FAIL' $1/summary`
 echo "======== Test outcome ======="
 if [ -f "$1/summary" ] && [ $FAILS == 0 ]; then

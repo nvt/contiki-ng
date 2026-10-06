@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Round-trip test for the standalone native NAT64 translator
 # (os/services/nat64/native/standalone). Needs no Cooja, border router, tun,

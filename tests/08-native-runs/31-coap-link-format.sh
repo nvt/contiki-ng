@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source ../utils.sh
 
 # Contiki directory. The test harness runs this script without arguments.

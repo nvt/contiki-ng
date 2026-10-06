@@ -1,15 +1,9 @@
-#!/bin/bash
-# Note: 'brew install coreutils' under OSX to install gtimeout
+#!/usr/bin/env bash
 
 function ctrc_c( ) {
   kill_all_bg
   exit 1
 }
-
-CMD_TIMEOUT=timeout
-case "$OSTYPE" in
-    darwin*)    CMD_TIMEOUT=gtimeout;;
-esac
 
 function echo_run( )
 {
@@ -65,11 +59,12 @@ function register_last_bg_cmd( )
 
 # Every process below the given one, deepest first. sudo places more than one
 # process between itself and the command on some systems, so the command is
-# not always the direct child.
+# not always the direct child. $SUDO is set when the tree belongs to root,
+# whose processes an ordinary user may not be allowed to see.
 function descendants( )
 {
     local CHILD
-    for CHILD in $(pgrep -P $1); do
+    for CHILD in $(${SUDO}pgrep -P $1); do
         descendants $CHILD
         echo $CHILD
     done
@@ -147,9 +142,12 @@ function wait_log_assert( )
     report_skip "$NAME"
     return
   fi
-  # Wait until log file contains string
+  # Wait until log file contains string. Polled, because a tail that follows
+  # the file outlives the grep on systems other than Linux.
   report_start "$NAME"
-  $CMD_TIMEOUT $TIMEOUT grep -q "$STR" <(tail -n +1 -f --retry $FILE 2>/dev/null)
+  until grep -q "$STR" $FILE 2>/dev/null || [ $SECONDS -ge $TIMEOUT ]; do
+    sleep 0.2
+  done
   if grep -q "$STR" $FILE; then
     report_end_success $TIMEOUT
   else

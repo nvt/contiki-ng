@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # End-to-end test of the ip64 NAT64 service against real host software, over a
 # Linux TAP device. The node runs ip64 with its IPv4 side on a TAP device that

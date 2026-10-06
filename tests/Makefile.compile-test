@@ -81,7 +81,7 @@ endif
 	$(eval _defines := $(wordlist $(DEFINE_START),16,$(_exlist)))
 	@echo Building: $(_example) $(_defines) for target $(_target)
 	$(Q)($(MAKE) -C $(EXAMPLESDIR)/$(_example) $(_defines) TARGET=$(_target) $(MAKEOPTIONS) clean && \
-          make -C $(EXAMPLESDIR)/$(_example) -j$(CPUS) $(_defines) TARGET=$(_target) $(MAKEOPTIONS) && \
+          $(MAKE) -C $(EXAMPLESDIR)/$(_example) -j$(CPUS) $(_defines) TARGET=$(_target) $(MAKEOPTIONS) && \
           $(_runfile)) || \
          printf "%-75s %-40s %-20s TEST FAIL\n" "$(_example)" "$(_defines)" "$(_target)" >> summary
 

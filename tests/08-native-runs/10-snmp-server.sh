@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source ../utils.sh
 
 # Contiki directory
@@ -7,6 +7,10 @@ CONTIKI=../..
 BASENAME=$(basename $0 .sh)
 
 IPADDR=fd00::302:304:506:708
+
+# The patterns below expect numeric OIDs, which the Net-SNMP tools only
+# print when they load no MIBs.
+export MIBS=
 
 # Starting Contiki-NG native node
 sudo $CONTIKI/examples/snmp-server/build/native/snmp-server.native &

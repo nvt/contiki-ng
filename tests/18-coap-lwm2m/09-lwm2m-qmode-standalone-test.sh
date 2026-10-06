@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Test basename
 BASENAME=09-lwm2m-qmode-standalone-test

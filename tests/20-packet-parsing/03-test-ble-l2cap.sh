@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 export TEST_PROTOCOL=ble-l2cap
 

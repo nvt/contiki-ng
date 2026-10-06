@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Allow connections from outside and forward to native server
 # Needs Docker to have port 5683 published when launched

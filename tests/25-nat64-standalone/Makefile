@@ -9,7 +9,7 @@
 #
 # Author: Nicolas Tsiftes <nicolas.tsiftes@ri.se>
 
-SHELL := /bin/bash
+SHELL := /usr/bin/env bash
 
 CONTIKI ?= ../..
 

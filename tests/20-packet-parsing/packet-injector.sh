@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source ../utils.sh
 
 # Basic statistics for packet parsing results.

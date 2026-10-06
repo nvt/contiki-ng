@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 source ../utils.sh
 
 # Contiki directory
@@ -16,7 +16,7 @@ sleep 2
 
 # Do ping
 echo "Pinging"
-ping6 $IPADDR -c 5 | tee $BASENAME.log
+ping6 -c 5 $IPADDR | tee $BASENAME.log
 # Fetch ping6 status code (not $? because this is piped)
 STATUS=${PIPESTATUS[0]}
 
