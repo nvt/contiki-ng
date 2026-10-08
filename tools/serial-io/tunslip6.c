@@ -72,6 +72,10 @@ int slipfd = 0;
 uint16_t basedelay=0,delaymsec=0;
 uint32_t startsec,startmsec,delaystartsec,delaystartmsec;
 int timestamp = 0, flowcontrol=0, showprogress=0, flowcontrol_xonxoff=0;
+#if defined(__APPLE__) || defined(__FreeBSD__)
+/* Set when every packet on the device starts with its address family. */
+int tun_af_header = 0;
+#endif
 
 int ssystem(const char *fmt, ...)
      __attribute__((__format__ (__printf__, 1, 2)));
@@ -289,24 +293,25 @@ serial_to_tun(FILE *inslip, int outfd)
           }
         }
 
-#ifdef __APPLE__
-        /* Fake IFF_NO_PI on macOS by sending a 4 byte header containing AF_INET6 */
-        u_int32_t type = htonl(AF_INET6);
-        struct iovec iv[2];
+#if defined(__APPLE__) || defined(__FreeBSD__)
+        if(tun_af_header) {
+          /* Fake IFF_NO_PI by sending a 4 byte header containing AF_INET6 */
+          u_int32_t type = htonl(AF_INET6);
+          struct iovec iv[2];
 
-        iv[0].iov_base = &type;
-        iv[0].iov_len = sizeof(type);
-        iv[1].iov_base = uip.inbuf;
-        iv[1].iov_len = inbufptr;
+          iv[0].iov_base = &type;
+          iv[0].iov_len = sizeof(type);
+          iv[1].iov_base = uip.inbuf;
+          iv[1].iov_len = inbufptr;
 
-        if(writev(outfd, iv, 2) != (sizeof(type) + inbufptr)) {
-          err(1, "serial_to_tun: writev");
-        }
-#else
+          if(writev(outfd, iv, 2) != (sizeof(type) + inbufptr)) {
+            err(1, "serial_to_tun: writev");
+          }
+        } else
+#endif
         if(write(outfd, uip.inbuf, inbufptr) != inbufptr) {
           err(1, "serial_to_tun: write");
         }
-#endif
 
       }
       inbufptr = 0;
@@ -517,17 +522,19 @@ tun_to_serial(int infd)
 
   if((size = read(infd, uip.inbuf, 2000)) == -1) err(1, "tun_to_serial: read");
   
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(__FreeBSD__)
 #define UTUN_HEADER_LEN 4
-  /* Fake IFF_NO_PI on macOS by ignoring the first 4 bytes containing AF_INET6 */
-  if(size <= UTUN_HEADER_LEN) err(1, "tun_to_serial: read too small");
+  if(tun_af_header) {
+    /* Fake IFF_NO_PI by ignoring the first 4 bytes containing AF_INET6 */
+    if(size <= UTUN_HEADER_LEN) err(1, "tun_to_serial: read too small");
 
-  size -= UTUN_HEADER_LEN;
-  write_to_serial(uip.inbuf + UTUN_HEADER_LEN, size);
+    size -= UTUN_HEADER_LEN;
+    write_to_serial(uip.inbuf + UTUN_HEADER_LEN, size);
+    return size;
+  }
 #undef UTUN_HEADER_LEN
-#else
-  write_to_serial(uip.inbuf, size);
 #endif
+  write_to_serial(uip.inbuf, size);
   return size;
 }
 
@@ -695,6 +702,33 @@ tun_alloc(char *dev, int tap)
     return -1;
   }
 
+  tun_af_header = 1;
+  return fd;
+}
+#elif defined(__FreeBSD__)
+#include <net/if_tun.h>
+
+int
+tun_alloc(char *dev, int tap)
+{
+  int fd;
+  int on = 1;
+
+  /* Unlike Linux, FreeBSD does not pick a name when given none. */
+  if(*dev == '\0') {
+    strcpy(dev, tap ? "tap0" : "tun0");
+  }
+
+  fd = devopen(dev, O_RDWR);
+
+  /* Without the address family header, FreeBSD's tun only carries IPv4. */
+  if(fd != -1 && !tap) {
+    if(ioctl(fd, TUNSIFHEAD, &on) == -1) {
+      close(fd);
+      return -1;
+    }
+    tun_af_header = 1;
+  }
   return fd;
 }
 #else
@@ -708,7 +742,7 @@ tun_alloc(char *dev, int tap)
 void
 cleanup(void)
 {
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(__FreeBSD__)
   if (timestamp) stamptime();
   ssystem("ifconfig %s down", tundev);
 #ifndef linux
@@ -831,6 +865,18 @@ ifconf(const char *tundev, const char *ipaddr)
     ssystem("sysctl -w net.inet6.ip6.forwarding=1");
     free(itfaddr);
   }
+#elif defined(__FreeBSD__)
+  /*
+   * IPv6 starts out disabled on a new interface. Duplicate address
+   * detection is pointless on a link to a single node, and would leave
+   * the address unusable for a moment after setup.
+   */
+  if (timestamp) stamptime();
+  ssystem("ifconfig %s inet6 -ifdisabled no_dad", tundev);
+  if (timestamp) stamptime();
+  ssystem("ifconfig %s inet6 %s mtu %d up", tundev, ipaddr, devmtu);
+  if (timestamp) stamptime();
+  ssystem("sysctl -w net.inet6.ip6.forwarding=1");
 #else
   if (timestamp) stamptime();
   ssystem("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu);
