@@ -42,6 +42,9 @@
 #define _GNU_SOURCE /* For pthread_getattr_np(). */
 #endif
 #include <pthread.h>
+#ifdef __FreeBSD__
+#include <pthread_np.h> /* For pthread_attr_get_np(). */
+#endif
 
 #include "sys/cooja_mt.h"
 
@@ -79,9 +82,16 @@ cooja_mt_init(struct cooja_mt_thread *t)
   stack_size = pthread_get_stacksize_np(self);
 #else
   pthread_attr_t attrs;
+#ifdef __FreeBSD__
+  if(pthread_attr_init(&attrs) != 0 ||
+     pthread_attr_get_np(self, &attrs) != 0) {
+    return -2;
+  }
+#else
   if(pthread_getattr_np(self, &attrs) != 0) {
     return -2;
   }
+#endif
   if(pthread_attr_getstack(&attrs, &stack_addr, &stack_size) != 0) {
     return -3;
   }

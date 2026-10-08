@@ -5,5 +5,8 @@ SECTIONS{
     cooja_dataSize = SIZEOF(.data);
     cooja_bssStart = ADDR(.bss);
     cooja_dataStart = ADDR(.data);
+    /* Relocated like the start addresses, unlike the absolute sizes. */
+    cooja_bssEnd = ADDR(.bss) + SIZEOF(.bss);
+    cooja_dataEnd = ADDR(.data) + SIZEOF(.data);
 }
 INSERT AFTER .bss;

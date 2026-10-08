@@ -118,8 +118,9 @@ extern int __wrap_puts(const char *str) __attribute__((nonnull, alias("puts")));
 extern int __wrap_printf(const char *fmt, ...) __attribute__((nonnull, alias("printf")));
 #endif
 /*---------------------------------------------------------------------------*/
+/* The parentheses keep a libc putchar() macro from expanding here. */
 int
-putchar(int c)
+(putchar)(int c)
 {
   return simlog_char(c);
 }

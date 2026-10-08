@@ -100,6 +100,15 @@
 
 #include <inttypes.h>
 
+#ifdef __FreeBSD__
+/*
+ * FreeBSD's <stdio.h> makes putchar() a macro for putc(), which would send
+ * output past the simulator's putchar() to the standard output of Cooja.
+ */
+#include <stdio.h>
+#undef putchar
+#endif /* __FreeBSD__ */
+
 typedef unsigned short uip_stats_t;
 
 #define CLOCK_CONF_SECOND 1000L
