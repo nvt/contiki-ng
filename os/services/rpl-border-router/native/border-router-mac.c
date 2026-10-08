@@ -202,7 +202,8 @@ static int
 max_payload()
 {
   init_sec();
-  return 127 - NETSTACK_FRAMER.length();
+  /* A 127-byte 802.15.4 frame, less the 2-byte FCS that the radio adds. */
+  return 127 - 2 - NETSTACK_FRAMER.length();
 }
 /*---------------------------------------------------------------------------*/
 static void
