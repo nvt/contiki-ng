@@ -97,6 +97,17 @@ coap_parse_int_option(const uint8_t *bytes, size_t length)
   return var;
 }
 /*---------------------------------------------------------------------------*/
+/*
+ * Checks a Block1 or Block2 option value against RFC 7959, Section 2.2.
+ * The value is at most three bytes long, and the block size exponent 7
+ * is reserved.
+ */
+static bool
+block_option_is_valid(const uint8_t *value, size_t length)
+{
+  return length <= 3 && (length == 0 || (value[length - 1] & 0x07) != 7);
+}
+/*---------------------------------------------------------------------------*/
 static uint8_t
 coap_option_nibble(unsigned int value)
 {
@@ -695,6 +706,10 @@ coap_parse_message(coap_message_t *coap_pkt, uint8_t *data, uint16_t data_len)
       LOG_DBG_("Observe [%"PRId32"]\n", coap_pkt->observe);
       break;
     case COAP_OPTION_BLOCK2:
+      if(!block_option_is_valid(current_option, option_length)) {
+        LOG_WARN("BAD REQUEST: malformed Block2 option\n");
+        return BAD_REQUEST_4_00;
+      }
       coap_pkt->block2_num = coap_parse_int_option(current_option,
                                                    option_length);
       coap_pkt->block2_more = (coap_pkt->block2_num & 0x08) >> 3;
@@ -707,6 +722,10 @@ coap_parse_message(coap_message_t *coap_pkt, uint8_t *data, uint16_t data_len)
                coap_pkt->block2_more ? "+" : "", coap_pkt->block2_size);
       break;
     case COAP_OPTION_BLOCK1:
+      if(!block_option_is_valid(current_option, option_length)) {
+        LOG_WARN("BAD REQUEST: malformed Block1 option\n");
+        return BAD_REQUEST_4_00;
+      }
       coap_pkt->block1_num = coap_parse_int_option(current_option,
                                                    option_length);
       coap_pkt->block1_more = (coap_pkt->block1_num & 0x08) >> 3;
@@ -1081,7 +1100,8 @@ coap_set_header_block2(coap_message_t *coap_pkt, uint32_t num, uint8_t more,
   if(size < 16) {
     return 0;
   }
-  if(size > 2048) {
+  if(size > 1024) {
+    /* RFC 7959 reserves the block size exponent for 2048. */
     return 0;
   }
   if(num > 0x0FFFFF) {
@@ -1124,7 +1144,8 @@ coap_set_header_block1(coap_message_t *coap_pkt, uint32_t num, uint8_t more,
   if(size < 16) {
     return 0;
   }
-  if(size > 2048) {
+  if(size > 1024) {
+    /* RFC 7959 reserves the block size exponent for 2048. */
     return 0;
   }
   if(num > 0x0FFFFF) {
