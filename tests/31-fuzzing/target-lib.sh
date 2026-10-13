@@ -76,8 +76,10 @@ build_harness()
     make -C "$HARNESS_DIR" distclean > /dev/null 2>&1 || true
   fi
 
+  # Return the failure rather than relying on set -e, which a caller that
+  # tests the result of this function turns off.
   make -C "$HARNESS_DIR" TARGET=native FUZZ_PROTOCOLS="$FUZZ_PROTOCOLS" \
-       FUZZ_DEFINES="$FUZZ_DEFINES" "$@" > /dev/null
+       FUZZ_DEFINES="$FUZZ_DEFINES" "$@" > /dev/null || return 1
 
   mkdir -p "$(dirname "$stamp")"
   echo "$want" > "$stamp"

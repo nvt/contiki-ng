@@ -4,8 +4,17 @@ This directory fuzzes the input paths of the Contiki-NG network stack with
 [AFL++](https://github.com/AFLplusplus/AFLplusplus), which is actively
 maintained and packaged for Linux, macOS and the BSDs.
 
-Nothing here runs in continuous integration. A fuzzing campaign is not a
-regression test, and is meant to be run deliberately.
+A fuzzing campaign is not a regression test, and is meant to be run
+deliberately. What can run unattended is a check of the harness itself:
+
+    make
+
+builds the harness for every target with the address and undefined behaviour
+sanitizers, and passes every seed through it, through `./check-seeds.sh`. It
+needs neither AFL++ nor a campaign. It fails if the harness no longer builds
+against the rest of the tree, or if a seed fails, including a seed that no
+longer passes the oracle of its target, since a campaign cannot start from
+one. It finds nothing that the seeds do not already reach.
 
 ## Running a campaign
 
