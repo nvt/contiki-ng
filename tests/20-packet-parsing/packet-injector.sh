@@ -1,6 +1,10 @@
 #!/bin/bash
 source ../utils.sh
 
+# The injector is built with AddressSanitizer. It exits without freeing the
+# buffers it sets up, so disable the leak check to avoid false failures.
+export ASAN_OPTIONS=detect_leaks=0
+
 # Basic statistics for packet parsing results.
 SUCCEEDED=0
 FAILED=0

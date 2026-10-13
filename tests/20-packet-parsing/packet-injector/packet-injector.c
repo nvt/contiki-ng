@@ -56,6 +56,7 @@
 #include <net/ipv6/sicslowpan.h>
 #include <net/app-layer/coap/coap.h>
 #include <net/app-layer/coap/coap-engine.h>
+#include <net/routing/routing.h>
 #include "sys/cc.h"
 
 /* Log configuration. */
@@ -150,6 +151,39 @@ inject_uip_packet(char *data, int len)
 }
 /*---------------------------------------------------------------------------*/
 static bool
+inject_rpl_packet(char *data, int len)
+{
+  static bool root_started;
+  static const linkaddr_t sender = {
+    { 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02 }
+  };
+
+  /*
+   * Start a DAG root, so that RPL messages that are only processed by a
+   * node in an instance, such as a unicast DIS, reach the reply code.
+   */
+  if(!root_started) {
+    if(NETSTACK_ROUTING.root_start() != 0) {
+      LOG_ERR("Unable to start a DAG root\n");
+      return false;
+    }
+    root_started = true;
+  }
+
+  /*
+   * RPL adds the sender of some messages to the neighbor cache, which
+   * requires a link-layer address.
+   */
+  packetbuf_clear();
+  packetbuf_set_addr(PACKETBUF_ADDR_SENDER, &sender);
+
+  set_uip_buf(data, len);
+  uip_input();
+
+  return true;
+}
+/*---------------------------------------------------------------------------*/
+static bool
 inject_ble_l2cap_packet(char *data, int len)
 {
   packetbuf_copyfrom(data, len);
@@ -184,6 +218,7 @@ select_protocol(const char *protocol_name)
     {"coap", inject_coap_packet},
     {"ble-l2cap", inject_ble_l2cap_packet},
     {"sicslowpan", inject_sicslowpan_packet},
+    {"rpl", inject_rpl_packet},
     {"tcpip", inject_tcpip_packet},
     {"uip", inject_uip_packet}
   };
